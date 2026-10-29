@@ -54,10 +54,14 @@
     "src/tools/ValidateManifest.cs",
     "src/tools/ValidateXmlSig.cs",
     "src/testharness/RuntimeQualityProbe.cs",
-    "src/tools/source_layout_probe.py"
+    "src/tools/source_layout_probe.py",
+    "src/addin/PdfFileSelection.cs",
+    "src/testharness/PdfSelectionProbe.cs",
+    "src/testharness/PdfAsyncUiProbe.cs",
+    "src/testharness/PdfWorkerHostProbe.cs"
   ],
   "entries": [
-    "AA-Program/\u4e00\u952e\u91cd\u5efa\u5e76\u6253\u5305.bat",
+    "AA-Program/一键重建并打包.bat",
     "build.py",
     "build_installer.py",
     "gen_manifest.py",
@@ -73,7 +77,8 @@
     "src/tools/markdown_gate.py",
     "src/tools/window_thread_probe.py",
     "validate.py",
-    "verify_package.py"
+    "verify_package.py",
+    "src/pdf/verify_workflow.py"
   ],
   "binary_checks": [
     "lib/Interop.Microsoft.Office.Core.dll",

@@ -258,13 +258,25 @@ DialogSizes.xml按程序集隔离，禁止DTD、版本/范围校验、锁内摘�
 
 ### (4). PDF 当前文档与后台进程
 
-PDF 功能共享 Connect.Pdf、PdfToolsForm、PdfCurrentDocument 及 src/pdf 下固定版本引擎，使用 WPS_WORD 条件编译区分宿主。Excel 的“文件操作”分“批量处理”和“文件转换与 PDF 工具”；Word 只增加后者。原批量按钮 ID 保留，新窗口登记 file.pdf.current/convert/watermark/split/merge，按真实菜单进入尺寸及格式预览。
+PDF 功能共享 Connect.Pdf、PdfToolsForm、PdfCurrentDocument 及 src/pdf 下固定版本引擎，使用 WPS_WORD 条件编译区分宿主。Excel 的“文件操作”分“批量处理”和“PDF 工具”；Word 只增加 PDF 工具。菜单仅显示 btnCurrentPdf（转为 PDF）和 btnWatermarkPdf（编辑 PDF），旧五项回调保留并映射到两个窗口的对应页签。file.pdf.current/convert/watermark/split/merge 的旧尺寸与预览键保留：新开窗口使用入口的旧尺寸键，已开窗口只切页签，不重设大小。
 
-当前文档入口在宿主 STA 捕获文档及 Excel 工作表/选区，核对 ActiveWindow 所属进程；保存与导出仍在原线程执行，后台只接收临时 PDF 路径。点击执行时先选择输出目录，再验证原文档身份、路径、只读状态、活动目标及选区有效性，再由宿主 Save。首次保存使用宿主原生保存界面；Saved 为假、路径未落盘、取消或异常均停止。成功后 Excel 按整簿/原工作表/原连续选区导出；选区导出忽略已有打印区域以限定选区，不改原表打印设置。Word 先整篇导出，再按页码范围提取为单个结果；不支持选中文字导出。窗口关闭释放自取 COM 引用，不释放借用 Application。
+当前文档首次进入时在宿主 STA 捕获文档及 Excel 工作表/选区，核对 ActiveWindow 所属进程；保存与导出仍在原线程执行，后台只接收临时 PDF 路径。点击执行时先选择输出目录，再验证原文档身份、路径、只读状态、活动目标及选区有效性，再由宿主 Save。首次保存使用宿主原生保存界面；Saved 为假、路径未落盘、取消或异常均停止。成功后 Excel 按整簿/原工作表/原连续选区导出；选区导出忽略已有打印区域以限定选区，不改原表打印设置。Word 先整篇导出，再按页码范围提取为单个结果；不支持选中文字导出。窗口关闭释放自取 COM 引用，不释放借用 Application。
 
 普通批量只枚举来源对应的 Word 或 Excel 宿主，避免无关宿主阻塞；RPC_E_CALL_REJECTED 或 RPC_E_SERVERCALL_RETRYLATER 转为可读暂停结果，保留失败关闭策略，不自动关闭用户窗口。
 
+批量导出在 COM 创建后核对 HWND 对应 PID，已知为已有进程或已存在文档时停止，不在该宿主打开来源、修改宏设置或导出。WPS 文字可能在首篇文档打开前无法取得 Application.Hwnd，PID 为零不等于已确认复用；只在 Documents 为空时允许打开本批次来源，仅持有该文档、不取得进程退出权。打开后再核对文档窗口 PID，发现已有进程立即停止；无法取 HWND 的异常写入日志。清理只关闭本批次文档，具有退出权时也须再确认无剩余文档才 Quit。PID 新增不单独证明独占归属。PdfWorkerHostProbe 离线覆盖宿主类型、PID、进程归属与文档数的组合，不启动 Office。每次任务在临时目录 ExcelIterate-PDF-* 保留 request.xml、桥接启动日志、worker 逐步日志及结果，记录占用预检、创建宿主、打开、导出与清理阶段；日志可能含本地文件路径。
+
+选目录后整个 WPS 无提示退出：Windows Application 的 .NET Runtime 1026 事件确认 Scan 的 BackgroundWorker 完成回调在线程池中执行，RebuildExtensions 向 UI 容器添加控件触发未处理 ArgumentException。原生 WPS 消息循环可能没有 WindowsFormsSynchronizationContext，不能假设 RunWorkerCompleted 自动回到窗体线程。Scan 和转换启动前在窗体线程建立句柄；两种完成回调均显式 BeginInvoke 回窗体线程，窗体销毁后的回调丢弃。PdfAsyncUiProbe 清空同步上下文，真实扫描自建文件并核对扩展控件与完成回调线程，另测销毁后的迟到回调；不启动 WPS，真实宿主复测仍单列记录。
+
 普通批量在任何输出前预检 Office 来源占用；已打开/被占用时返回暂停并要求保存关闭后重试。混合转换后合并在自建临时目录转换全部输入，全部成功才发布一个 PDF；失败或取消清理中间产物，不输出缺页结果。每次执行都选择输出目录，同名自动编号。文字水印支持 RGB 颜色和居中/平铺。PDF 请求及结果 XML 禁止 DTD，不上传文件。
+
+PdfFileSelection 将完整来源与筛选任务分离；后缀匹配忽略大小写，过滤不删除来源、不改变清单顺序。目录扫描在后台运行，默认第一层，取消不提交半成品；目录联接跳过，无权路径进入日志。重叠输入按完整路径去重，首次发现的来源根归属保持稳定；同名根目录分配不冲突别名。手动移除使用墓碑，重扫不自动恢复，显式重新添加文件可恢复。输出目录子树与本窗口记录的已生成结果不再入队；扫描和处理期间锁定页签及输入。
+
+请求 XML 每个 File 可带 folder 相对目录；后台拒绝绝对目录、点段和越界，逐项创建结果子目录。输出扫描排除仅适用于来源内部的输出子目录；输出在来源上层时，不能排除整个来源树，PdfSelectionProbe 覆盖该边界。合并忽略目录结构，仅原子发布完整结果；集中输出沿用无覆盖编号发布。两个窗口使用独立偏好 XML（宿主命名空间隔离），只保存后缀、递归和保留结构选项，不持久化来源与结果。偏好临时文件原子替换；尺寸预览不保存偏好。
+
+清理临时文件及自建 Office 会话时逐项记录警告，不覆盖原始处理异常或已成功发布结果；失败信息保留操作阶段、来源、输出路径、异常类型与 HResult。仅在逐项处理失败后检测输出目录可写性，不提权、不改权限、不换目录重试。宏设置恢复失败属于清理警告，不能据此声称设置已恢复。桥接器在受限环境无法写入 LocalAppData 缓存时，原样报错；离线工作流可直接运行已编译后台进程，不改变正式缓存位置。
+
+离线入口 `python src/pdf/verify_workflow.py --render` 先构建诊断 DLL，运行 PdfSelectionProbe、生产页签及 800/960 宽预览、真实后台 PDF 请求。它明确跳过桥接器缓存提取；真实桥接器仍由 PdfToolsProbe 默认路径验证。新增选择探针已登记 project.json 和后台验证名单。诊断 DLL 不替代正式 VSTO 产物，后台通过不代表真实 WPS 菜单、焦点、分页、COM 导出或签名验收。
 
 src/pdf/build_trial.py 仅生成独立诊断验证包：使用编译接口夹具、排除 ThisAddIn，启动器附加已打开的对应宿主以验证当前文档功能。它不是 VSTO 安装器，也不能证明真实加载项菜单、安装签名和焦点验收通过。正式 build.py 继续要求真实 Microsoft 引用和原固定证书，不替换发布身份。测试入口为 PdfToolsProbe 与 PdfCurrentDocumentProbe；后者 --live 先核对自取 Application 的 HWND/PID 不属于原有进程，且文档集合为空，才在该独立实例创建测试文档；归属不明则跳过，不操作用户文档。
 

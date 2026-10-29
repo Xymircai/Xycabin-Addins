@@ -82,10 +82,7 @@
     "AC-Original Code/ExcelIterate/Operations/FileOperations/BatchProcessing/FileNames/Connect.FileNames.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/FileOperations/FileConversion/Connect.FileConversion.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/FileOperations/FileConversion/CurrentPdf/Connect.CurrentPdf.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/FileOperations/FileConversion/ConvertPdf/Connect.ConvertPdf.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/FileOperations/FileConversion/WatermarkPdf/Connect.WatermarkPdf.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/FileOperations/FileConversion/SplitPdf/Connect.SplitPdf.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/FileOperations/FileConversion/MergePdf/Connect.MergePdf.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/LinkAssistant/Connect.LinkAssistant.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/GenerateDirectory/Connect.GenerateDirectory.Entry.cs",
     "AC-Original Code/ExcelIterate/Feedback/Feedback/Connect.Feedback.Entry.cs",
@@ -177,7 +174,8 @@
     "AC-Original Code/ExcelIterate/Operations/FileOperations/BatchProcessing/_Shared/RecycleFiles.cs",
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
     "AC-Original Code/ExcelIterate/Data/_Shared/MergeWorkbookGateway.cs",
-    "AC-Original Code/ExcelIterate/Data/AuditToolbox/MergeHeaders/MergeColumnMapper.cs"
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/MergeHeaders/MergeColumnMapper.cs",
+    "@shared/src/addin/PdfFileSelection.cs"
   ],
   "tools": [
     {
@@ -397,6 +395,30 @@
         "System.Drawing.dll",
         "lib/Interop.Microsoft.Office.Core.dll"
       ],
+      "offline": false
+    },
+    {
+      "name": "PdfSelectionProbe",
+      "source": "@shared/src/testharness/PdfSelectionProbe.cs",
+      "references": [],
+      "additional_sources": [
+        "@shared/src/addin/PdfFileSelection.cs"
+      ],
+      "offline": true
+    },
+    {
+      "name": "PdfAsyncUiProbe",
+      "source": "@shared/src/testharness/PdfAsyncUiProbe.cs",
+      "references": [
+        "System.Windows.Forms.dll",
+        "System.Drawing.dll"
+      ],
+      "offline": false
+    },
+    {
+      "name": "PdfWorkerHostProbe",
+      "source": "@shared/src/testharness/PdfWorkerHostProbe.cs",
+      "references": [],
       "offline": false
     }
   ],
@@ -892,24 +914,15 @@
       "implementation": [
         "@shared/src/addin/Connect.Pdf.cs",
         "@shared/src/addin/PdfToolsForm.cs",
-        "@shared/src/addin/PdfCurrentDocument.cs"
+        "@shared/src/addin/PdfCurrentDocument.cs",
+        "@shared/src/addin/PdfFileSelection.cs"
       ],
       "tests": [
         "@shared/src/testharness/PdfToolsProbe.cs",
-        "@shared/src/testharness/PdfCurrentDocumentProbe.cs"
-      ]
-    },
-    "btnConvertPdf": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/FileOperations/FileConversion/ConvertPdf",
-      "entry": "AC-Original Code/ExcelIterate/Operations/FileOperations/FileConversion/ConvertPdf/Connect.ConvertPdf.Entry.cs",
-      "implementation": [
-        "@shared/src/addin/Connect.Pdf.cs",
-        "@shared/src/addin/PdfToolsForm.cs",
-        "@shared/src/addin/PdfCurrentDocument.cs"
-      ],
-      "tests": [
-        "@shared/src/testharness/PdfToolsProbe.cs",
-        "@shared/src/testharness/PdfCurrentDocumentProbe.cs"
+        "@shared/src/testharness/PdfCurrentDocumentProbe.cs",
+        "@shared/src/testharness/PdfSelectionProbe.cs",
+        "@shared/src/testharness/PdfAsyncUiProbe.cs",
+        "@shared/src/testharness/PdfWorkerHostProbe.cs"
       ]
     },
     "btnWatermarkPdf": {
@@ -918,37 +931,15 @@
       "implementation": [
         "@shared/src/addin/Connect.Pdf.cs",
         "@shared/src/addin/PdfToolsForm.cs",
-        "@shared/src/addin/PdfCurrentDocument.cs"
+        "@shared/src/addin/PdfCurrentDocument.cs",
+        "@shared/src/addin/PdfFileSelection.cs"
       ],
       "tests": [
         "@shared/src/testharness/PdfToolsProbe.cs",
-        "@shared/src/testharness/PdfCurrentDocumentProbe.cs"
-      ]
-    },
-    "btnSplitPdf": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/FileOperations/FileConversion/SplitPdf",
-      "entry": "AC-Original Code/ExcelIterate/Operations/FileOperations/FileConversion/SplitPdf/Connect.SplitPdf.Entry.cs",
-      "implementation": [
-        "@shared/src/addin/Connect.Pdf.cs",
-        "@shared/src/addin/PdfToolsForm.cs",
-        "@shared/src/addin/PdfCurrentDocument.cs"
-      ],
-      "tests": [
-        "@shared/src/testharness/PdfToolsProbe.cs",
-        "@shared/src/testharness/PdfCurrentDocumentProbe.cs"
-      ]
-    },
-    "btnMergePdf": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/FileOperations/FileConversion/MergePdf",
-      "entry": "AC-Original Code/ExcelIterate/Operations/FileOperations/FileConversion/MergePdf/Connect.MergePdf.Entry.cs",
-      "implementation": [
-        "@shared/src/addin/Connect.Pdf.cs",
-        "@shared/src/addin/PdfToolsForm.cs",
-        "@shared/src/addin/PdfCurrentDocument.cs"
-      ],
-      "tests": [
-        "@shared/src/testharness/PdfToolsProbe.cs",
-        "@shared/src/testharness/PdfCurrentDocumentProbe.cs"
+        "@shared/src/testharness/PdfCurrentDocumentProbe.cs",
+        "@shared/src/testharness/PdfSelectionProbe.cs",
+        "@shared/src/testharness/PdfAsyncUiProbe.cs",
+        "@shared/src/testharness/PdfWorkerHostProbe.cs"
       ]
     },
     "btnLinkAssistant": {
@@ -1481,10 +1472,7 @@
     "btnFileNames": "FileNames",
     "menuFileConversion": "FileConversion",
     "btnCurrentPdf": "CurrentPdf",
-    "btnConvertPdf": "ConvertPdf",
     "btnWatermarkPdf": "WatermarkPdf",
-    "btnSplitPdf": "SplitPdf",
-    "btnMergePdf": "MergePdf",
     "btnLinkAssistant": "LinkAssistant",
     "btnGenerateDirectory": "GenerateDirectory",
     "grpFeedback": "Feedback",

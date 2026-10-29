@@ -48,10 +48,7 @@ namespace Excel_Iterate
         public string GetLabel_btnFileNames(object control) { return RibbonCustomization.Label("btnFileNames"); }
         public string GetLabel_menuFileConversion(object control) { return RibbonCustomization.Label("menuFileConversion"); }
         public string GetLabel_btnCurrentPdf(object control) { return RibbonCustomization.Label("btnCurrentPdf"); }
-        public string GetLabel_btnConvertPdf(object control) { return RibbonCustomization.Label("btnConvertPdf"); }
         public string GetLabel_btnWatermarkPdf(object control) { return RibbonCustomization.Label("btnWatermarkPdf"); }
-        public string GetLabel_btnSplitPdf(object control) { return RibbonCustomization.Label("btnSplitPdf"); }
-        public string GetLabel_btnMergePdf(object control) { return RibbonCustomization.Label("btnMergePdf"); }
         public string GetLabel_btnLinkAssistant(object control) { return RibbonCustomization.Label("btnLinkAssistant"); }
         public string GetLabel_btnGenerateDirectory(object control) { return RibbonCustomization.Label("btnGenerateDirectory"); }
         public string GetLabel_btnFeedback(object control) { return RibbonCustomization.Label("btnFeedback"); }

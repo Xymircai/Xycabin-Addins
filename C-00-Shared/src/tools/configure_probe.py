@@ -56,7 +56,7 @@ def main():
     check(file_menu is not None, 'file operations entrance exists')
     pdf_menu = file_menu.find('{*}menu[@id="menuFileConversion"]')
     check(pdf_menu is not None and [node.get('id') for node in pdf_menu] ==
-          ['btnCurrentPdf', 'btnConvertPdf', 'btnWatermarkPdf', 'btnSplitPdf', 'btnMergePdf'], 'five PDF entries in conversion subtree')
+          ['btnCurrentPdf', 'btnWatermarkPdf'], 'two PDF entries in conversion subtree')
     batch_menu = file_menu.find('{*}menu[@id="menuBatchProcessing"]')
     if any(item['id'] == 'menuOneClickFormula' for item in model):
         check(batch_menu is not None and [node.get('id') for node in batch_menu] ==

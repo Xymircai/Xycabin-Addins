@@ -27,6 +27,19 @@ internal static class PdfToolsProbe
                     if (!form.ShowInTaskbar) throw new Exception("Unexpected tool window style: " + id);
                     form.StartPosition = FormStartPosition.Manual; form.Location = new Point(-20000, -20000);
                     form.Show(); Application.DoEvents(); form.PerformLayout();
+                    var tabs = (TabControl)form.Controls.Find("pdfModes", true).Single();
+                    if (tabs.TabCount != (mode == "current" || mode == "convert" ? 2 : 3)) throw new Exception("Incorrect mode tabs");
+                    var ranges = (TextBox)assembly.GetType(ns + ".PdfToolsForm").GetField("ranges", Any).GetValue(form);
+                    ranges.Text = "1-3";
+                    int original = tabs.SelectedIndex;
+                    for (int i = 0; i < tabs.TabCount; i++) { tabs.SelectedIndex = i; Application.DoEvents(); }
+                    tabs.SelectedIndex = original; Application.DoEvents();
+                    if (ranges.Text != "1-3" || ranges.IsDisposed) throw new Exception("Tab switch discarded split settings");
+                    var type = form.GetType();
+                    type.GetMethod("SetWorking", Any).Invoke(form, new object[] { true });
+                    tabs.SelectedIndex = (original + 1) % tabs.TabCount;
+                    if (tabs.SelectedIndex != original) throw new Exception("Mode switched while busy");
+                    type.GetMethod("SetWorking", Any).Invoke(form, new object[] { false });
                     foreach (Size size in new[] { new Size(960, 700), new Size(800, 600) })
                     {
                         form.ClientSize = size; form.PerformLayout(); Application.DoEvents();
@@ -34,6 +47,8 @@ internal static class PdfToolsProbe
                     }
                 }
             }
+            if (args.Length > 2 && args[2] == "--render-only")
+            { Console.WriteLine("PASS: five production previews, retained tab settings and busy-switch guards. SKIP: bridge extraction (render-only)."); return 0; }
             // Exercise extraction and the real child process, including dependency redirects.
             string input = Path.Combine(output, "bridge image.png");
             using (var bitmap = new Bitmap(80, 120)) { using (var g = Graphics.FromImage(bitmap)) g.Clear(Color.CornflowerBlue); bitmap.Save(input); }

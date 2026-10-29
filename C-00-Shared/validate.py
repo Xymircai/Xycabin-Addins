@@ -34,7 +34,7 @@ def main():
              (Path(sys.executable), [SITE_ROOT / 'src/tools/document_assets_probe.py', '--root', ROOT]),
              (Path(sys.executable), [SITE_ROOT / 'src/tools/site_probe.py', '--html', args.site_html])]
     # --skip-ui alone does not suppress forms opened by business/Agent probes.
-    background_tools = {'RuntimeQualityProbe', 'HostDialogProbe', 'FormulaProbe', 'FormulaInteractionProbe', 'Feature099Probe', 'TrackerProbe', 'ErrorSourceProbe', 'WorkbookToolsProbe', 'FileOperationsProbe', 'MergeHeadersProbe', 'EliminationProbe', 'DisciplineProbe',
+    background_tools = {'PdfSelectionProbe', 'RuntimeQualityProbe', 'HostDialogProbe', 'FormulaProbe', 'FormulaInteractionProbe', 'Feature099Probe', 'TrackerProbe', 'ErrorSourceProbe', 'WorkbookToolsProbe', 'FileOperationsProbe', 'MergeHeadersProbe', 'EliminationProbe', 'DisciplineProbe',
                         'LinkViewProbe', 'LinkMapProbe', 'UpdateProbe', 'LinkViewFormProbe', 'EtCleanupProbe', 'EtSelectionReaderProbe', 'ClipboardBoundaryFixture'}
     pending = []
     for tool in PROJECT['tools']:
@@ -46,7 +46,9 @@ def main():
             tests.append((BUILD / (tool['name'] + '.exe'), ['--core'] if args.background and tool['name'] == 'FormulaProbe' else []))
             if args.background and tool['name'] == 'FormulaProbe':
                 pending.append('FormulaProbe 前台窗口路径')
-    tests += [(BUILD / 'AgentDocumentCoreProbe.exe', [dll]),
+    tests += [(BUILD / 'PdfAsyncUiProbe.exe', [dll, BUILD / 'pdf-ui-regression']),
+              (BUILD / 'PdfWorkerHostProbe.exe', [BUILD / 'pdf-worker/PdfWorker.exe']),
+              (BUILD / 'AgentDocumentCoreProbe.exe', [dll]),
               (BUILD / 'GripProbe.exe', [dll]), (BUILD / 'LiveProbeSafetyFixture.exe', []),
               (BUILD / 'InstallFlowProbe.exe', []),
               (BUILD / 'RibbonProbe.exe', [dll]),

@@ -46,10 +46,7 @@
     "AC-Original Code/WordUpdater/Operations/FileOperations/Connect.FileOperations.Entry.cs",
     "AC-Original Code/WordUpdater/Operations/FileOperations/FileConversion/Connect.FileConversion.Entry.cs",
     "AC-Original Code/WordUpdater/Operations/FileOperations/FileConversion/CurrentPdf/Connect.CurrentPdf.Entry.cs",
-    "AC-Original Code/WordUpdater/Operations/FileOperations/FileConversion/ConvertPdf/Connect.ConvertPdf.Entry.cs",
     "AC-Original Code/WordUpdater/Operations/FileOperations/FileConversion/WatermarkPdf/Connect.WatermarkPdf.Entry.cs",
-    "AC-Original Code/WordUpdater/Operations/FileOperations/FileConversion/SplitPdf/Connect.SplitPdf.Entry.cs",
-    "AC-Original Code/WordUpdater/Operations/FileOperations/FileConversion/MergePdf/Connect.MergePdf.Entry.cs",
     "AC-Original Code/WordUpdater/Feedback/Feedback/Connect.Feedback.Entry.cs",
     "AC-Original Code/WordUpdater/Extensions/AgentExtension/Connect.AgentExtension.Entry.cs",
     "AC-Original Code/AgentEvo/Details/AgentApi/Connect.AgentApi.Entry.cs",
@@ -91,7 +88,8 @@
     "AC-Original Code/WordUpdater/Links/_Shared/EtCleanup.cs",
     "AC-Original Code/WordUpdater/Links/_Shared/WordHostStateScope.cs",
     "AC-Original Code/WordUpdater/Links/LinkToExcel/Connect.LinkPasteResult.cs",
-    "AC-Original Code/WordUpdater/Links/UpdateLinks/Connect.UpdateResult.cs"
+    "AC-Original Code/WordUpdater/Links/UpdateLinks/Connect.UpdateResult.cs",
+    "@shared/src/addin/PdfFileSelection.cs"
   ],
   "tools": [
     {
@@ -247,6 +245,30 @@
         "build/LinkViewProbe.exe"
       ],
       "offline": true
+    },
+    {
+      "name": "PdfSelectionProbe",
+      "source": "@shared/src/testharness/PdfSelectionProbe.cs",
+      "references": [],
+      "additional_sources": [
+        "@shared/src/addin/PdfFileSelection.cs"
+      ],
+      "offline": true
+    },
+    {
+      "name": "PdfAsyncUiProbe",
+      "source": "@shared/src/testharness/PdfAsyncUiProbe.cs",
+      "references": [
+        "System.Windows.Forms.dll",
+        "System.Drawing.dll"
+      ],
+      "offline": false
+    },
+    {
+      "name": "PdfWorkerHostProbe",
+      "source": "@shared/src/testharness/PdfWorkerHostProbe.cs",
+      "references": [],
+      "offline": false
     }
   ],
   "pdf_worker": true,
@@ -315,24 +337,15 @@
       "implementation": [
         "@shared/src/addin/Connect.Pdf.cs",
         "@shared/src/addin/PdfToolsForm.cs",
-        "@shared/src/addin/PdfCurrentDocument.cs"
+        "@shared/src/addin/PdfCurrentDocument.cs",
+        "@shared/src/addin/PdfFileSelection.cs"
       ],
       "tests": [
         "@shared/src/testharness/PdfToolsProbe.cs",
-        "@shared/src/testharness/PdfCurrentDocumentProbe.cs"
-      ]
-    },
-    "btnConvertPdf": {
-      "directory": "AC-Original Code/WordUpdater/Operations/FileOperations/FileConversion/ConvertPdf",
-      "entry": "AC-Original Code/WordUpdater/Operations/FileOperations/FileConversion/ConvertPdf/Connect.ConvertPdf.Entry.cs",
-      "implementation": [
-        "@shared/src/addin/Connect.Pdf.cs",
-        "@shared/src/addin/PdfToolsForm.cs",
-        "@shared/src/addin/PdfCurrentDocument.cs"
-      ],
-      "tests": [
-        "@shared/src/testharness/PdfToolsProbe.cs",
-        "@shared/src/testharness/PdfCurrentDocumentProbe.cs"
+        "@shared/src/testharness/PdfCurrentDocumentProbe.cs",
+        "@shared/src/testharness/PdfSelectionProbe.cs",
+        "@shared/src/testharness/PdfAsyncUiProbe.cs",
+        "@shared/src/testharness/PdfWorkerHostProbe.cs"
       ]
     },
     "btnWatermarkPdf": {
@@ -341,37 +354,15 @@
       "implementation": [
         "@shared/src/addin/Connect.Pdf.cs",
         "@shared/src/addin/PdfToolsForm.cs",
-        "@shared/src/addin/PdfCurrentDocument.cs"
+        "@shared/src/addin/PdfCurrentDocument.cs",
+        "@shared/src/addin/PdfFileSelection.cs"
       ],
       "tests": [
         "@shared/src/testharness/PdfToolsProbe.cs",
-        "@shared/src/testharness/PdfCurrentDocumentProbe.cs"
-      ]
-    },
-    "btnSplitPdf": {
-      "directory": "AC-Original Code/WordUpdater/Operations/FileOperations/FileConversion/SplitPdf",
-      "entry": "AC-Original Code/WordUpdater/Operations/FileOperations/FileConversion/SplitPdf/Connect.SplitPdf.Entry.cs",
-      "implementation": [
-        "@shared/src/addin/Connect.Pdf.cs",
-        "@shared/src/addin/PdfToolsForm.cs",
-        "@shared/src/addin/PdfCurrentDocument.cs"
-      ],
-      "tests": [
-        "@shared/src/testharness/PdfToolsProbe.cs",
-        "@shared/src/testharness/PdfCurrentDocumentProbe.cs"
-      ]
-    },
-    "btnMergePdf": {
-      "directory": "AC-Original Code/WordUpdater/Operations/FileOperations/FileConversion/MergePdf",
-      "entry": "AC-Original Code/WordUpdater/Operations/FileOperations/FileConversion/MergePdf/Connect.MergePdf.Entry.cs",
-      "implementation": [
-        "@shared/src/addin/Connect.Pdf.cs",
-        "@shared/src/addin/PdfToolsForm.cs",
-        "@shared/src/addin/PdfCurrentDocument.cs"
-      ],
-      "tests": [
-        "@shared/src/testharness/PdfToolsProbe.cs",
-        "@shared/src/testharness/PdfCurrentDocumentProbe.cs"
+        "@shared/src/testharness/PdfCurrentDocumentProbe.cs",
+        "@shared/src/testharness/PdfSelectionProbe.cs",
+        "@shared/src/testharness/PdfAsyncUiProbe.cs",
+        "@shared/src/testharness/PdfWorkerHostProbe.cs"
       ]
     },
     "btnFeedback": {
@@ -679,10 +670,7 @@
     "menuFileOperations": "FileOperations",
     "menuFileConversion": "FileConversion",
     "btnCurrentPdf": "CurrentPdf",
-    "btnConvertPdf": "ConvertPdf",
     "btnWatermarkPdf": "WatermarkPdf",
-    "btnSplitPdf": "SplitPdf",
-    "btnMergePdf": "MergePdf",
     "grpFeedback": "Feedback",
     "btnFeedback": "Feedback",
     "grpExtension": "Extensions",

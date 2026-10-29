@@ -47,6 +47,9 @@ class WorkerTests(unittest.TestCase):
             Path(str(request) + '.cancel').write_text('cancel')
         result = subprocess.run([str(WORKER), str(request)], timeout=60, capture_output=True)
         report = ET.parse(str(request) + '.result').getroot()
+        trace = Path(str(request) + '.cancel.log').read_text(encoding='utf-8-sig')
+        self.assertIn('worker-start pid=', trace)
+        self.assertIn('worker-complete exit=' + str(result.returncode), trace)
         return result.returncode, report
 
     def saved(self, report):

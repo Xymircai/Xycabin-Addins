@@ -108,7 +108,12 @@ namespace Excel_Iterate
                 request.Mode = "publish"; request.Files = new[] { temp }; request.Name = Path.GetFileNameWithoutExtension(path);
                 return folder;
             }
-            catch { if (File.Exists(temp)) File.Delete(temp); Directory.Delete(folder); throw; }
+            catch
+            {
+                try { Directory.Delete(folder, true); }
+                catch (Exception cleanup) { System.Diagnostics.Trace.WriteLine("当前文档导出临时目录清理失败：" + folder + "：" + cleanup); }
+                throw;
+            }
         }
         private static void Release(object value) { if (value != null && Marshal.IsComObject(value)) Marshal.ReleaseComObject(value); }
         public void Dispose() { Release(selection); selection = null; Release(sheet); sheet = null; Release(document); document = null; }

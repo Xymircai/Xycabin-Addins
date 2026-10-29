@@ -255,8 +255,8 @@ namespace WpsShared.Tools
                 Assert(((XmlElement)batch.ChildNodes[0]).GetAttribute("onAction")=="OnOrganizeFiles"&&((XmlElement)batch.ChildNodes[1]).GetAttribute("onAction")=="OnRenameFiles"&&((XmlElement)batch.ChildNodes[2]).GetAttribute("onAction")=="OnFileNames","File operation callback order");
             }
             XmlElement convert=(XmlElement)files.LastChild;
-            Assert(convert.GetAttribute("id")=="menuFileConversion"&&convert.GetAttribute("label")=="文件转换与 PDF 工具"&&convert.ChildNodes.Count==5,"PDF conversion submenu");
-            string[] pdfActions={"OnCurrentPdf","OnConvertPdf","OnWatermarkPdf","OnSplitPdf","OnMergePdf"};
+            Assert(convert.GetAttribute("id")=="menuFileConversion"&&convert.GetAttribute("label")=="PDF 工具"&&convert.ChildNodes.Count==2,"PDF conversion submenu");
+            string[] pdfActions={"OnCurrentPdf","OnWatermarkPdf"};
             for(int i=0;i<pdfActions.Length;i++) Assert(((XmlElement)convert.ChildNodes[i]).GetAttribute("onAction")==pdfActions[i],"PDF conversion callback order");
             if (Id.AssemblyName == "Excel_Iterate")
             {

@@ -18,6 +18,27 @@ using PdfSharp.Fonts;
 internal static class PdfWorker
 {
     private static string cancelFile;
+    private static void Log(string message)
+    {
+        if (cancelFile == null) return;
+        try { File.AppendAllText(cancelFile + ".log", DateTime.UtcNow.ToString("o") + " " + message + Environment.NewLine); }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+    private static readonly List<string> cleanupWarnings = new List<string>();
+    private static void Cleanup(Action action, string context)
+    { try { Log(context); action(); } catch (Exception error) { cleanupWarnings.Add(context + "：" + Details(error)); } }
+    private static string Details(Exception error)
+    { return error.GetType().Name + "：" + error.Message + "（错误码 0x" + error.HResult.ToString("X8") + "）"; }
+    private static string OutputFolder(string output, XmlElement item)
+    {
+        string relative = item.GetAttribute("folder");
+        if (relative.Length == 0) return output;
+        if (Path.IsPathRooted(relative) || relative.Split('\\', '/').Any(p => p == ".." || p == "." || p.Length == 0 || p.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0))
+            throw new ArgumentException("无效输出相对目录：" + relative);
+        string target = Path.GetFullPath(Path.Combine(output, relative));
+        if (!target.StartsWith(output.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) throw new ArgumentException("输出目录越界。");
+        Directory.CreateDirectory(target); return target;
+    }
     private static void CheckCancel() { if (File.Exists(cancelFile)) throw new OperationCanceledException("已取消；已生成的文件保留。"); }
     [STAThread]
     private static int Main(string[] args)
@@ -25,18 +46,22 @@ internal static class PdfWorker
         if (args.Length != 1) return 2;
         string request = Path.GetFullPath(args[0]); cancelFile = request + ".cancel";
         var report = new XmlDocument(); var root = report.CreateElement("Result"); report.AppendChild(root);
-        int exit = 0;
+        int exit = 0; string context = "读取请求：" + request, outputContext = null;
         try
         {
+            Log("worker-start pid=" + Process.GetCurrentProcess().Id);
             var xml = new XmlDocument { XmlResolver = null };
             using (var reader = XmlReader.Create(request, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null })) xml.Load(reader);
             XmlElement job = xml.DocumentElement;
             string mode = job.GetAttribute("mode"), output = Path.GetFullPath(job.GetAttribute("output"));
-            if (!Directory.Exists(output)) throw new DirectoryNotFoundException("输出文件夹不存在。");
-            var files = job.SelectNodes("File").Cast<XmlElement>().Select(n => Path.GetFullPath(n.InnerText)).ToArray();
+            outputContext = output;
+            if (!Directory.Exists(output)) throw new DirectoryNotFoundException("输出文件夹不存在：" + output);
+            var inputs = job.SelectNodes("File").Cast<XmlElement>().ToArray();
+            var files = inputs.Select(n => Path.GetFullPath(n.InnerText)).ToArray();
+            context = "阶段：" + mode + "；来源：" + string.Join("；", files) + "；输出：" + output;
             if (files.Length == 0) throw new ArgumentException("请添加文件。");
             if (mode == "convert" || mode == "convertmerge")
-                foreach (string file in files) EnsureClosed(file);
+                foreach (string file in files) { Log("preflight " + file); EnsureClosed(file); }
             if (mode == "convertmerge")
             {
                 string scratch = Path.Combine(Path.GetTempPath(), "XyPdfMerge-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(scratch);
@@ -51,7 +76,7 @@ internal static class PdfWorker
                         Add(report, root, "Success", Save(merged, output, "转换合并结果"));
                     }
                 }
-                finally { foreach (string file in Directory.GetFiles(scratch)) File.Delete(file); Directory.Delete(scratch); }
+                finally { Cleanup(() => Directory.Delete(scratch, true), "清理合并临时目录 " + scratch); }
             }
             else if (mode == "publish")
             {
@@ -65,7 +90,7 @@ internal static class PdfWorker
                     {
                         string temp = Path.Combine(output, ".pdf-" + Guid.NewGuid().ToString("N") + ".tmp");
                         try { File.Copy(files[0], temp); CheckCancel(); Add(report, root, "Success", Publish(temp, output, name)); }
-                        finally { if (File.Exists(temp)) File.Delete(temp); }
+                        finally { Cleanup(() => { if (File.Exists(temp)) File.Delete(temp); }, "清理临时文件 " + temp); }
                     }
                     else using (var part = new PdfDocument())
                     {
@@ -83,15 +108,17 @@ internal static class PdfWorker
                     string saved = Save(merged, output, "合并结果"); Add(report, root, "Success", saved);
                 }
             }
-            else foreach (string file in files)
+            else foreach (XmlElement input in inputs)
             {
                 CheckCancel();
+                string file = Path.GetFullPath(input.InnerText), destination = output, stage = "创建输出目录";
                 try
                 {
+                    destination = OutputFolder(output, input); stage = "处理 " + mode;
                     string basis = Path.GetFileNameWithoutExtension(file);
                     if (mode == "convert")
                     {
-                        Add(report, root, "Success", ConvertFile(file, output));
+                        Add(report, root, "Success", ConvertFile(file, destination));
                     }
                     else if (mode == "watermark")
                     {
@@ -127,7 +154,7 @@ internal static class PdfWorker
                                     }
                                 }
                             }
-                            Add(report, root, "Success", Save(doc, output, basis + "_水印"));
+                            Add(report, root, "Success", Save(doc, destination, basis + "_水印"));
                         }
                     }
                     else if (mode == "split")
@@ -140,7 +167,7 @@ internal static class PdfWorker
                                 CheckCancel(); using (var part = new PdfDocument())
                                 {
                                     foreach (int page in groups[i]) { CheckCancel(); part.AddPage(doc.Pages[page - 1]); }
-                                    Add(report, root, "Success", Save(part, output, basis + "_" + (i + 1).ToString("D3")));
+                                    Add(report, root, "Success", Save(part, destination, basis + "_" + (i + 1).ToString("D3")));
                                 }
                             }
                         }
@@ -148,13 +175,22 @@ internal static class PdfWorker
                     else throw new ArgumentException("未知 PDF 操作。");
                 }
                 catch (OperationCanceledException) { throw; }
-                catch (Exception error) { exit = 1; Add(report, root, "Failure", file + "：" + error.Message); }
+                catch (Exception error) { exit = 1; Add(report, root, "Failure", "阶段：" + stage + "；来源：" + file + "；输出：" + destination + "；" + Details(error)); DiagnoseOutput(report, root, destination); }
             }
         }
         catch (SourceOpenException error) { exit = 4; Add(report, root, "Blocked", error.Message); }
         catch (OperationCanceledException error) { exit = 3; Add(report, root, "Cancelled", error.Message); }
-        catch (Exception error) { exit = 1; Add(report, root, "Failure", error.Message); }
-        report.Save(request + ".result"); return exit;
+        catch (Exception error) { exit = 1; Add(report, root, "Failure", context + "；" + Details(error)); if (outputContext != null) DiagnoseOutput(report, root, outputContext); }
+        foreach (string warning in cleanupWarnings) Add(report, root, "Warning", warning);
+        report.Save(request + ".result"); Log("worker-complete exit=" + exit); return exit;
+    }
+    // Diagnose only after a failure, without changing permissions or retrying elsewhere.
+    private static void DiagnoseOutput(XmlDocument report, XmlElement root, string output)
+    {
+        string probe = Path.Combine(output, ".pdf-" + Guid.NewGuid().ToString("N") + ".tmp");
+        try { using (var stream = new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None)) stream.WriteByte(0); }
+        catch (Exception error) { Add(report, root, "Warning", "失败后输出目录检测：" + output + "；" + Details(error)); }
+        finally { Cleanup(() => { if (File.Exists(probe)) File.Delete(probe); }, "清理目录检测文件 " + probe); }
     }
     private sealed class SourceOpenException : IOException { internal SourceOpenException(string message) : base(message) { } }
     private static bool IsOffice(string path)
@@ -172,7 +208,7 @@ internal static class PdfWorker
             object app = null, items = null;
             try
             {
-                try { app = Marshal.GetActiveObject(id); } catch (COMException) { continue; }
+                try { Log("preflight-active " + id); app = Marshal.GetActiveObject(id); } catch (COMException) { continue; }
                 bool word = id == "KWPS.Application" || id == "WPS.Application" || id == "Word.Application";
                 items = word ? (object)((dynamic)app).Documents : (object)((dynamic)app).Workbooks;
                 for (int i = 1; i <= Convert.ToInt32(((dynamic)items).Count); i++)
@@ -249,7 +285,7 @@ internal static class PdfWorker
     {
         CheckCancel(); string temp = Path.Combine(output, ".pdf-" + Guid.NewGuid().ToString("N") + ".tmp");
         try { doc.Save(temp); CheckCancel(); return Publish(temp, output, basis); }
-        finally { if (File.Exists(temp)) File.Delete(temp); }
+        finally { Cleanup(() => { if (File.Exists(temp)) File.Delete(temp); }, "清理临时文件 " + temp); }
     }
     private static string Publish(string temp, string output, string basis)
     {
@@ -308,7 +344,13 @@ internal static class PdfWorker
             using (var check = OpenPdf(temp, PdfDocumentOpenMode.Import)) { }
             return Publish(temp, output, basis);
         }
-        finally { if (File.Exists(temp)) File.Delete(temp); }
+        finally { Cleanup(() => { if (File.Exists(temp)) File.Delete(temp); }, "清理转换临时文件 " + temp); }
+    }
+    private static bool CanOpenOfficeSource(bool word, uint pid, bool newProcess, int documentCount)
+    {
+        // WPS Writer can have no application HWND before opening its first document.
+        // An empty, unidentified Writer may own a document, never the application process.
+        return documentCount == 0 && (newProcess || (word && pid == 0));
     }
     private static void ExportOfficePdf(string path, string temp)
     {
@@ -322,13 +364,21 @@ internal static class PdfWorker
             foreach (string id in word ? new[] { "KWPS.Application", "WPS.Application", "Word.Application" } : new[] { "KET.Application", "et.Application", "Excel.Application" })
             {
                 Type type = Type.GetTypeFromProgID(id); if (type == null) continue;
-                try { app = Activator.CreateInstance(type); if (app != null) break; } catch (COMException) { }
+                try { Log("create-host " + id); app = Activator.CreateInstance(type); if (app != null) break; } catch (COMException) { }
             }
             if (app == null) throw new InvalidOperationException("未找到可用的 WPS／Office，无法导出此格式。");
-            dynamic a = app; uint pid;
-            try { GetWindowThreadProcessId(new IntPtr(Convert.ToInt64(a.Hwnd)), out pid); ownProcess = pid != 0 && !existing.Contains((int)pid); } catch { }
-            try { previous = word ? (object)a.ActiveDocument : (object)a.ActiveWorkbook; } catch { }
+            dynamic a = app; uint pid = 0;
+            try { GetWindowThreadProcessId(new IntPtr(Convert.ToInt64(a.Hwnd)), out pid); ownProcess = pid != 0 && !existing.Contains((int)pid); }
+            catch (Exception error) { Log("application-hwnd unavailable " + Details(error)); }
+            Log("host pid=" + pid + " newProcess=" + ownProcess);
             items = word ? (object)a.Documents : (object)a.Workbooks;
+            int documentCount = Convert.ToInt32(((dynamic)items).Count);
+            if (!CanOpenOfficeSource(word, pid, ownProcess, documentCount))
+            {
+                ownProcess = false;
+                throw new SourceOpenException("批次已暂停：转换宿主已有文档或无法安全识别；不会打开、导出或退出该宿主。");
+            }
+            if (!ownProcess) Log("empty-writer without application HWND; document-only ownership, application Quit disabled");
             for (int i = 1; i <= Convert.ToInt32(((dynamic)items).Count); i++)
             {
                 object opened = ((dynamic)items).Item(i);
@@ -336,34 +386,54 @@ internal static class PdfWorker
                 finally { Release(opened); }
             }
             // Fail closed if macros cannot be disabled; restore the setting even on export failure.
+            Log("open-source " + path);
             security = a.AutomationSecurity; securitySet = true; a.AutomationSecurity = 3;
             if (word) doc = ((dynamic)items).Open(FileName: path, ConfirmConversions: false, ReadOnly: true, AddToRecentFiles: false, PasswordDocument: "", WritePasswordDocument: "", Visible: false, NoEncodingDialog: true);
             else doc = ((dynamic)items).Open(Filename: path, UpdateLinks: 0, ReadOnly: true, Password: "", WriteResPassword: "", IgnoreReadOnlyRecommended: true, AddToMru: false);
             if (word)
             {
                 object window = null;
-                try { window = ((dynamic)doc).ActiveWindow; GetWindowThreadProcessId(new IntPtr(Convert.ToInt64(((dynamic)window).Hwnd)), out pid); ownProcess = pid != 0 && !existing.Contains((int)pid); }
-                catch { }
+                try
+                {
+                    window = ((dynamic)doc).ActiveWindow;
+                    GetWindowThreadProcessId(new IntPtr(Convert.ToInt64(((dynamic)window).Hwnd)), out pid);
+                    Log("document-window pid=" + pid);
+                    if (pid != 0 && existing.Contains((int)pid))
+                    {
+                        ownProcess = false;
+                        throw new SourceOpenException("批次已暂停：来源窗口属于已有宿主，不继续导出或退出该宿主。");
+                    }
+                }
+                catch (SourceOpenException) { throw; }
+                catch (Exception error) { Log("document-hwnd unavailable " + Details(error)); }
                 finally { Release(window); }
             }
             CheckCancel();
+            Log("export-source " + path);
             if (word) ((dynamic)doc).ExportAsFixedFormat(temp, 17, false);
             else ((dynamic)doc).ExportAsFixedFormat(0, temp, 0, true, false, Type.Missing, Type.Missing, false);
             CheckCancel();
         }
         finally
         {
-            try { if (doc != null) { if (word) ((dynamic)doc).Close(0); else ((dynamic)doc).Close(false); } }
-            finally
-            {
-                Release(doc); Release(items);
-                try { if (app != null && securitySet) ((dynamic)app).AutomationSecurity = security; }
-                finally
+            Cleanup(() => { if (doc != null) { if (word) ((dynamic)doc).Close(0); else ((dynamic)doc).Close(false); } }, "关闭本批次来源 " + path);
+            Cleanup(() => Release(doc), "释放来源引用 " + path);
+            Cleanup(() => Release(items), "释放文档集合 " + path);
+            Cleanup(() => { if (app != null && securitySet) ((dynamic)app).AutomationSecurity = security; }, "恢复宏设置 " + path);
+            Cleanup(() => { if (previous != null) ((dynamic)previous).Activate(); }, "恢复原活动文档 " + path);
+            Cleanup(() => Release(previous), "释放原文档引用 " + path);
+            Cleanup(() => { if (ownProcess && app != null)
                 {
-                    try { if (previous != null) ((dynamic)previous).Activate(); }
-                    finally { Release(previous); try { if (ownProcess && app != null) ((dynamic)app).Quit(); } finally { Release(app); } }
-                }
-            }
+                    object remaining = null;
+                    try
+                    {
+                        remaining = word ? (object)((dynamic)app).Documents : (object)((dynamic)app).Workbooks;
+                        if (Convert.ToInt32(((dynamic)remaining).Count) == 0) ((dynamic)app).Quit();
+                        else cleanupWarnings.Add("宿主中仍有文档，保留进程，不调用 Quit。");
+                    }
+                    finally { Release(remaining); }
+                } }, "退出自建宿主 " + path);
+            Cleanup(() => Release(app), "释放宿主引用 " + path);
         }
     }
 }

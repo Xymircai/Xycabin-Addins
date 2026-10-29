@@ -25,7 +25,7 @@ def build(output):
     stub = scratch / 'OfficeCoreCompileFixture.cs'
     stub.write_text('namespace Microsoft.Office.Core { public interface IRibbonExtensibility { string GetCustomUI(string id); } '
                     'public interface IRibbonUI { void Invalidate(); void InvalidateControl(string id); } }', encoding='utf-8')
-    sources = [project.source_path(source, addin=True) for source in project.PROJECT['sources'] if source != 'ThisAddIn.cs']
+    sources = [project.source_path(source, addin=True) for source in project.PROJECT['sources'] if Path(source).name != 'ThisAddIn.cs']
     sources += [root / 'src/shared/ProjectInfo.g.cs', stub]
     library = output / (project.PROJECT['assembly'] + '.dll')
     subprocess.run([str(project.CSC), '/nologo', '/target:library', '/codepage:65001', '/out:' + str(library)]

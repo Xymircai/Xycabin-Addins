@@ -5,6 +5,11 @@ using System.Text;
 
 namespace Excel_Iterate
 {
+    internal sealed class SummaryWorkbookChoice
+    {
+        internal string Path, Name;
+        public override string ToString() { return Name + "  [" + Path + "]"; }
+    }
     // =====================================================================
     // 单体汇总表生成 —— 纯逻辑层（不碰 COM，可离线核对）
     //

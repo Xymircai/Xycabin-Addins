@@ -5,6 +5,109 @@ using System.Text;
 
 namespace Excel_Iterate
 {
+    // Own a reference to the explicitly chosen workbook, never the active workbook.
+    // Browsed workbooks are left open: this feature changes them without auto-saving.
+    internal sealed class SummaryWorkbookBinding : IDisposable
+    {
+        private readonly object application;
+        private ComBag held = new ComBag();
+        private object selected;
+        internal object Application { get { return application; } }
+        internal string Path { get; private set; }
+        internal long Version { get; private set; }
+        internal SummaryWorkbookBinding(object app) { application = app; Path = ""; }
+        internal List<SummaryWorkbookChoice> Choices()
+        {
+            var choices = new List<SummaryWorkbookChoice>();
+            using (var bag = new ComBag())
+            {
+                dynamic books = bag.Own(((dynamic)application).Workbooks);
+                for (int i = 1; i <= Convert.ToInt32(books.Count); i++)
+                {
+                    dynamic book = bag.Own(books.Item(i));
+                    choices.Add(new SummaryWorkbookChoice { Path = Convert.ToString(book.FullName), Name = Convert.ToString(book.Name) });
+                }
+            }
+            return choices;
+        }
+        private object Find(string path, ComBag bag)
+        {
+            dynamic books = bag.Own(((dynamic)application).Workbooks);
+            for (int i = 1; i <= Convert.ToInt32(books.Count); i++)
+            {
+                object book = bag.Own(books.Item(i));
+                if (string.Equals(Convert.ToString(((dynamic)book).FullName), path, StringComparison.OrdinalIgnoreCase)) return book;
+            }
+            return null;
+        }
+        private void Bind(object book, ComBag bag)
+        {
+            if (book == null) throw new InvalidOperationException("所选工作簿已关闭，请刷新列表后重新选择。");
+            if (Convert.ToBoolean(((dynamic)book).ReadOnly)) throw new InvalidOperationException("所选工作簿为只读，无法生成汇总表；请选择可编辑的工作簿。");
+            string path = Convert.ToString(((dynamic)book).FullName);
+            Clear(); selected = held.Own(bag.Detach(book)); Path = path;
+        }
+        internal void Choose(string path)
+        {
+            using (var bag = new ComBag()) Bind(Find(path, bag), bag);
+        }
+        internal void UseCurrent()
+        {
+            using (var bag = new ComBag()) Bind(bag.Own(((dynamic)application).ActiveWorkbook), bag);
+        }
+        internal bool Browse(string path)
+        {
+            string full = System.IO.Path.GetFullPath(path);
+            using (var bag = new ComBag())
+            {
+                object existing = Find(full, bag);
+                if (existing != null) { Bind(existing, bag); return false; }
+                dynamic app = application;
+                bool alerts = Convert.ToBoolean(app.DisplayAlerts), ask = Convert.ToBoolean(app.AskToUpdateLinks);
+                object security = app.AutomationSecurity;
+                object opened = null;
+                var restore = new List<Action>();
+                using (var quiet = new HostQuiet(application))
+                {
+                    try
+                    {
+                        restore.Add(delegate { app.DisplayAlerts = alerts; }); app.DisplayAlerts = false;
+                        restore.Add(delegate { app.AskToUpdateLinks = ask; }); app.AskToUpdateLinks = false;
+                        restore.Add(delegate { app.AutomationSecurity = (dynamic)security; }); app.AutomationSecurity = 3;
+                        dynamic books = bag.Own(app.Workbooks);
+                        opened = bag.Own(books.Open(full, 0, false));
+                        try { Bind(opened, bag); }
+                        catch { if (opened != null) ((dynamic)opened).Close(false); throw; }
+                    }
+                    finally
+                    {
+                        var failures = new List<string>();
+                        for (int i = restore.Count - 1; i >= 0; i--) try { restore[i](); } catch (Exception error) { failures.Add(error.Message); }
+                        if (failures.Count > 0) throw new InvalidOperationException("打开工作簿后恢复宿主状态失败：" + string.Join("；", failures.ToArray()));
+                    }
+                }
+                return true;
+            }
+        }
+        internal object RequireBook()
+        {
+            if (selected == null) throw new InvalidOperationException("请先选择工作簿，或点击“使用当前工作簿”。");
+            using (var bag = new ComBag())
+            {
+                object current = Find(Path, bag);
+                if (!WorksheetIdentity.SameObject(selected, current))
+                    throw new InvalidOperationException("所选工作簿已关闭、重新打开或另存为其他路径。请明确重新选择并预检，不能改用当前工作簿。");
+                if (Convert.ToBoolean(((dynamic)current).ReadOnly)) throw new InvalidOperationException("所选工作簿已变为只读。");
+            }
+            return selected; // Borrowed from this binding; caller must not release it.
+        }
+        internal void Clear()
+        {
+            selected = null; Path = ""; Version++;
+            held.Dispose(); held = new ComBag();
+        }
+        public void Dispose() { Clear(); }
+    }
     // =====================================================================
     // 单体汇总表生成 —— COM 宿主层
     //

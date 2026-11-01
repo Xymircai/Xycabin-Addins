@@ -557,6 +557,10 @@ DataMigrationHost 在宿主线程由窗口计时器分步读取及写入，后�
 
 ## 7. 批量生成过程表（单体汇总表）
 
+单体汇总表的工作簿入口采用显式选择：SingleSummaryForm 列出 SummaryWorkbookChoice 的文件名和完整路径，初始无选择，另有浏览文件、使用当前工作簿和刷新列表。SummaryWorkbookBinding 只在用户选择时持有工作簿引用；RequireBook 每次核对 Workbooks 集合中的路径与 COM 对象身份，关闭、同路径重开或另存为均拒绝回退。汇总工作表独立下拉选择，初始留空；换簿清空名单、源文件名和预检结果。预检会话记录绑定版本，执行及还原复核同一版本，宿主参数取自绑定对象；确认窗口内显示实际文件路径。待还原批次禁止更换选择，失败还原保留此状态及备份提示。
+
+浏览未打开文件时禁事件、刷新、链接更新和宏执行，finally 独立恢复全部设置；已打开文件复用，只读文件拒绝。这里打开的是用户选定的实际目标工作簿，生成不自动保存，因此释放绑定引用时不自动关闭工作簿。选择器仍经 HostDialogService 在独立 STA 运行，COM 留在原宿主线程。SummaryWorkbookBindingChecks 用托管对象覆盖选择、活动窗口切换、关闭重开、只读拒绝、打开失败与状态恢复；SingleSummaryProbe 同时核对空选择、表名联动、预检失效和待还原选择锁定，不冒充真实宿主点击验收。
+
 “按公司生成工作簿”独立叶子位于 `BatchProcessSheets/CompanyWorkbooks`。CompanyWorkbookRequest 收集显式来源范围和 Lead 唯一写入行；CompanyWorkbookRules 校验字段、文件名、重复和既有输出；CompanyWorkbookHost 在宿主 STA 创建不可变磁盘快照及另一个只读读取副本，生成始终复制前者，防止旧格式只读打开改变复制依据。读取文件名带随机标识，避免 Excel 同名工作簿冲突；原模板不打开、不保存。CompanyWorkbookForm 用防重入计时器逐文件运行，取消保留已完成文件；Connect.CompanyWorkbooks.Entry 负责接线及宿主切换清理。Lead 更新通过独立委托传入副本生成事务，为后续填写规则保留入口。
 
 行号与末行均由用户确认，字段从所选工作表/表头行加载；默认缺失时不擅自选其他表。只复制模式不要求 Lead 配置；更新模式按来源记录而非输出文件名关联，只写两个目标单元格，临时文本格式防止公式样式字符串被执行，随后恢复原数字格式。保存重开核对值及工作表清单后 File.Move 不覆盖发布；异常关闭自有簿并清理未发布副本。CompanyWorkbookQuiet 在更改前读取刷新、事件、提示、更新链接与宏安全状态，逐项还原并报告失败，恢复活动工作簿/表，不创建其他 Excel 进程。CompanyWorkbookProbe 和 CompanyWorkbookHostChecks 为离线规则与托管动态宿主夹具，覆盖复制字节、逐行关联、保存失败、文件竞争和状态恢复；不能证明实际 Excel/WPS 保存保真或 VSTO 点击通过。

@@ -15,20 +15,24 @@ namespace Excel_Iterate
     //
     // 交互要点：
     //   · Lead 工作表可下拉改选，默认 lead
-    //   · 模板列填列字母（默认取点按钮时的活动列）
+    //   · 工作簿初始留空，模板列填列字母，不从活动单元格推断
     //   · 名单里勾选=生成该列；勾选状态执行时回写 Lead 的「选用」列
     // =====================================================================
 
     internal sealed class SingleSummaryForm : Form, IDialogDefaultLayout
     {
         private readonly Label workbookLabel = Ui.Label("", 9, false);
+        internal readonly ComboBox Workbooks = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 410, DropDownWidth = 800, Name = "summaryWorkbook" };
+        internal readonly ComboBox TargetSheet = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180, Name = "summaryTargetSheet" };
+        internal readonly RoundedButton BrowseWorkbook, CurrentWorkbook, RefreshWorkbooks;
+        private string workbookPath = "";
+        private bool settingWorkbooks;
         private readonly ComboBox leadSheet = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 180, Name = "leadSheetBox" };
         private readonly TextBox headerRow = new TextBox { Width = 56, Text = "1", Name = "headerRowBox" };
         private readonly TextBox sheetHeaderRow = new TextBox { Width = 56, Text = "1", Name = "sheetHeaderRowBox" };
         private readonly TextBox templateColumn = new TextBox { Width = 56, Text = "D", Name = "templateColumnBox" };
         private readonly TextBox placeholderBox = new TextBox { Width = 90, Text = SummaryHeaders.Placeholder, Name = "placeholderBox" };
         private readonly TextBox sourceFile = new TextBox { Width = 280, Name = "sourceFileBox" };
-        private readonly Label targetLabel = Ui.Label("", 9, false);
         private readonly Label hostLabel = Ui.Label("", 9, false);
         private readonly Label hint = Ui.Label("", 9, true);
         private readonly RichTextBox logView = new RichTextBox
@@ -45,6 +49,8 @@ namespace Excel_Iterate
         private readonly List<string> pendingLog = new List<string>();
 
         internal event Action SheetsRequested;
+        internal event Action WorkbooksRequested, BrowseRequested, CurrentRequested;
+        internal event Action<string> WorkbookRequested;
         internal event Action PreviewRequested;
         internal event Action ExecuteRequested;
         internal event Action UndoRequested;
@@ -65,6 +71,20 @@ namespace Excel_Iterate
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // 4 按钮
 
             // ---- 参数区 ----
+            BrowseWorkbook = Ui.Button("浏览文件…", 108);
+            CurrentWorkbook = Ui.Button("使用当前工作簿", 150);
+            RefreshWorkbooks = Ui.Button("刷新列表", 96);
+            var picker = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = true, Name = "workbookPicker" };
+            picker.Controls.Add(Ui.Grip(Workbooks, "工作簿"));
+            picker.Controls.Add(RefreshWorkbooks); picker.Controls.Add(BrowseWorkbook); picker.Controls.Add(CurrentWorkbook);
+            BrowseWorkbook.Click += delegate { if (!busy && !canUndo && BrowseRequested != null) BrowseRequested(); };
+            CurrentWorkbook.Click += delegate { if (!busy && !canUndo && CurrentRequested != null) CurrentRequested(); };
+            RefreshWorkbooks.Click += delegate { if (!busy && !canUndo && WorkbooksRequested != null) WorkbooksRequested(); };
+            Workbooks.SelectedIndexChanged += delegate
+            {
+                var choice = Workbooks.SelectedItem as SummaryWorkbookChoice;
+                if (!settingWorkbooks && !busy && !canUndo && choice != null && WorkbookRequested != null) WorkbookRequested(choice.Path);
+            };
             // 两行放参数：Lead 的三项一行，汇总表的三项一行（1180 宽下不至于挤成一条）
             TableLayoutPanel rowA = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, Name = "leadRow" };
             rowA.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -72,6 +92,9 @@ namespace Excel_Iterate
             rowA.Controls.Add(Ui.Grip(leadSheet, "Lead 工作表"), 0, 0);
             rowA.Controls.Add(Ui.Grip(headerRow, "Lead 表头行"), 1, 0);
             rowA.Controls.Add(Ui.Grip(sheetHeaderRow, "汇总表表头行"), 2, 0);
+            rowA.ColumnCount = 4;
+            rowA.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            rowA.Controls.Add(Ui.Grip(TargetSheet, "汇总工作表"), 3, 0);
 
             TableLayoutPanel rowB = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, Name = "templateRow" };
             rowB.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -84,11 +107,11 @@ namespace Excel_Iterate
             row2.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             row2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             row2.Controls.Add(workbookLabel, 0, 0);
-            row2.Controls.Add(targetLabel, 0, 1);
-            row2.Controls.Add(hostLabel, 0, 2);
+            row2.Controls.Add(hostLabel, 0, 1);
 
             FlowLayoutPanel paramsPanel = new FlowLayoutPanel
             { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Name = "paramPanel" };
+            paramsPanel.Controls.Add(picker);
             paramsPanel.Controls.Add(row2);
             paramsPanel.Controls.Add(rowA);
             paramsPanel.Controls.Add(rowB);
@@ -125,7 +148,7 @@ namespace Excel_Iterate
             CloseButton = Ui.Button("关闭", 88);
             actions.Controls.AddRange(new Control[] { Refresh, Preview, Execute, Undo, Confirm, CopyLog, CloseButton });
             ToolTip tip = new ToolTip();
-            tip.SetToolTip(Refresh, "重新读取当前工作簿的工作表清单（换了工作簿或刚打开文件时用）");
+            tip.SetToolTip(Refresh, "重新读取已选择工作簿的工作表清单，不跟随活动工作簿切换");
             tip.SetToolTip(Preview, "读 Lead 名单与模板列体检，不写入任何单元格（Ctrl+Shift+P）");
             tip.SetToolTip(Execute, "按勾选铺列并逐列换链；执行前自动备份工作表（Ctrl+Shift+W）");
             tip.SetToolTip(Undo, "按备份表还原本次写入的目标区间");
@@ -158,6 +181,7 @@ namespace Excel_Iterate
 
             // 预检后改任何参数都要重新预检，避免拿旧体检结果去写新列
             leadSheet.TextChanged += InvalidatePreview;
+            TargetSheet.SelectedIndexChanged += InvalidatePreview;
             headerRow.TextChanged += InvalidatePreview;
             sheetHeaderRow.TextChanged += InvalidatePreview;
             templateColumn.TextChanged += InvalidatePreview;
@@ -213,26 +237,54 @@ namespace Excel_Iterate
 
         // ---------------------------- 数据 ----------------------------
 
-        /// <summary>Connect 打开窗口时回填当前工作簿、工作表清单、模板列。</summary>
+        internal void SetWorkbooks(List<SummaryWorkbookChoice> choices, string selectedPath)
+        {
+            settingWorkbooks = true;
+            try
+            {
+                Workbooks.Items.Clear();
+                foreach (var choice in choices)
+                {
+                    int index = Workbooks.Items.Add(choice);
+                    if (!string.IsNullOrEmpty(selectedPath) && string.Equals(choice.Path, selectedPath, StringComparison.OrdinalIgnoreCase)) Workbooks.SelectedIndex = index;
+                }
+            }
+            finally { settingWorkbooks = false; }
+        }
+        internal void ClearWorkbookContext()
+        {
+            SetContext("", new List<string>(), "", "", "");
+            sourceFile.Clear(); Companies.Rows.Clear();
+        }
+        /// <summary>Only the explicitly selected workbook supplies this context.</summary>
         internal void SetContext(string workbook, List<string> sheets, string lead, string targetSheet, string columnLetter)
         {
             if (IsDisposed) return;
-            workbookLabel.Text = "工作簿：" + (string.IsNullOrEmpty(workbook) ? "（当前工作簿）" : workbook);
-            targetLabel.Text = "汇总工作表：" + (string.IsNullOrEmpty(targetSheet) ? "（未取到）" : targetSheet);
+            previewOk = false;
+            if (!string.Equals(workbookPath, workbook ?? "", StringComparison.OrdinalIgnoreCase))
+            { Companies.Rows.Clear(); sourceFile.Clear(); }
+            workbookPath = workbook ?? "";
+            workbookLabel.Text = "工作簿：" + (string.IsNullOrEmpty(workbook) ? "（尚未选择）" : workbook);
             leadSheet.Items.Clear();
+            leadSheet.SelectedIndex = -1; leadSheet.Text = "";
+            TargetSheet.Items.Clear(); TargetSheet.SelectedIndex = -1; TargetSheet.Text = "";
             if (sheets != null) foreach (string name in sheets) leadSheet.Items.Add(name);
+            if (sheets != null) foreach (string name in sheets) TargetSheet.Items.Add(name);
             if (sheets == null || sheets.Count == 0)
             {
-                hint.Text = "⚠ 没取到活动工作簿的工作表清单：先在 WPS 表格里打开要处理的工作簿，让它成为当前窗口，再点「刷新工作表」。";
+                hint.Text = "请选择已打开的工作簿、浏览文件，或主动点击“使用当前工作簿”，然后选择 Lead 和汇总工作表。";
+                RefreshActions();
                 return;
             }
             if (!string.IsNullOrEmpty(lead))
             {
                 int index = leadSheet.Items.IndexOf(lead);
-                leadSheet.SelectedIndex = index >= 0 ? index : (leadSheet.Items.Count > 0 ? 0 : -1);
+                leadSheet.SelectedIndex = index;
             }
-            else if (leadSheet.Items.Count > 0) leadSheet.SelectedIndex = 0;
+            TargetSheet.SelectedIndex = TargetSheet.Items.IndexOf(targetSheet ?? "");
             if (!string.IsNullOrEmpty(columnLetter)) templateColumn.Text = columnLetter;
+            hint.Text = "请明确选择 Lead 和汇总工作表后预检；切换其他活动工作簿不会改变本窗口的处理对象。";
+            RefreshActions();
         }
 
         /// <summary>从界面收集请求（不含 COM）。</summary>
@@ -241,7 +293,7 @@ namespace Excel_Iterate
             SummaryRequest request = new SummaryRequest();
             request.LeadSheet = Convert.ToString(leadSheet.Text).Trim();
             request.TargetSheet = TargetSheetName;
-            request.WorkbookName = workbookLabel.Text;
+            request.WorkbookName = workbookPath;
             int row;
             if (!int.TryParse(headerRow.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out row)) row = 1;
             request.HeaderRow = row;
@@ -266,7 +318,7 @@ namespace Excel_Iterate
             return request;
         }
 
-        internal string TargetSheetName = "";
+        internal string TargetSheetName { get { return Convert.ToString(TargetSheet.SelectedItem) ?? ""; } set { TargetSheet.SelectedIndex = TargetSheet.Items.IndexOf(value ?? ""); } }
 
         internal void SetCompanies(List<SummaryCompany> list)
         {
@@ -298,10 +350,11 @@ namespace Excel_Iterate
         /// <summary>参数改动后旧预检结果作废，必须重新体检。</summary>
         private void InvalidatePreview(object sender, EventArgs e)
         {
-            if (suspendInvalidate || !previewOk) return;
+            if (suspendInvalidate) return;
+            bool hadPreview = previewOk;
             previewOk = false;
             RefreshActions();
-            AppendLog("参数已改动，请重新点「读取 Lead 并预检」。");
+            if (hadPreview) AppendLog("参数已改动，请重新点「读取 Lead 并预检」。");
         }
 
         /// <summary>把占位名换掉（预检发现模板列实际表头与默认值不一致时用）。</summary>
@@ -347,10 +400,12 @@ namespace Excel_Iterate
         private void RefreshActions()
         {
             bool idle = !busy && !canUndo;
+            Workbooks.Enabled = BrowseWorkbook.Enabled = CurrentWorkbook.Enabled = RefreshWorkbooks.Enabled = idle;
+            TargetSheet.Enabled = idle && workbookPath.Length > 0;
             leadSheet.Enabled = headerRow.Enabled = sheetHeaderRow.Enabled = templateColumn.Enabled = placeholderBox.Enabled = sourceFile.Enabled = idle;
             Companies.ReadOnly = !idle;
-            Refresh.Enabled = idle;
-            Preview.Enabled = idle;
+            Refresh.Enabled = idle && workbookPath.Length > 0;
+            Preview.Enabled = idle && workbookPath.Length > 0 && leadSheet.Text.Length > 0 && TargetSheet.SelectedIndex >= 0;
             Execute.Enabled = idle && previewOk && Companies.Rows.Count > 0;
             Undo.Enabled = canUndo;
             Confirm.Enabled = !busy && canUndo;

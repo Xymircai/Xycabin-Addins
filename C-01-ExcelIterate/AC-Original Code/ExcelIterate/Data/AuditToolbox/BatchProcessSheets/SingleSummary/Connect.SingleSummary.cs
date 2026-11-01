@@ -23,9 +23,11 @@ namespace Excel_Iterate
     {
         private static SingleSummaryForm _summaryForm;
         private static SummarySession _summarySession;
+        private static SummaryWorkbookBinding _summaryWorkbook;
 
         private sealed class SummarySession
         {
+            internal long WorkbookVersion;
             internal string TargetSheet = "";
             internal string LeadSheet = "";
             internal string BackupSheet = "";
@@ -50,145 +52,104 @@ namespace Excel_Iterate
             catch { try { form.Close(); } catch { } }
         }
 
-        /// <summary>把当前活动工作簿、工作表清单与活动列填进弹窗（COM 只能在宿主线程做）。</summary>
-        private static void ApplyActiveSummaryContext(SingleSummaryForm form)
+        private static object RequireSummaryBook()
         {
-            try
-            {
-                using (ComBag bag = new ComBag())
-                {
-                    object book = null;
-                    try { book = bag.Own(((dynamic)_app).ActiveWorkbook); } catch { }
-                    if (book == null) book = bag.Own(FirstOpenWorkbook(bag));
-                    if (book == null)
-                    {
-                        form.SetContext("", new List<string>(), "", "", "");
-                        form.AppendLog("当前连到的宿主没有打开任何工作簿。请先在 WPS 表格（或 Excel）里打开要处理的工作簿，"
-                            + "让它的窗口在前台，再点上面的「刷新工作表」。");
-                        try { form.SetHint("宿主：" + Convert.ToString(((dynamic)_app).Name) + " " + Convert.ToString(((dynamic)_app).Version)); }
-                        catch { }
-                        return;
-                    }
-                    string path = Convert.ToString(((dynamic)book).FullName);
-                    List<string> names = new List<string>();
-                    dynamic sheets = bag.Own(((dynamic)book).Worksheets);
-                    int count = Convert.ToInt32(sheets.Count, CultureInfo.InvariantCulture);
-                    for (int i = 1; i <= count; i++)
-                        using (ComBag one = new ComBag())
-                            names.Add(Convert.ToString(((dynamic)one.Own(sheets.Item(i))).Name));
+            if (_summaryWorkbook == null) throw new InvalidOperationException("请先选择工作簿。");
+            return _summaryWorkbook.RequireBook();
+        }
 
-                    string active = "";
-                    try { active = Convert.ToString(((dynamic)bag.Own(((dynamic)_app).ActiveSheet)).Name); } catch { }
-                    string lead = "";
-                    bool leadFound = false;
+        private static void ApplySelectedSummaryContext(SingleSummaryForm form)
+        {
+            SummaryRequest prior = form.BuildRequest();
+            using (var bag = new ComBag())
+            {
+                object book = RequireSummaryBook();
+                dynamic sheets = bag.Own(((dynamic)book).Worksheets);
+                var names = new List<string>();
+                for (int i = 1; i <= Convert.ToInt32(sheets.Count); i++)
+                    using (var one = new ComBag()) names.Add(Convert.ToString(((dynamic)one.Own(sheets.Item(i))).Name));
+                string lead = names.Contains(prior.LeadSheet) ? prior.LeadSheet : "";
+                if (lead.Length == 0)
                     foreach (string name in names)
-                        if (string.Equals(name, "lead", StringComparison.OrdinalIgnoreCase)) { lead = name; leadFound = true; break; }
-                    if (lead.Length == 0)
-                        foreach (string name in names)
-                            if (!string.Equals(name, active, StringComparison.OrdinalIgnoreCase)) { lead = name; break; }
-                    if (lead.Length == 0 && names.Count > 0) lead = names[0];
-                    string target = active;
-                    if (string.Equals(lead, target, StringComparison.OrdinalIgnoreCase))
-                        foreach (string name in names)
-                            if (!string.Equals(name, lead, StringComparison.OrdinalIgnoreCase)) { target = name; break; }
-
-                    string letter = "";
-                    int column = 1;
-                    try { column = Convert.ToInt32(((dynamic)bag.Own(((dynamic)_app).ActiveCell)).Column, CultureInfo.InvariantCulture); } catch { }
-                    letter = SummaryColumns.Letter(Math.Max(1, Math.Min(16384, column)));
-
-                    form.TargetSheetName = target;
-                    form.SetContext(path, names, lead, target, letter);
-                    if (!leadFound)
-                        form.AppendLog("工作簿里没有名为 lead 的工作表，已默认选「" + lead
-                            + "」。请在下拉框里改成真正放「" + SummaryHeaders.CodeHeader + "」「"
-                            + SummaryHeaders.NameHeader + "」那张表；表名不必叫 lead。");
-                    form.AppendLog("已载入工作簿工作表清单：" + names.Count.ToString(CultureInfo.InvariantCulture)
-                        + " 张；Lead 默认「" + lead + "」，汇总表「" + target
-                        + "」，模板列默认 " + letter + "。点「读取 Lead 并预检」继续。");
-                }
-            }
-            catch (Exception ex)
-            {
-                Log("单体汇总表生成：读取活动工作簿失败 " + ex);
-                form.AppendLog("读取当前工作簿失败：" + ex.Message);
+                        if (string.Equals(name, "lead", StringComparison.OrdinalIgnoreCase)) { lead = name; break; }
+                string target = names.Contains(prior.TargetSheet) ? prior.TargetSheet : "";
+                form.SetCompanies(null);
+                form.SetContext(_summaryWorkbook.Path, names, lead, target, "");
+                form.AppendLog("已载入所选工作簿：" + _summaryWorkbook.Path + "，共 " + names.Count + " 张表。请明确选择汇总工作表后预检。");
             }
         }
 
-
-        /// <summary>
-        /// 取一个真正打开了工作簿的宿主：用户可能先开宿主再开文件，
-        /// 也可能文件在 Excel 里而我们默认连的是 WPS。都没有簿时退回原逻辑，
-        /// 让窗口照常打开并给出明确提示（配合「刷新工作表」）。
-        /// </summary>
-        private static bool EnsureApplicationWithWorkbook()
+        private static void RunSummaryWorkbookList(SingleSummaryForm form)
         {
-            if (IsAlive(_app) && HasWorkbook(_app)) return true;
-            string[] progIds = { "KET.Application", "et.Application", "Excel.Application" };
-            object fallback = null;
-            for (int i = 0; i < progIds.Length; i++)
+            if (_busy || (_summarySession != null && _summarySession.CanUndo)) return;
+            _busy = true; form.SetBusy(true);
+            try
             {
-                object candidate = null;
-                try { candidate = Marshal.GetActiveObject(progIds[i]); } catch { }
-                if (candidate == null) continue;
-                if (HasWorkbook(candidate))
+                var choices = _summaryWorkbook.Choices();
+                if (_summaryWorkbook.Path.Length > 0)
                 {
-                    if (!ReferenceEquals(candidate, _app))
+                    try { _summaryWorkbook.RequireBook(); }
+                    catch (Exception error)
                     {
-                        Log("单体汇总表生成：改连 " + progIds[i] + "（该宿主里有打开的工作簿）");
-                        HostApplication = candidate;
+                        _summaryWorkbook.Clear(); _summarySession = null; form.ClearWorkbookContext();
+                        form.AppendLog(error.Message);
                     }
-                    return true;
                 }
-                if (fallback == null) fallback = candidate;
+                form.SetWorkbooks(choices, _summaryWorkbook.Path);
+                if (choices.Count == 0) form.AppendLog("当前宿主没有已打开的工作簿，可点击“浏览文件…”选择。");
             }
-            if (fallback != null && !ReferenceEquals(fallback, _app))
-            {
-                Log("单体汇总表生成：所有宿主都没有工作簿，改连 " + Convert.ToString(fallback.GetType().Name));
-                HostApplication = fallback;
-            }
-            return EnsureApplication();
+            catch (Exception error) { form.AppendLog("刷新工作簿列表失败：" + error.Message); }
+            finally { form.SetBusy(false); _busy = false; }
         }
 
-        private static bool HasWorkbook(object application)
+        private static void RunSummaryWorkbookChoice(SingleSummaryForm form, Func<bool> choose)
         {
-            if (application == null) return false;
-            object books = null;
+            if (_busy || (_summarySession != null && _summarySession.CanUndo)) return;
+            _busy = true; form.SetBusy(true);
+            long version = _summaryWorkbook.Version;
             try
             {
-                books = ((dynamic)application).Workbooks;
-                if (books == null) return false;
-                return Convert.ToInt32(((dynamic)books).Count, CultureInfo.InvariantCulture) > 0;
+                if (!choose()) return;
+                _summarySession = null; form.ClearWorkbookContext();
+                ApplySelectedSummaryContext(form);
+                form.SetWorkbooks(_summaryWorkbook.Choices(), _summaryWorkbook.Path);
             }
-            catch { return false; }
-        }
-
-
-        private static object FirstOpenWorkbook(ComBag bag)
-        {
-            try
+            catch (Exception error)
             {
-                dynamic books = bag.Own(((dynamic)_app).Workbooks);
-                if (books == null || Convert.ToInt32(books.Count, CultureInfo.InvariantCulture) <= 0) return null;
-                return bag.Own(books.Item(1));
+                if (_summaryWorkbook.Version != version)
+                { _summaryWorkbook.Clear(); _summarySession = null; form.ClearWorkbookContext(); }
+                // Restore the selector to the actual bound book after a rejected choice.
+                try { form.SetWorkbooks(_summaryWorkbook.Choices(), _summaryWorkbook.Path); } catch { }
+                Log("单体汇总表生成：选择工作簿失败 " + error);
+                form.AppendLog("选择工作簿失败：" + error.Message);
             }
-            catch { return null; }
+            finally { form.SetBusy(false); _busy = false; }
         }
 
-        /// <summary>「刷新工作表」：重新读一次当前工作簿与工作表清单。</summary>
+        private static void RunSummaryBrowse(SingleSummaryForm form)
+        {
+            RunSummaryWorkbookChoice(form, delegate
+            {
+                string[] paths = HostDialogService.OpenFiles(form, "表格工作簿 (*.xlsx;*.xls;*.xlsm;*.et)|*.xlsx;*.xls;*.xlsm;*.et");
+                if (paths.Length == 0) return false;
+                if (paths.Length != 1) throw new InvalidOperationException("请每次只选择一个待处理工作簿。");
+                bool opened = _summaryWorkbook.Browse(paths[0]);
+                if (opened) form.AppendLog("已打开所选文件；生成后不自动保存或关闭，请自行核对并保存。");
+                return true;
+            });
+        }
+
         private static void RunSummaryRefresh(SingleSummaryForm form)
         {
-            if (_busy) return;
-            try
+            if (_busy || (_summarySession != null && _summarySession.CanUndo)) return;
+            _busy = true; form.SetBusy(true);
+            try { _summarySession = null; ApplySelectedSummaryContext(form); }
+            catch (Exception error)
             {
-                form.AppendLog("正在重新读取当前工作簿…");
-                ApplyActiveSummaryContext(form);
+                _summaryWorkbook.Clear(); form.ClearWorkbookContext();
+                form.AppendLog("刷新所选工作簿失败：" + error.Message);
             }
-            catch (Exception ex)
-            {
-                Log("单体汇总表生成：刷新工作表失败 " + ex);
-                form.AppendLog("刷新失败：" + ex.Message);
-            }
+            finally { form.SetBusy(false); _busy = false; }
         }
 
         private static object FindSheet(object book, string name, ComBag bag)
@@ -213,15 +174,13 @@ namespace Excel_Iterate
             form.SetBusy(true);
             try
             {
-                if (!EnsureApplication()) throw new InvalidOperationException("请先打开 WPS 表格。");
                 SummaryRequest request = form.BuildRequest();
                 if (request.TemplateColumn < 1) throw new InvalidOperationException("模板列请填列字母，例如 D。");
                 if (request.HeaderRow < 1) throw new InvalidOperationException("表头行必须是正整数。");
 
                 using (ComBag bag = new ComBag())
                 {
-                    object book = bag.Own(((dynamic)_app).ActiveWorkbook);
-                    if (book == null) throw new InvalidOperationException("没有活动工作簿。");
+                    object book = RequireSummaryBook();
                     object lead = FindSheet(book, request.LeadSheet, bag);
                     object target = FindSheet(book, request.TargetSheet, bag);
                     if (lead == null) throw new InvalidOperationException("找不到 Lead 工作表：" + request.LeadSheet);
@@ -283,6 +242,7 @@ namespace Excel_Iterate
                     form.SetPreview(suggested, ok, text.ToString());
 
                     _summarySession = new SummarySession();
+                    _summarySession.WorkbookVersion = _summaryWorkbook.Version;
                     _summarySession.TargetSheet = request.TargetSheet;
                     _summarySession.LeadSheet = request.LeadSheet;
                     _summarySession.BackupSheet = "";
@@ -325,6 +285,8 @@ namespace Excel_Iterate
         {
             if (_busy) return;
             SummaryRequest request = form.BuildRequest();
+            if (_summaryWorkbook == null || _summarySession == null || _summarySession.WorkbookVersion != _summaryWorkbook.Version)
+            { form.SetLog("所选工作簿尚未预检或已更换，请重新预检。"); return; }
             string invalid = request.Validate();
             if (invalid != null) { form.SetLog(invalid); return; }
 
@@ -333,11 +295,9 @@ namespace Excel_Iterate
             SummaryRunReport report = new SummaryRunReport();
             try
             {
-                if (!EnsureApplication()) throw new InvalidOperationException("请先打开 WPS 表格。");
                 using (ComBag bag = new ComBag())
                 {
-                    object book = bag.Own(((dynamic)_app).ActiveWorkbook);
-                    if (book == null) throw new InvalidOperationException("没有活动工作簿。");
+                    object book = RequireSummaryBook();
                     object lead = FindSheet(book, request.LeadSheet, bag);
                     object target = FindSheet(book, request.TargetSheet, bag);
                     if (lead == null || target == null) throw new InvalidOperationException("Lead 或汇总工作表已不存在，请重新预检。");
@@ -353,7 +313,7 @@ namespace Excel_Iterate
                     SummaryTemplateProbe probe = SummaryTemplateReader.Read(target, request.SheetHeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
                     if (probe.Blocking.Count > 0) throw new InvalidOperationException(string.Join("；", probe.Blocking.ToArray()));
 
-                    string confirm = "将覆盖 "
+                    string confirm = "工作簿：" + request.WorkbookName + "\r\n将覆盖 "
                         + SummaryColumns.Letter(request.TemplateColumn) + "～" + SummaryColumns.Letter(lastColumn)
                         + " 共 " + chosen.Count.ToString(CultureInfo.InvariantCulture) + " 列，第 "
                         + request.HeaderRow.ToString(CultureInfo.InvariantCulture) + "～"
@@ -368,13 +328,14 @@ namespace Excel_Iterate
                         return;
                     }
 
+                    RequireSummaryBook(); // Recheck identity after the isolated confirmation.
                     // 回写「选用」列（勾选 TRUE / 取消 FALSE），再生成
-                    using (HostQuiet quiet = new HostQuiet(_app))
+                    using (HostQuiet quiet = new HostQuiet(_summaryWorkbook.Application))
                         SummaryLeadReader.WriteSelection(lead, snapshot);
                     form.AppendLog("已回写「" + SummaryHeaders.PickHeader + "」列：" + chosen.Count.ToString(CultureInfo.InvariantCulture) + " 家勾选。");
 
                     // 备份先做、且先把「可还原区间」落到会话：即使中途失败，catch 里也能按备份回滚
-                    string backupSheet = SummaryWriter.Backup(_app, book, target);
+                    string backupSheet = SummaryWriter.Backup(_summaryWorkbook.Application, book, target);
                     if (_summarySession == null) _summarySession = new SummarySession();
                     _summarySession.TargetSheet = request.TargetSheet;
                     _summarySession.HeaderRow = request.SheetHeaderRow;
@@ -382,9 +343,10 @@ namespace Excel_Iterate
                     _summarySession.ColumnCount = chosen.Count;
                     _summarySession.LastRow = probe.LastRow;
                     _summarySession.BackupSheet = backupSheet;
-                    _summarySession.CanUndo = false;
+                    _summarySession.WorkbookVersion = _summaryWorkbook.Version;
+                    _summarySession.CanUndo = true;
 
-                    report = SummaryWriter.Run(_app, book, target, request, probe, backupSheet,
+                    report = SummaryWriter.Run(_summaryWorkbook.Application, book, target, request, probe, backupSheet,
                         delegate(string status) { form.AppendLog(status); });
 
                     _summarySession.CanUndo = true;
@@ -409,7 +371,7 @@ namespace Excel_Iterate
             catch (Exception ex)
             {
                 Log("单体汇总表生成执行：" + ex);
-                form.AppendLog("执行失败：" + ex.Message + "（已按备份表还原目标区间）");
+                form.AppendLog("执行失败：" + ex.Message + "；正在尝试还原，结果见下方日志。");
                 TryRestoreSummary(form, false);
                 UiDialog.Show(form, "执行失败：" + ex.Message + "\r\n（已尽量按备份表还原目标区间；详见日志。）",
                     "单体汇总表生成", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -477,10 +439,12 @@ namespace Excel_Iterate
             {
                 using (ComBag bag = new ComBag())
                 {
-                    object book = bag.Own(((dynamic)_app).ActiveWorkbook);
+                    if (_summaryWorkbook == null || session.WorkbookVersion != _summaryWorkbook.Version)
+                        throw new InvalidOperationException("还原批次不属于当前所选工作簿。");
+                    object book = RequireSummaryBook();
                     object target = FindSheet(book, session.TargetSheet, bag);
                     if (target == null) throw new InvalidOperationException("汇总工作表已不存在。");
-                    SummaryWriter.Restore(_app, book, target, session.BackupSheet,
+                    SummaryWriter.Restore(_summaryWorkbook.Application, book, target, session.BackupSheet,
                         session.FirstColumn, session.ColumnCount, session.LastRow, session.HeaderRow);
                 }
                 session.CanUndo = false;
@@ -492,6 +456,7 @@ namespace Excel_Iterate
             catch (Exception ex)
             {
                 Log("单体汇总表生成还原失败：" + ex);
+                session.CanUndo = true; form.SetUndoAvailable(true);
                 form.AppendLog("还原失败：" + ex.Message + "；备份工作表仍在工作簿里，可手动恢复。");
             }
         }

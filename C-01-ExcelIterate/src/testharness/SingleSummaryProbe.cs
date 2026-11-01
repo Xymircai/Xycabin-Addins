@@ -177,6 +177,11 @@ namespace Excel_Iterate.TestHarness
             {
                 using (SingleSummaryForm form = new SingleSummaryForm())
                 {
+                    Assert("初始未选工作簿且预检不可用", form.BuildRequest().WorkbookName.Length == 0 && !form.Preview.Enabled, "自动绑定了工作簿");
+                    int requested = 0;
+                    form.WorkbookRequested += delegate { requested++; };
+                    form.SetWorkbooks(new List<SummaryWorkbookChoice> { new SummaryWorkbookChoice { Name = "A.xlsx", Path = "C:\\A.xlsx" } }, "");
+                    Assert("列表刷新不自动选第一本", form.Workbooks.SelectedIndex == -1 && requested == 0, "自动选中了文件");
                     form.SetContext("C:\\样例.xlsx", new List<string> { "lead", "汇总" }, "lead", "汇总", "D");
                     SummaryRequest built = form.BuildRequest();
                     Assert("弹窗默认 Lead=lead", built.LeadSheet == "lead", built.LeadSheet);
@@ -184,12 +189,25 @@ namespace Excel_Iterate.TestHarness
                     Assert("弹窗默认表头行 1", built.HeaderRow == 1, built.HeaderRow.ToString());
                     form.SetCompanies(new List<SummaryCompany> { Company(2, "A", "甲公司", true) });
                     Assert("名单默认勾选", form.BuildRequest().Chosen().Count == 1, "未勾选");
+                    form.SetContext("C:\\B.xlsx", new List<string> { "lead", "新汇总" }, "lead", "", "D");
+                    Assert("换簿后汇总表须重新选择", form.TargetSheetName.Length == 0 && !form.Preview.Enabled, "自动猜了汇总表");
+                    form.TargetSheet.SelectedIndex = 1;
+                    Assert("选择汇总表后允许预检", form.Preview.Enabled && form.BuildRequest().TargetSheet == "新汇总", "未联动");
+                    form.SetPreview("模板.xlsx", true, "通过");
+                    form.SetCompanies(new List<SummaryCompany> { Company(2, "A", "甲公司", true) });
+                    form.SetUndoAvailable(true);
+                    Assert("待还原批次锁定工作簿选择", !form.Workbooks.Enabled && !form.BrowseWorkbook.Enabled && !form.CurrentWorkbook.Enabled && !form.TargetSheet.Enabled, "可更换处理对象");
+                    form.SetUndoAvailable(false);
+                    form.ClearWorkbookContext();
+                    Assert("清空工作簿移除名单及旧预检", form.Companies.Rows.Count == 0 && !form.Execute.Enabled && !form.Preview.Enabled && form.BuildRequest().WorkbookName.Length == 0, "旧状态残留");
                 }
             }
             catch (Exception ex)
             {
                 Assert("弹窗可构造", false, ex.Message);
             }
+
+            SummaryWorkbookBindingChecks.Run(Assert);
 
             Console.WriteLine();
             Console.WriteLine("PASS " + _pass + "，FAIL " + _fail);

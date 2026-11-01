@@ -15,7 +15,7 @@
 //   网络盘文档的回调代理读不出 control.Id，靠名字才能认对按钮。
 //   新增按钮时记得在 Connect.cs 加对应的一行包装方法（本脚本会校验）。
 //
-// 生成时间：2026-11-01 15:03:55
+// 生成时间：2026-11-01 16:13:47
 // =====================================================================
 using System;
 using System.Collections.Generic;
@@ -74,7 +74,7 @@ namespace Excel_Iterate
             </menu>
             <menu id=""menuBatchProcessSheets"" label=""批量生成过程表"" getImage=""GetImage_menuBatchProcessSheets"" screentip=""按公司复制模板工作簿，或生成单体汇总表"" supertip=""按公司生成工作簿：完整复制所选模板并按来源行填写 Lead，原模板不变，不覆盖已有文件。单体汇总表生成：从模板列起每家公司铺一列，备份工作表后换链，不自动保存工作簿。"" itemSize=""normal"">
               <button id=""btnCompanyWorkbooks"" label=""按公司生成工作簿"" getImage=""GetImage_btnCompanyWorkbooks"" screentip=""完整复制模板，按来源行命名并填写 Lead"" supertip=""选择 xlsx/xls 模板，配置来源字段、数据行范围及 Lead 唯一写入行；预检后逐公司生成完整副本，保留原模板且不覆盖已有文件。可选只复制模式。"" onAction=""OnCompanyWorkbooks"" />
-              <button id=""btnSingleSummary"" label=""单体汇总表生成"" getImage=""GetImage_btnSingleSummary"" screentip=""Lead 勾选公司 → 按模板列铺开 → 逐列换链"" supertip=""读 Lead 表的「编码&amp;简称」「全称」列（按表头名动态定位），候选行默认全勾，勾选状态回写「选用」列（不存在则在最右列新建）。模板列自身就是第 1 家公司，向右按 Lead 行序各占一列；目标区间固定覆盖重生成。换链只改方括号里的文件名，路径、]BS、'!$xx$xx 与其他公司文件名一律不动；不含 [xxx.xlsx] 的本簿引用不碰。"" onAction=""OnSingleSummary"" />
+              <button id=""btnSingleSummary"" label=""单体汇总表生成"" getImage=""GetImage_btnSingleSummary"" screentip=""选择工作簿和汇总表 → Lead 勾选公司 → 铺列换链"" supertip=""读 Lead 表的「编码&amp;简称」「全称」列（按表头名动态定位），候选行默认全勾，勾选状态回写「选用」列（不存在则在最右列新建）。模板列自身就是第 1 家公司，向右按 Lead 行序各占一列；目标区间固定覆盖重生成。换链只改方括号里的文件名，路径、]BS、'!$xx$xx 与其他公司文件名一律不动；不含 [xxx.xlsx] 的本簿引用不碰。"" onAction=""OnSingleSummary"" />
             </menu>
           </menu>
         </group>

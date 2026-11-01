@@ -278,7 +278,7 @@ BUTTONS = [
                         "id": "btnSingleSummary",
                         "label": "单体汇总表生成",
                         "builtin_icon": "table",
-                        "screentip": "Lead 勾选公司 → 按模板列铺开 → 逐列换链",
+                        "screentip": "选择工作簿和汇总表 → Lead 勾选公司 → 铺列换链",
                         "supertip": "读 Lead 表的「编码&简称」「全称」列（按表头名动态定位），候选行默认全勾，勾选状态回写「选用」列（不存在则在最右列新建）。模板列自身就是第 1 家公司，向右按 Lead 行序各占一列；目标区间固定覆盖重生成。换链只改方括号里的文件名，路径、]BS、'!$xx$xx 与其他公司文件名一律不动；不含 [xxx.xlsx] 的本簿引用不碰。",
                         "action": "feature",
                         "callback": "OnSingleSummary",

@@ -315,7 +315,10 @@
         "@addin",
         "System.Windows.Forms.dll"
       ],
-      "offline": true
+      "offline": true,
+      "additional_sources": [
+        "src/testharness/SummaryWorkbookBindingChecks.cs"
+      ]
     },
     {
       "name": "MergeHeadersProbe",

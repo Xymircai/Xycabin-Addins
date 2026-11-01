@@ -95,6 +95,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 新增“数据 → 审计工具箱 → 批量生成过程表 → 按公司生成工作簿”：读取 xlsx/xls 磁盘模板快照，按用户选择的来源字段及显式数据范围逐公司完整复制，可选更新 Lead 指定行的两个字段。命名、来源与目标字段联动加载，异常预检阻断；逐文件取消、保存重开核验和不覆盖发布独立实现。原单体汇总表铺列逻辑不变。实现入口与文件见 B4；使用步骤见 A-UserGuide 对应菜单说明。实际 Excel/VSTO 保存保真、按钮交互及真实业务模板尚待本地验收。
 
+单体汇总表现改为先明确选择工作簿：支持已打开文件下拉、浏览文件及主动使用当前工作簿，初始无选择；汇总工作表独立选择。预检、执行与还原绑定同一工作簿对象及选择版本，不随活动窗口切换；关闭重开或另存为后要求重选，待还原批次锁定选择。浏览打开的目标文件保持打开且不自动保存，供用户核对；实际宿主交互待验收。
+
 批量迁移源文件按钮位于源工作簿文本框右侧、源工作表左侧，标签与复选框按行高垂直居中。主窗批量勾选入口整合到“选择”表头的带框箭头，存在未勾选目标时显示蓝色漏斗；弹窗提供搜索及清空、全选搜索结果、反选、选择计数、空态、确定/取消和尺寸拖动，草稿确认后才回写，不隐藏主表目标。
 
 批量迁移默认改为校验后更新目标原文件并保留原版本备份，也可取消勾选另存副本。新增 MigrationOutputTransaction 与 MigrationWindowScope，目标读取器逐项释放、临时窗口按所有权隐藏，修复预检累积工作簿及读写激活压低迁移窗口的问题；更新模式要求目标先保存并关闭。后续段落中的“仅输出副本”描述属于前版实现或当前另存模式。实际 WPS 标签页、焦点及二进制保存行为另列实机证据。
@@ -126,6 +128,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 本轮沿用版本与发布身份，公共源码迁至C-00-Shared，项目清单直接引用，生成文件与产品入口保留原位置。抵消窗口在首次可见前应用最大化，来源事件先订阅再回填；局部缓冲覆盖布局、网格和拖柄，尺寸预览保持普通窗口。默认布局按窗口及DPI延迟测量；从属扫描和抵消预检通过原宿主线程分块读取、后台纯数据运算，来源变化时中止。宿主不支持变化监听时回退同步读取并记录兼容路径。EliminationSession统一持有目标、快照和任务，大结果预览按需取值，仍完整测宽、支持复制；取消与失败重试保留尚未还原的目标。实际WPS黑影、键入、菜单、跨屏DPI与写入还原由用户验收，离线检查不能代替。
 
 ### (2). 本轮交付证据
+
+本轮将单体汇总表改为显式选择工作簿和汇总工作表，预检、执行及还原使用同一绑定对象。编译通过；SingleSummaryProbe 共 70 项（含原有换链回归与工作簿选择夹具）、CompanyWorkbookProbe 45 项、DisciplineProbe 31 项及 DialogSizesProbe core 111 项通过，源码分类、文档、弹窗目录与模态隔离检查通过。证据见[编译日志](../C-01-ExcelIterate/build/summary-workbook-selection-build.log)与[选择及绑定测试](../C-01-ExcelIterate/build/summary-workbook-selection-probe.log)。未执行真实 Excel/WPS/VSTO 测试；固定签名证书仍缺失，签名未完成，未生成新安装包。
 
 本轮新增“按公司生成工作簿”的源码、菜单及弹窗登记已编译通过；CompanyWorkbookProbe 的 45 项规则/托管宿主检查、SingleSummaryProbe 的 46 项既有回归、DisciplineProbe 的 31 项检查、RibbonProbe 和 DialogSizesProbe core 的 111 项检查均通过，见[本轮针对性测试结果](../C-01-ExcelIterate/build/company-workbooks-final-tests.json)及[详细日志](../C-01-ExcelIterate/build/company-workbooks-final-tests.log)。源码分类、文档、弹窗目录及模态隔离检查通过。扩大回归中 TrackerProbe、ErrorSourceProbe、FormulaProbe core 通过，WorkbookToolsProbe 超时后中止后续扩大回归，不能认作完整后台验证通过。固定签名证书在当前环境缺失，重新签名失败，完整 validate 另被新 DLL 与旧清单摘要不匹配阻止；未生成新安装包，原正式安装包保持原状。未进行真实 Excel/VSTO/WPS 测试、安装或发布。编译、签名失败和完整验证受阻分别见 build/company-workbooks-build.log、build/company-workbooks-sign.log 和 build/company-workbooks-validation.log。
 

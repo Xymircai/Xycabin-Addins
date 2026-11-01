@@ -24,6 +24,7 @@ namespace Excel_Iterate
         private readonly Label workbookLabel = Ui.Label("", 9, false);
         private readonly ComboBox leadSheet = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 180, Name = "leadSheetBox" };
         private readonly TextBox headerRow = new TextBox { Width = 56, Text = "1", Name = "headerRowBox" };
+        private readonly TextBox sheetHeaderRow = new TextBox { Width = 56, Text = "1", Name = "sheetHeaderRowBox" };
         private readonly TextBox templateColumn = new TextBox { Width = 56, Text = "D", Name = "templateColumnBox" };
         private readonly TextBox placeholderBox = new TextBox { Width = 90, Text = SummaryHeaders.Placeholder, Name = "placeholderBox" };
         private readonly TextBox sourceFile = new TextBox { Width = 280, Name = "sourceFileBox" };
@@ -64,14 +65,20 @@ namespace Excel_Iterate
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // 4 按钮
 
             // ---- 参数区 ----
-            TableLayoutPanel row1 = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 5, Name = "sheetRow" };
-            row1.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 0; i < 5; i++) row1.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            row1.Controls.Add(Ui.Grip(leadSheet, "Lead 工作表"), 0, 0);
-            row1.Controls.Add(Ui.Grip(headerRow, "表头行"), 1, 0);
-            row1.Controls.Add(Ui.Grip(templateColumn, "模板列"), 2, 0);
-            row1.Controls.Add(Ui.Grip(placeholderBox, "占位名"), 3, 0);
-            row1.Controls.Add(Ui.Grip(sourceFile, "模板公司全称"), 4, 0);
+            // 两行放参数：Lead 的三项一行，汇总表的三项一行（1180 宽下不至于挤成一条）
+            TableLayoutPanel rowA = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, Name = "leadRow" };
+            rowA.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            for (int i = 0; i < 3; i++) rowA.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            rowA.Controls.Add(Ui.Grip(leadSheet, "Lead 工作表"), 0, 0);
+            rowA.Controls.Add(Ui.Grip(headerRow, "Lead 表头行"), 1, 0);
+            rowA.Controls.Add(Ui.Grip(sheetHeaderRow, "汇总表表头行"), 2, 0);
+
+            TableLayoutPanel rowB = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, Name = "templateRow" };
+            rowB.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            for (int i = 0; i < 3; i++) rowB.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            rowB.Controls.Add(Ui.Grip(templateColumn, "模板列"), 0, 0);
+            rowB.Controls.Add(Ui.Grip(placeholderBox, "占位名"), 1, 0);
+            rowB.Controls.Add(Ui.Grip(sourceFile, "模板公司全称"), 2, 0);
 
             TableLayoutPanel row2 = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Name = "targetRow" };
             row2.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -83,7 +90,8 @@ namespace Excel_Iterate
             FlowLayoutPanel paramsPanel = new FlowLayoutPanel
             { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Name = "paramPanel" };
             paramsPanel.Controls.Add(row2);
-            paramsPanel.Controls.Add(row1);
+            paramsPanel.Controls.Add(rowA);
+            paramsPanel.Controls.Add(rowB);
             // 参数区按内容高度撑开：Dock=Fill 放在 AutoSize 行里会把这一行压扁，
             // 表现就是参数行被裁掉半截（渲染截图实测）。改为 Dock=Top + AutoSize。
             UiCard paramCard = new UiCard
@@ -151,6 +159,7 @@ namespace Excel_Iterate
             // 预检后改任何参数都要重新预检，避免拿旧体检结果去写新列
             leadSheet.TextChanged += InvalidatePreview;
             headerRow.TextChanged += InvalidatePreview;
+            sheetHeaderRow.TextChanged += InvalidatePreview;
             templateColumn.TextChanged += InvalidatePreview;
             placeholderBox.TextChanged += InvalidatePreview;
             sourceFile.TextChanged += InvalidatePreview;
@@ -236,6 +245,9 @@ namespace Excel_Iterate
             int row;
             if (!int.TryParse(headerRow.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out row)) row = 1;
             request.HeaderRow = row;
+            int sheetRow;
+            if (!int.TryParse(sheetHeaderRow.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out sheetRow)) sheetRow = 1;
+            request.SheetHeaderRow = sheetRow;
             int column;
             if (!SummaryColumns.TryParse(templateColumn.Text, out column)) column = 0;
             request.TemplateColumn = column;
@@ -335,7 +347,7 @@ namespace Excel_Iterate
         private void RefreshActions()
         {
             bool idle = !busy && !canUndo;
-            leadSheet.Enabled = headerRow.Enabled = templateColumn.Enabled = placeholderBox.Enabled = sourceFile.Enabled = idle;
+            leadSheet.Enabled = headerRow.Enabled = sheetHeaderRow.Enabled = templateColumn.Enabled = placeholderBox.Enabled = sourceFile.Enabled = idle;
             Companies.ReadOnly = !idle;
             Refresh.Enabled = idle;
             Preview.Enabled = idle;

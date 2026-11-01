@@ -240,14 +240,14 @@ namespace Excel_Iterate
 
                     int count = snapshot.Companies.Count;
                     int lastColumn = request.TemplateColumn + count - 1;
-                    SummaryTemplateProbe probe = SummaryTemplateReader.Read(target, request.HeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
+                    SummaryTemplateProbe probe = SummaryTemplateReader.Read(target, request.SheetHeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
                     // 占位名可配：模板列实际表头与默认值不一致时，先按实际值改一次再复检
                     if (!probe.Placeholder && probe.PlaceholderText.Trim().Length > 0
                         && !string.Equals(SummaryHeaders.Normalize(probe.PlaceholderText), SummaryHeaders.Normalize(request.Placeholder), StringComparison.OrdinalIgnoreCase))
                     {
                         form.SetPlaceholder(probe.PlaceholderText.Trim());
                         request.Placeholder = probe.PlaceholderText.Trim();
-                        probe = SummaryTemplateReader.Read(target, request.HeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
+                        probe = SummaryTemplateReader.Read(target, request.SheetHeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
                         text.AppendLine("占位名已按模板列表头改为「" + request.Placeholder + "」（可再改）。");
                     }
                     foreach (string blocking in probe.Blocking) text.AppendLine("阻断：" + blocking);
@@ -263,7 +263,7 @@ namespace Excel_Iterate
                     text.AppendLine("候选公司 " + count.ToString(CultureInfo.InvariantCulture) + " 家，将生成 "
                         + SummaryColumns.Letter(request.TemplateColumn) + "～" + SummaryColumns.Letter(Math.Max(1, lastColumn))
                         + " 共 " + count.ToString(CultureInfo.InvariantCulture) + " 列（模板列即第 1 家公司）。");
-                    text.AppendLine("模板列第 " + request.HeaderRow.ToString(CultureInfo.InvariantCulture)
+                    text.AppendLine("汇总表第 " + request.SheetHeaderRow.ToString(CultureInfo.InvariantCulture)
                         + " 行占位「" + (request.Placeholder.Length == 0 ? "（空=不校验）" : request.Placeholder) + "」："
                         + (probe.Placeholder ? "已确认" : "不一致，已阻断") + "；复制范围 "
                         + request.HeaderRow.ToString(CultureInfo.InvariantCulture) + "～"
@@ -286,7 +286,7 @@ namespace Excel_Iterate
                     _summarySession.TargetSheet = request.TargetSheet;
                     _summarySession.LeadSheet = request.LeadSheet;
                     _summarySession.BackupSheet = "";
-                    _summarySession.HeaderRow = request.HeaderRow;
+                    _summarySession.HeaderRow = request.SheetHeaderRow;
                     _summarySession.FirstColumn = request.TemplateColumn;
                     _summarySession.ColumnCount = count;
                     _summarySession.LastRow = probe.LastRow;
@@ -350,7 +350,7 @@ namespace Excel_Iterate
 
                     List<SummaryCompany> chosen = request.Chosen();
                     int lastColumn = request.TemplateColumn + chosen.Count - 1;
-                    SummaryTemplateProbe probe = SummaryTemplateReader.Read(target, request.HeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
+                    SummaryTemplateProbe probe = SummaryTemplateReader.Read(target, request.SheetHeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
                     if (probe.Blocking.Count > 0) throw new InvalidOperationException(string.Join("；", probe.Blocking.ToArray()));
 
                     string confirm = "将覆盖 "
@@ -377,7 +377,7 @@ namespace Excel_Iterate
                     string backupSheet = SummaryWriter.Backup(_app, book, target);
                     if (_summarySession == null) _summarySession = new SummarySession();
                     _summarySession.TargetSheet = request.TargetSheet;
-                    _summarySession.HeaderRow = request.HeaderRow;
+                    _summarySession.HeaderRow = request.SheetHeaderRow;
                     _summarySession.FirstColumn = request.TemplateColumn;
                     _summarySession.ColumnCount = chosen.Count;
                     _summarySession.LastRow = probe.LastRow;

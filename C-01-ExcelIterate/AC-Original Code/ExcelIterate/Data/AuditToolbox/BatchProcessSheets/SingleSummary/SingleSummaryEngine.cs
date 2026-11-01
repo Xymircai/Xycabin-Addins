@@ -34,7 +34,8 @@ namespace Excel_Iterate
         internal string WorkbookName = "";
         internal string LeadSheet = "";
         internal string TargetSheet = "";
-        internal int HeaderRow = 1;
+        internal int HeaderRow = 1;        // Lead 表里「编码&简称/全称」所在行
+        internal int SheetHeaderRow = 1;   // 汇总表里公司列标题（占位）所在行，可与 Lead 不同
         internal int TemplateColumn;         // 模板列列号（1 起，D=4）
         internal string SourceFile = "";     // 模板公司文件名，如 "示例有限公司.xlsx"
         internal string Placeholder = SummaryHeaders.Placeholder;  // 模板列的表头占位名，默认「大合并」，可改；留空=不校验
@@ -58,7 +59,8 @@ namespace Excel_Iterate
             if (TargetSheet.Trim().Length == 0) return "找不到汇总工作表，请重新打开窗口。";
             if (string.Equals(LeadSheet.Trim(), TargetSheet.Trim(), StringComparison.OrdinalIgnoreCase))
                 return "Lead 表与汇总表不能是同一张工作表。";
-            if (HeaderRow < 1) return "表头行号无效。";
+            if (HeaderRow < 1) return "Lead 表头行号无效。";
+            if (SheetHeaderRow < 1) return "汇总表表头行号无效。";
             if (TemplateColumn < 1 || TemplateColumn > 16384) return "模板列无效，请填列字母（如 D）。";
             if (SourceFile.Trim().Length == 0) return "请填写模板公司全称（换链源文件名，如 示例有限公司.xlsx）。";
             if (!SummaryLinkRewriter.IsLinkFile(SourceFile)) return "模板公司全称需拼成「全称.xlsx」的样式。";

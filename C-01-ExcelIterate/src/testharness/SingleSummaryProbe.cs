@@ -124,6 +124,13 @@ namespace Excel_Iterate.TestHarness
                 && !SummaryHeaders.MatchesPlaceholder("甲公司（合并）", "大合并"), "判定错");
             Assert("占位名留空=不校验", SummaryHeaders.MatchesPlaceholder("任意表头", ""), "留空仍在校验");
             Assert("空表头对非空占位不通过", !SummaryHeaders.MatchesPlaceholder("", "大合并"), "误通过");
+            Assert("Lead 表头行与汇总表表头行互相独立", new SummaryRequest().HeaderRow == 1 && new SummaryRequest().SheetHeaderRow == 1, "默认值不一致");
+            SummaryRequest twoRows = Request(Company(2, "A", "甲", true));
+            twoRows.HeaderRow = 1; twoRows.SheetHeaderRow = 2;
+            Assert("两个表头行可不同且通过校验", twoRows.Validate() == null, twoRows.Validate());
+            SummaryRequest badSheetRow = Request(Company(2, "A", "甲", true));
+            badSheetRow.SheetHeaderRow = 0;
+            Assert("汇总表表头行非法被拦", badSheetRow.Validate() != null && badSheetRow.Validate().Contains("汇总表表头行"), badSheetRow.Validate());
 
             Console.WriteLine();
             Console.WriteLine("--- 2. 外链文件名提取 ---");

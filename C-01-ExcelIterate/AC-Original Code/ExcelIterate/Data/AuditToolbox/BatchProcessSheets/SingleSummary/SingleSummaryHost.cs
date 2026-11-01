@@ -249,13 +249,13 @@ namespace Excel_Iterate
                 int bottom = top + height - 1;
                 if (bottom < headerRow) bottom = headerRow;
 
+                // 整列从第 1 行读起：表头行可能不在第 1 行（真实底稿常见第 2 行），
+                // 但它影响的是「表头写哪一行」，不该影响复制范围。
                 string letter = SummaryColumns.Letter(firstColumn);
-                dynamic columnRange = bag.Own(s.Range[
-                    letter + headerRow.ToString(CultureInfo.InvariantCulture)
-                    + ":" + letter + bottom.ToString(CultureInfo.InvariantCulture)]);
+                dynamic columnRange = bag.Own(s.Range[letter + "1:" + letter + bottom.ToString(CultureInfo.InvariantCulture)]);
                 object values = ReadValues(columnRange);
                 object formulas = ReadFormulas(columnRange);
-                int rows = bottom - headerRow + 1;
+                int rows = bottom;
 
                 int lastRow = headerRow - 1;
                 for (int r = rows - 1; r >= 0; r--)
@@ -263,7 +263,7 @@ namespace Excel_Iterate
                     if (SummaryArrays.HasContent(SummaryArrays.Pick(values, r, rows, 0, 1)) ||
                         SummaryArrays.HasContent(SummaryArrays.Pick(formulas, r, rows, 0, 1)))
                     {
-                        lastRow = headerRow + r;
+                        lastRow = 1 + r;
                         break;
                     }
                 }
@@ -420,14 +420,15 @@ namespace Excel_Iterate
             using (ComBag bag = new ComBag())
             {
                 dynamic s = sheet;
-                int headerRow = request.HeaderRow;
+                int headerRow = request.SheetHeaderRow;   // 公司列标题（占位）所在行
+                int startRow = 1;                          // 复制从表顶开始，表头行可以不在第 1 行
                 int lastRow = probe.LastRow;
                 bool quoteWarned = false;
 
                 // 2) 源列公式快照（换链与「原样带出」都以此为准，先读后写）
                 List<string> sourceFormulas = new List<string>();
-                object formulaValues = ReadFormulas(bag, s, firstColumn, headerRow, lastRow);
-                int rows = lastRow - headerRow + 1;
+                object formulaValues = ReadFormulas(bag, s, firstColumn, startRow, lastRow);
+                int rows = lastRow - startRow + 1;
                 for (int r = 0; r < rows; r++)
                 {
                     object value = SummaryArrays.Pick(formulaValues, r, rows, 0, 1);
@@ -438,7 +439,7 @@ namespace Excel_Iterate
                 double width = ReadColumnWidth(bag, s, firstColumn);
 
                 dynamic sourceRange = bag.Own(s.Range[
-                    ComFormulaHost.Address(headerRow, firstColumn) + ":"
+                    ComFormulaHost.Address(startRow, firstColumn) + ":"
                     + ComFormulaHost.Address(lastRow, firstColumn)]);
 
                 // 3) 逐列铺开：List[0] 就是模板列本身，从第 2 家公司起复制到右侧
@@ -448,7 +449,7 @@ namespace Excel_Iterate
                         + "/" + chosen.Count.ToString(CultureInfo.InvariantCulture) + " 列…");
                     int column = firstColumn + i;
                     dynamic targetRange = bag.Own(s.Range[
-                        ComFormulaHost.Address(headerRow, column) + ":"
+                        ComFormulaHost.Address(startRow, column) + ":"
                         + ComFormulaHost.Address(lastRow, column)]);
                     ClearBlock(targetRange);
                     sourceRange.Copy(targetRange);
@@ -488,7 +489,7 @@ namespace Excel_Iterate
                                 }
                             }
                         }
-                        dynamic cell = bag.Own(s.Cells[headerRow + r, column]);
+                        dynamic cell = bag.Own(s.Cells[startRow + r, column]);
                         cell.Formula = text;
                         touched++;
                         if (rewrite.Count > 0) report.RewrittenLinks += rewrite.Count;
@@ -497,7 +498,7 @@ namespace Excel_Iterate
                         {
                             SummaryLinkSample sample = new SummaryLinkSample();
                             sample.Column = letter;
-                            sample.Cell = letter + (headerRow + r).ToString(CultureInfo.InvariantCulture);
+                            sample.Cell = letter + (startRow + r).ToString(CultureInfo.InvariantCulture);
                             sample.Before = original;
                             sample.After = text;
                             report.Samples.Add(sample);
@@ -515,7 +516,7 @@ namespace Excel_Iterate
                 }
 
                 // 6) 读回校验：表头与首列公式必须与预期一致
-                string verify = Verify(s, chosen, request, headerRow, lastRow, sourceFormulas);
+                string verify = Verify(s, chosen, request, headerRow, startRow, lastRow, sourceFormulas);
                 if (verify != null) report.Warnings.Add(verify);
 
                 // 6b) 趁「不询问链接」仍然生效时先把目标表算完：
@@ -565,11 +566,12 @@ namespace Excel_Iterate
                 for (int i = 0; i < columnCount; i++)
                 {
                     int column = firstColumn + i;
+                    // 还原范围与生成范围一致：第 1 行到末行（表头行只是其中一行）
                     dynamic target = bag.Own(s.Range[
-                        ComFormulaHost.Address(headerRow, column) + ":"
+                        ComFormulaHost.Address(1, column) + ":"
                         + ComFormulaHost.Address(lastRow, column)]);
                     dynamic original = bag.Own(b.Range[
-                        ComFormulaHost.Address(headerRow, column) + ":"
+                        ComFormulaHost.Address(1, column) + ":"
                         + ComFormulaHost.Address(lastRow, column)]);
                     ClearBlock(target);
                     original.Copy(target);
@@ -706,7 +708,7 @@ namespace Excel_Iterate
 
         /// <summary>读回校验：表头值、首列公式是否与预期一致；不一致只记警告，不假装成功。</summary>
         private static string Verify(object sheet, List<SummaryCompany> chosen, SummaryRequest request,
-            int headerRow, int lastRow, List<string> sourceFormulas)
+            int headerRow, int startRow, int lastRow, List<string> sourceFormulas)
         {
             List<string> problems = new List<string>();
             using (ComBag bag = new ComBag())
@@ -720,8 +722,8 @@ namespace Excel_Iterate
                         problems.Add(SummaryColumns.Letter(request.TemplateColumn + i) + headerRow.ToString(CultureInfo.InvariantCulture)
                             + " 表头读回为「" + actual + "」，应为「" + chosen[i].Code + "」");
                 }
-                object first = ReadFormulas(bag, s, request.TemplateColumn, headerRow, lastRow);
-                int rows = lastRow - headerRow + 1;
+                object first = ReadFormulas(bag, s, request.TemplateColumn, startRow, lastRow);
+                int rows = lastRow - startRow + 1;
                 for (int r = 0; r < rows; r++)
                 {
                     if (sourceFormulas[r] == null) continue;
@@ -733,7 +735,7 @@ namespace Excel_Iterate
                     if (!string.Equals(actual, expected, StringComparison.Ordinal))
                     {
                         problems.Add(SummaryColumns.Letter(request.TemplateColumn)
-                            + (headerRow + r).ToString(CultureInfo.InvariantCulture) + " 公式读回与预期不一致");
+                            + (startRow + r).ToString(CultureInfo.InvariantCulture) + " 公式读回与预期不一致");
                         break;
                     }
                 }

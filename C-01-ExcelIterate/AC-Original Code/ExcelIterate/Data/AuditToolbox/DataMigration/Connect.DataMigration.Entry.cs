@@ -92,9 +92,39 @@ namespace Excel_Iterate
                 };
                 form.TargetSelectionRequested += delegate { MigrationAction(form, delegate { MigrationSelection(form, true); }); };
                 form.FormClosed += delegate { ResetMigration(); _migrationForm = null; form.Dispose(); };
+                DefaultMigrationSource(form);
                 IntPtr owner = GetHostWindowHandle(); if (owner == IntPtr.Zero) form.Show(); else form.Show(new WindowWrapper(owner));
             }
             catch (Exception error) { Log("批量迁移数据：" + error); UiDialog.Show(error.Message, "批量迁移数据", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        }
+        // Default the source to the workbook/sheet the user is looking at. Names
+        // come from the open workbook itself, so nothing is opened or read from
+        // disk; anything unusual (new unsaved book, chart sheet, unsupported
+        // format) silently leaves the fields empty as before.
+        private static void DefaultMigrationSource(DataMigrationForm form)
+        {
+            try
+            {
+                using (var bag = new ComBag())
+                {
+                    dynamic book = bag.Own(((dynamic)_app).ActiveWorkbook);
+                    if (book == null) return;
+                    string path = Convert.ToString(book.FullName);
+                    if (!Path.IsPathRooted(path) || !File.Exists(path) || !DataMigrationEngine.SupportedFile(path)) return;
+                    var names = new List<string>();
+                    dynamic sheets = bag.Own(book.Worksheets);
+                    for (int i = 1; i <= Convert.ToInt32(sheets.Count); i++) using (var item = new ComBag())
+                    { dynamic sheet = item.Own(sheets.Item(i)); names.Add(Convert.ToString(sheet.Name)); }
+                    if (names.Count == 0) return;
+                    string active = "";
+                    try { dynamic sheet = bag.Own(((dynamic)_app).ActiveSheet); if (sheet != null) active = Convert.ToString(sheet.Name); } catch { }
+                    if (!names.Contains(active)) active = names[0];
+                    form.SetSource(Path.GetFullPath(path), active, "", names);
+                    form.Message("已默认使用当前工作簿“" + Path.GetFileName(path) + "”的工作表“" + active + "”作为源；请填写源区域，或点击“读取当前选区”。"
+                        + (ComFormulaHost.Boolean(book.Saved, "Saved") ? "" : "当前工作簿有未保存修改，预检前请先保存。"));
+                }
+            }
+            catch (Exception error) { Log("批量迁移数据默认源：" + error); }
         }
         private static void MigrationAction(DataMigrationForm form, Action action)
         { try { action(); } catch (Exception error) { Log("批量迁移数据：" + error); form.Message(error.Message); } }

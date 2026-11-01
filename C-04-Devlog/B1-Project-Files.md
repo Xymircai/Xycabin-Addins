@@ -131,6 +131,9 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 
 
+
+本轮按最新本地工作区重新生成 Excel_Iterate_Setup_20261101_2.exe，包含更新后的迁移入口；编译、清单与安装器本机测试签名完成，25 项包级载荷、身份及卸载入口核对通过，638 个输入文件在打包期间未变。原版本和源码固定发布者配置保留，沿用既有本机测试证书且未修改信任根，证书链仍不受系统信任。本轮未做完整回归、WPS 实机验收、安装或推送。证据见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261101-2/delivery-state.json)。
+
 本轮按最新本地工作区生成 Excel_Iterate_Setup_20261101.exe，包含迁移入口、窗口、宿主、输出事务及窗口恢复改动。独立 staging 编译、清单重签及安装器签名完成，25 项包级载荷、CLR 身份及卸载入口核对通过；638 个输入文件在打包期间未变。版本及原源码固定发布者配置保持不变；沿用既有本机测试证书，根未受系统信任且未修改信任根。本轮未做完整回归或 WPS 实机验收，未安装或推送。证据见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261101/delivery-state.json)。
 
 本轮按用户更新的“还原操作”按钮及相关本地实现重新打包，包含 DataMigrationForm 和 MigrationOutputTransaction.Restore；编译、清单与安装器本机测试签名完成，25 项包级载荷、身份及卸载入口核对通过。638 个输入在打包期间未变，原版本和源码固定发布者配置保持不变；既有开发证书链不受系统信任，未修改信任根。本轮未做完整回归、WPS 实机或实际还原操作测试，未安装或推送。输出 Excel_Iterate_Setup_20261031_4.exe，见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261031-4/delivery-state.json)。

@@ -126,6 +126,18 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 ### (2). 本轮交付证据
 
 
+
+
+
+
+本轮按用户更新的“还原操作”按钮及相关本地实现重新打包，包含 DataMigrationForm 和 MigrationOutputTransaction.Restore；编译、清单与安装器本机测试签名完成，25 项包级载荷、身份及卸载入口核对通过。638 个输入在打包期间未变，原版本和源码固定发布者配置保持不变；既有开发证书链不受系统信任，未修改信任根。本轮未做完整回归、WPS 实机或实际还原操作测试，未安装或推送。输出 Excel_Iterate_Setup_20261031_4.exe，见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261031-4/delivery-state.json)。
+
+本轮再次按最新工作区重新打包，修复新下拉菜单缺失 RadioButtonState 引用；采用该类型的完整命名空间别名，避免与 Drawing.ContentAlignment 重名。成功编译后重签清单及安装器，25 项包级载荷、身份与卸载入口核对通过，原版本及源码固定发布者配置保留。沿用既有本机开发证书，证书链不受系统信任且未修改信任根；未执行完整回归、WPS 实机验收、安装或推送。输出 Excel_Iterate_Setup_20261031_3.exe，证据见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261031-3/delivery-state.json)；前两次编译失败日志保留于同目录。
+
+用户再次修改迁移窗口、宿主与窗口恢复代码后，已从当前工作区重新生成独立测试包 Excel_Iterate_Setup_20261031_2.exe；编译、清单与安装器本机测试签名、25 项包级五载荷及卸载入口核对通过，638 个源码输入在打包期间未变。正式版本及原作者固定证书配置保留，既有测试签名根未受系统信任且未修改信任根。本轮未进行完整回归、WPS 实机测试、安装或推送。证据见 [本轮重新打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261031-2/delivery-state.json)。
+
+本轮按用户更新后的本地工作区生成测试安装包，包含 MigrationWindowScope 的所有者窗口及迁移弹窗恢复改动；独立 staging 编译、清单重签、安装器签名完成，包级五载荷、CLR 身份、签名结构与卸载入口 25 项核对通过。使用既有本机开发证书 60E01297DE2278451E865FF88B7124C984A9901C，自签名根未受系统信任且未修改信任根；原源码固定发布者及版本保持不变。638 个输入文件在打包期间未变。本轮未执行完整回归或 WPS 实机验收，未安装、关闭 WPS、提交或推送。证据见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/package-20261031/delivery-state.json) 与 [包级核对](../C-01-ExcelIterate/build/local-delivery/package-20261031/installer-artifact.log)。
+
 本轮筛选菜单与首行对齐代码已在独立 staging 编译，以已有本机开发证书 60E01297DE2278451E865FF88B7124C984A9901C 重签清单并生成测试安装包；原项目固定发布者及版本保持不变。包级载荷、CLR 身份、签名结构和卸载入口探针 25 项通过；自签名根未受系统信任，未修改信任根。后台验证在文档资源探针访问自建临时目录时因 WinError 5 中止，不代表完整回归通过；随后用户要求无需检查，因此未重跑、未进行本轮界面或 WPS 验收。未安装、未关闭 WPS、未提交或推送。证据见 [打包记录](../C-01-ExcelIterate/build/local-delivery/filter-alignment/delivery-state.json)、[未完成验证日志](../C-01-ExcelIterate/build/local-delivery/filter-alignment/package-validation.log)。
 
 本轮源文件按钮移位与“选择”表头下拉已完成，主窗不再显示全选/全不选。迁移探针 168 项通过，覆盖同名不同路径搜索、勾选草稿取消、一次失效、无变化保留预检及运行中拒绝回写。交互样本验证 Esc 保留四项，取消后重开，再仅对两个搜索结果反选并确认，主表更新为两项且四行均可见，样本正常退出。初次交互发现 Closed 内同步 Dispose 触发 WinForms 激活筛选器的 ObjectDisposedException，现保留已关闭对象到后续正常事件释放，源码记录此寿命约束。独立测试包完整后台验证通过，Feature099 10873 项（较前版少两个已移除按钮的控件断言）、弹窗核心 107 项、安装包载荷及卸载入口 25 项通过；沿用本机开发证书，根证书仍不受信任，正式签名配置未改。见[交付状态](../C-01-ExcelIterate/build/local-delivery/selection-menu/delivery-state.json)、[交互核对](../C-01-ExcelIterate/build/local-delivery/selection-menu/interactive-check.json)和[完整后台验证](../C-01-ExcelIterate/build/local-delivery/selection-menu/package-validation.log)。本轮未安装、关闭 WPS、提交、推送或发布；独立交互样本不代替用户 WPS 版本安装后验收。

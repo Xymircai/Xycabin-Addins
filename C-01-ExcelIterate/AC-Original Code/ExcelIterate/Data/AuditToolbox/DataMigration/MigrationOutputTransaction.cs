@@ -49,6 +49,37 @@ namespace Excel_Iterate
             }
             return backup;
         }
+        // Put a migration backup back in place. The migrated version is moved
+        // next to the backup instead of being discarded, and nothing happens
+        // unless the target still holds exactly the bytes the migration wrote.
+        internal static string Restore(string target, string backup, string expectedCurrentHash)
+        {
+            target = Path.GetFullPath(target); backup = Path.GetFullPath(backup);
+            PlainPath(target); PlainPath(backup);
+            if (!File.Exists(backup)) throw new IOException("找不到备份文件：" + backup);
+            if (!File.Exists(target)) throw new IOException("目标文件不存在：" + target);
+            if (DataMigrationHost.Digest(target) != expectedCurrentHash) throw new IOException("迁移后该文件又被修改过，未还原；备份位于：" + backup);
+            try { using (File.Open(target, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { } }
+            catch (IOException) { throw new IOException("文件正在被使用，请先在 WPS 中关闭后再还原。"); }
+            catch (UnauthorizedAccessException) { throw new IOException("文件为只读或没有写入权限，未还原。"); }
+            string original = DataMigrationHost.Digest(backup);
+            string stage = Path.Combine(Path.GetDirectoryName(target), ".xy-migration-restore-" + Guid.NewGuid().ToString("N") + Path.GetExtension(target));
+            string displaced = Path.Combine(Path.GetDirectoryName(backup), "还原前_" + Guid.NewGuid().ToString("N").Substring(0, 8) + "_" + Path.GetFileName(target));
+            File.Copy(backup, stage, false);
+            try
+            {
+                if (DataMigrationHost.Digest(stage) != original) throw new IOException("复制备份时内容不一致，未还原。");
+                if (DataMigrationHost.Digest(target) != expectedCurrentHash) throw new IOException("还原前文件发生变化，未还原。");
+                File.Replace(stage, target, displaced, false);
+            }
+            catch
+            {
+                try { if (File.Exists(stage)) File.Delete(stage); } catch { }
+                throw;
+            }
+            if (DataMigrationHost.Digest(target) != original) throw new IOException("还原后内容与备份不一致；迁移后的版本保存在：" + displaced);
+            return displaced;
+        }
         private static void PlainPath(string path)
         {
             for (string current = path; !string.IsNullOrEmpty(current); current = Path.GetDirectoryName(current))

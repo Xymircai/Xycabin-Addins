@@ -457,6 +457,7 @@ namespace Excel_Iterate
             }
         }
         private void Quiet(Action action) { Quiet<bool>(delegate { action(); return true; }); }
+        private const int WriteSliceMilliseconds = 150;
         internal IEnumerable<MigrationProgress> Execute()
         {
             Check(); watch.Validate(); ValidateOriginal(source, sourceHash);
@@ -496,22 +497,32 @@ namespace Excel_Iterate
                 try { ReleaseTarget(target); } catch (Exception error) { failure = failure ?? error; }
                 if (failure == null)
                 {
-                    for (int i = 0; i < cells.Count; i++)
+                    // Write in short time slices instead of one host round-trip
+                    // per cell: every Quiet toggles ScreenUpdating/EnableEvents and
+                    // the window scope, which made WPS and the dialog flash
+                    // continuously. Settings are still restored before each yield.
+                    for (int i = 0; i < cells.Count; )
                     {
                         try
                         {
-                            Check(); watch.Validate(); copyWatch.Validate(); int index = i;
-                            Quiet(delegate { WriteCell(sheet, target, index); });
+                            Check(); watch.Validate(); copyWatch.Validate(); int first = i;
+                            i = Quiet<int>(delegate
+                            {
+                                var clock = System.Diagnostics.Stopwatch.StartNew(); int index = first;
+                                do { WriteCell(sheet, target, index); index++; }
+                                while (index < cells.Count && !Cancelled && clock.ElapsedMilliseconds < WriteSliceMilliseconds);
+                                return index;
+                            });
                         }
                         catch (Exception error) { failure = error; break; }
-                        yield return new MigrationProgress("写入 " + Path.GetFileName(target.Path) + " " + (i + 1) + "/" + cells.Count);
+                        yield return new MigrationProgress("写入 " + Path.GetFileName(target.Path) + " " + i + "/" + cells.Count);
                     }
                 }
                 if (failure == null)
                 {
                     try
                     {
-                        copyWatch.Validate(); target.Status = "保存副本";
+                        Check(); copyWatch.Validate(); target.Status = "保存副本";
                         Quiet(delegate
                         {
                             foreach (var merge in merges) using (var bag = new ComBag())

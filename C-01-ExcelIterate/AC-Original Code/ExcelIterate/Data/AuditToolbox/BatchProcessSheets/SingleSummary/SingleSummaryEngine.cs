@@ -37,6 +37,7 @@ namespace Excel_Iterate
         internal int HeaderRow = 1;
         internal int TemplateColumn;         // 模板列列号（1 起，D=4）
         internal string SourceFile = "";     // 模板公司文件名，如 "示例有限公司.xlsx"
+        internal string Placeholder = SummaryHeaders.Placeholder;  // 模板列的表头占位名，默认「大合并」，可改；留空=不校验
         internal readonly List<SummaryCompany> Companies = new List<SummaryCompany>();
 
         internal string TemplateLetter { get { return SummaryColumns.Letter(TemplateColumn); } }
@@ -134,6 +135,17 @@ namespace Excel_Iterate
         internal static bool IsName(string text) { return Normalize(text) == Normalize(NameHeader); }
         internal static bool IsPick(string text) { return Normalize(text) == Normalize(PickHeader); }
         internal static bool IsPlaceholder(string text) { return Normalize(text) == Normalize(Placeholder); }
+
+        /// <summary>
+        /// 模板列表头是否与占位名一致。占位名可配：留空表示不校验（直接按列写表头），
+        /// 非空时按「去空白 + 全角＆归一」后忽略大小写比较。
+        /// </summary>
+        internal static bool MatchesPlaceholder(string actual, string expected)
+        {
+            string want = expected == null ? "" : expected.Trim();
+            if (want.Length == 0) return true;
+            return string.Equals(Normalize(actual), Normalize(want), StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     internal sealed class SummaryRewrite

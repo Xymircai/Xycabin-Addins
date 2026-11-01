@@ -37,7 +37,8 @@ namespace Excel_Iterate
         internal int LastRow;                 // 模板列最后一个非空行
         internal int LastColumn;              // 目标区间最后一列
         internal int FormulaCells;
-        internal bool Placeholder;            // 表头行是该列「大合并」占位
+        internal bool Placeholder;            // 表头行是该列的表头占位
+        internal string ExpectedPlaceholder = "";  // 本次要求匹配的占位名（空=不校验）
         internal string PlaceholderText = "";
         internal readonly List<string> Tokens = new List<string>();
         internal readonly List<string> CrossColumnMerges = new List<string>();
@@ -227,10 +228,11 @@ namespace Excel_Iterate
     /// <summary>模板列体检：占位表头、末行、外链文件名、跨列合并。</summary>
     internal static class SummaryTemplateReader
     {
-        internal static SummaryTemplateProbe Read(object sheet, int headerRow, int firstColumn, int lastColumn)
+        internal static SummaryTemplateProbe Read(object sheet, int headerRow, int firstColumn, int lastColumn, string placeholder)
         {
             SummaryTemplateProbe probe = new SummaryTemplateProbe();
             probe.HeaderRow = headerRow;
+            probe.ExpectedPlaceholder = placeholder == null ? "" : placeholder.Trim();
             probe.LastColumn = lastColumn;
             dynamic s = sheet;
             if (ComFormulaHost.Boolean(s.ProtectContents, "ProtectContents"))
@@ -278,7 +280,8 @@ namespace Excel_Iterate
 
                 dynamic headerCell = bag.Own(s.Cells[headerRow, firstColumn]);
                 probe.PlaceholderText = SummaryArrays.Text(headerCell.Value2);
-                probe.Placeholder = SummaryHeaders.IsPlaceholder(probe.PlaceholderText);
+                // 占位名可配：留空表示不校验；否则按去空白/全角归一后的文字比较
+                probe.Placeholder = SummaryHeaders.MatchesPlaceholder(probe.PlaceholderText, probe.ExpectedPlaceholder);
 
                 // 第一行必须是逐列独立单元格：任何跨列合并都终止
                 for (int c = firstColumn; c <= lastColumn; c++)
@@ -297,7 +300,10 @@ namespace Excel_Iterate
             {
                 probe.Blocking.Add("模板列 " + SummaryColumns.Letter(firstColumn) + " 第 "
                     + headerRow.ToString(CultureInfo.InvariantCulture) + " 行的值是「" + probe.PlaceholderText
-                    + "」，不是「" + SummaryHeaders.Placeholder + "」，无法确认表头占位。");
+                    + "」，与占位名「" + probe.ExpectedPlaceholder + "」不一致。"
+                    + (probe.PlaceholderText.Length > 0
+                        ? "若这一格就是本表模板列的表头，再点一次「读取 Lead 并预检」会自动把占位名改成它；也可以在「占位名」里自己改。"
+                        : "这一格是空的：把占位名清空即可不校验，直接写入表头。"));
             }
             if (probe.CrossColumnMerges.Count > 0)
             {
@@ -351,6 +357,44 @@ namespace Excel_Iterate
         }
     }
 
+    /// <summary>
+    /// 关掉「更新值 / 更新链接」询问。
+    ///
+    /// 为什么需要：这一版写进去的是指向各公司工作簿的外链，测试机上那些文件往往
+    /// 不在，WPS 恢复自动重算时会逐条弹「更新值」，一条接一条，看起来像"反复弹出"。
+    /// 本类在批处理与还原期间把 AskToUpdateLinks / DisplayAlerts 关掉，
+    /// 由外到内先恢复重算方式、最后才恢复询问，保证恢复那一刻也不再问。
+    /// </summary>
+    internal sealed class HostLinkQuiet : IDisposable
+    {
+        private readonly object app;
+        private readonly bool ask, alerts;
+        private bool disposed;
+
+        internal HostLinkQuiet(object application)
+        {
+            app = application;
+            ask = ComFormulaHost.Boolean(((dynamic)app).AskToUpdateLinks, "AskToUpdateLinks");
+            alerts = ComFormulaHost.Boolean(((dynamic)app).DisplayAlerts, "DisplayAlerts");
+            try
+            {
+                ((dynamic)app).AskToUpdateLinks = false;
+                ((dynamic)app).DisplayAlerts = false;
+            }
+            catch { try { ((dynamic)app).AskToUpdateLinks = ask; ((dynamic)app).DisplayAlerts = alerts; } catch { } throw; }
+        }
+
+        public void Dispose()
+        {
+            if (disposed) return;
+            disposed = true;
+            try { ((dynamic)app).DisplayAlerts = alerts; }
+            catch (Exception ex) { Connect.Log("单体汇总表生成：恢复提醒设置失败 " + ex.Message); }
+            try { ((dynamic)app).AskToUpdateLinks = ask; }
+            catch (Exception ex) { Connect.Log("单体汇总表生成：恢复链接询问失败 " + ex.Message); }
+        }
+    }
+
     /// <summary>汇总表写入：备份 → 铺列 → 换链 → 表头 → 日志。</summary>
     internal static class SummaryWriter
     {
@@ -371,6 +415,7 @@ namespace Excel_Iterate
             if (status != null) status("已备份工作表为「" + report.BackupSheet + "」，开始铺列…");
 
             using (HostQuiet quiet = new HostQuiet(app))
+            using (HostLinkQuiet links = new HostLinkQuiet(app))
             using (HostCalculation calculation = new HostCalculation(app))
             using (ComBag bag = new ComBag())
             {
@@ -473,6 +518,11 @@ namespace Excel_Iterate
                 string verify = Verify(s, chosen, request, headerRow, lastRow, sourceFormulas);
                 if (verify != null) report.Warnings.Add(verify);
 
+                // 6b) 趁「不询问链接」仍然生效时先把目标表算完：
+                //     否则稍后自动重算会逐条弹「更新值」，用户看到的就是反复弹窗。
+                try { s.Calculate(); }
+                catch (Exception ex) { Connect.Log("单体汇总表生成：目标表重算失败 " + ex.Message); }
+
                 if (probe.Tokens.Count == 0)
                     report.Warnings.Add("模板列里没有 [xxx.xlsx] 形式的外链，换链已跳过（按需求记日志、不阻断）。");
                 else if (probe.Tokens.Count > 0 && report.RewrittenLinks == 0)
@@ -505,6 +555,8 @@ namespace Excel_Iterate
         internal static void Restore(object app, object book, object sheet, string backupName,
             int firstColumn, int columnCount, int lastRow, int headerRow)
         {
+            using (HostQuiet quiet = new HostQuiet(app))
+            using (HostLinkQuiet links = new HostLinkQuiet(app))
             using (ComBag bag = new ComBag())
             {
                 dynamic backup = bag.Own(((dynamic)book).Worksheets[backupName]);

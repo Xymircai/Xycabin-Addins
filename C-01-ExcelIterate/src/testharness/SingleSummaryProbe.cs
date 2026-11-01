@@ -116,6 +116,16 @@ namespace Excel_Iterate.TestHarness
             Assert("NeedsQuote 判定括号", SummaryLinkRewriter.NeedsQuote("甲公司（合并）.xlsx") && !SummaryLinkRewriter.NeedsQuote("甲公司.xlsx"), "判定错");
 
             Console.WriteLine();
+            Console.WriteLine("--- 1c. 占位名可配（默认「大合并」，可改可空） ---");
+            Assert("默认占位名是大合并", new SummaryRequest().Placeholder == "大合并", new SummaryRequest().Placeholder);
+            Assert("占位一致", SummaryHeaders.MatchesPlaceholder("大合并", "大合并"), "未匹配");
+            Assert("占位允许空格差异", SummaryHeaders.MatchesPlaceholder(" 大 合并 ", "大合并"), "未匹配");
+            Assert("占位可换成公司名", SummaryHeaders.MatchesPlaceholder("甲公司（合并）", "甲公司（合并）")
+                && !SummaryHeaders.MatchesPlaceholder("甲公司（合并）", "大合并"), "判定错");
+            Assert("占位名留空=不校验", SummaryHeaders.MatchesPlaceholder("任意表头", ""), "留空仍在校验");
+            Assert("空表头对非空占位不通过", !SummaryHeaders.MatchesPlaceholder("", "大合并"), "误通过");
+
+            Console.WriteLine();
             Console.WriteLine("--- 2. 外链文件名提取 ---");
             List<string> tokens = SummaryLinkRewriter.Tokens("=[甲公司.xlsx]BS!A1+[丙公司.xlsx]BS!B2", null);
             Assert("提取两个外链文件名", tokens.Count == 2 && tokens[0] == "甲公司.xlsx" && tokens[1] == "丙公司.xlsx",

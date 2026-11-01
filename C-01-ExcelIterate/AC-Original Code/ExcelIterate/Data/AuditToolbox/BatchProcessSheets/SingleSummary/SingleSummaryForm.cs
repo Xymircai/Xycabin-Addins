@@ -25,6 +25,7 @@ namespace Excel_Iterate
         private readonly ComboBox leadSheet = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 180, Name = "leadSheetBox" };
         private readonly TextBox headerRow = new TextBox { Width = 56, Text = "1", Name = "headerRowBox" };
         private readonly TextBox templateColumn = new TextBox { Width = 56, Text = "D", Name = "templateColumnBox" };
+        private readonly TextBox placeholderBox = new TextBox { Width = 90, Text = SummaryHeaders.Placeholder, Name = "placeholderBox" };
         private readonly TextBox sourceFile = new TextBox { Width = 280, Name = "sourceFileBox" };
         private readonly Label targetLabel = Ui.Label("", 9, false);
         private readonly Label hostLabel = Ui.Label("", 9, false);
@@ -63,16 +64,14 @@ namespace Excel_Iterate
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // 4 按钮
 
             // ---- 参数区 ----
-            TableLayoutPanel row1 = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 4, Name = "sheetRow" };
+            TableLayoutPanel row1 = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 5, Name = "sheetRow" };
             row1.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            row1.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            row1.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            row1.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            row1.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            for (int i = 0; i < 5; i++) row1.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             row1.Controls.Add(Ui.Grip(leadSheet, "Lead 工作表"), 0, 0);
             row1.Controls.Add(Ui.Grip(headerRow, "表头行"), 1, 0);
             row1.Controls.Add(Ui.Grip(templateColumn, "模板列"), 2, 0);
-            row1.Controls.Add(Ui.Grip(sourceFile, "模板公司全称"), 3, 0);
+            row1.Controls.Add(Ui.Grip(placeholderBox, "占位名"), 3, 0);
+            row1.Controls.Add(Ui.Grip(sourceFile, "模板公司全称"), 4, 0);
 
             TableLayoutPanel row2 = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Name = "targetRow" };
             row2.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -85,7 +84,13 @@ namespace Excel_Iterate
             { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Name = "paramPanel" };
             paramsPanel.Controls.Add(row2);
             paramsPanel.Controls.Add(row1);
-            UiCard paramCard = new UiCard { Dock = DockStyle.Fill, Padding = new Padding(12), Margin = new Padding(0, 0, 0, 8) };
+            // 参数区按内容高度撑开：Dock=Fill 放在 AutoSize 行里会把这一行压扁，
+            // 表现就是参数行被裁掉半截（渲染截图实测）。改为 Dock=Top + AutoSize。
+            UiCard paramCard = new UiCard
+            {
+                Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Padding = new Padding(12), Margin = new Padding(0, 0, 0, 8)
+            };
             paramCard.Controls.Add(paramsPanel);
 
             hint.Margin = new Padding(0, 4, 0, 8);
@@ -147,6 +152,7 @@ namespace Excel_Iterate
             leadSheet.TextChanged += InvalidatePreview;
             headerRow.TextChanged += InvalidatePreview;
             templateColumn.TextChanged += InvalidatePreview;
+            placeholderBox.TextChanged += InvalidatePreview;
             sourceFile.TextChanged += InvalidatePreview;
 
             RefreshActions();
@@ -233,6 +239,7 @@ namespace Excel_Iterate
             int column;
             if (!SummaryColumns.TryParse(templateColumn.Text, out column)) column = 0;
             request.TemplateColumn = column;
+            request.Placeholder = placeholderBox.Text.Trim();
             string source = sourceFile.Text.Trim();
             if (source.Length > 0 && !source.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)) source += ".xlsx";
             request.SourceFile = source;
@@ -285,6 +292,15 @@ namespace Excel_Iterate
             AppendLog("参数已改动，请重新点「读取 Lead 并预检」。");
         }
 
+        /// <summary>把占位名换掉（预检发现模板列实际表头与默认值不一致时用）。</summary>
+        internal void SetPlaceholder(string text)
+        {
+            if (IsDisposed) return;
+            suspendInvalidate = true;
+            try { placeholderBox.Text = text ?? ""; }
+            finally { suspendInvalidate = false; }
+        }
+
         /// <summary>宿主信息（版本等），空工作簿时用来告诉用户到底连到了谁。</summary>
         internal void SetHint(string text) { if (!IsDisposed) hostLabel.Text = text ?? ""; }
 
@@ -319,7 +335,7 @@ namespace Excel_Iterate
         private void RefreshActions()
         {
             bool idle = !busy && !canUndo;
-            leadSheet.Enabled = headerRow.Enabled = templateColumn.Enabled = sourceFile.Enabled = idle;
+            leadSheet.Enabled = headerRow.Enabled = templateColumn.Enabled = placeholderBox.Enabled = sourceFile.Enabled = idle;
             Companies.ReadOnly = !idle;
             Refresh.Enabled = idle;
             Preview.Enabled = idle;

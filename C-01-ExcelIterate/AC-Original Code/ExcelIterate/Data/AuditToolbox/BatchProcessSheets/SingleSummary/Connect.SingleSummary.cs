@@ -240,7 +240,16 @@ namespace Excel_Iterate
 
                     int count = snapshot.Companies.Count;
                     int lastColumn = request.TemplateColumn + count - 1;
-                    SummaryTemplateProbe probe = SummaryTemplateReader.Read(target, request.HeaderRow, request.TemplateColumn, lastColumn);
+                    SummaryTemplateProbe probe = SummaryTemplateReader.Read(target, request.HeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
+                    // 占位名可配：模板列实际表头与默认值不一致时，先按实际值改一次再复检
+                    if (!probe.Placeholder && probe.PlaceholderText.Trim().Length > 0
+                        && !string.Equals(SummaryHeaders.Normalize(probe.PlaceholderText), SummaryHeaders.Normalize(request.Placeholder), StringComparison.OrdinalIgnoreCase))
+                    {
+                        form.SetPlaceholder(probe.PlaceholderText.Trim());
+                        request.Placeholder = probe.PlaceholderText.Trim();
+                        probe = SummaryTemplateReader.Read(target, request.HeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
+                        text.AppendLine("占位名已按模板列表头改为「" + request.Placeholder + "」（可再改）。");
+                    }
                     foreach (string blocking in probe.Blocking) text.AppendLine("阻断：" + blocking);
                     foreach (string warning in probe.Warnings) text.AppendLine("提示：" + warning);
 
@@ -255,8 +264,8 @@ namespace Excel_Iterate
                         + SummaryColumns.Letter(request.TemplateColumn) + "～" + SummaryColumns.Letter(Math.Max(1, lastColumn))
                         + " 共 " + count.ToString(CultureInfo.InvariantCulture) + " 列（模板列即第 1 家公司）。");
                     text.AppendLine("模板列第 " + request.HeaderRow.ToString(CultureInfo.InvariantCulture)
-                        + " 行占位「" + SummaryHeaders.Placeholder + "」："
-                        + (probe.Placeholder ? "已确认" : "未找到，已阻断") + "；复制范围 "
+                        + " 行占位「" + (request.Placeholder.Length == 0 ? "（空=不校验）" : request.Placeholder) + "」："
+                        + (probe.Placeholder ? "已确认" : "不一致，已阻断") + "；复制范围 "
                         + request.HeaderRow.ToString(CultureInfo.InvariantCulture) + "～"
                         + probe.LastRow.ToString(CultureInfo.InvariantCulture) + " 行，含公式 "
                         + probe.FormulaCells.ToString(CultureInfo.InvariantCulture) + " 个。");
@@ -341,7 +350,7 @@ namespace Excel_Iterate
 
                     List<SummaryCompany> chosen = request.Chosen();
                     int lastColumn = request.TemplateColumn + chosen.Count - 1;
-                    SummaryTemplateProbe probe = SummaryTemplateReader.Read(target, request.HeaderRow, request.TemplateColumn, lastColumn);
+                    SummaryTemplateProbe probe = SummaryTemplateReader.Read(target, request.HeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
                     if (probe.Blocking.Count > 0) throw new InvalidOperationException(string.Join("；", probe.Blocking.ToArray()));
 
                     string confirm = "将覆盖 "

@@ -35,11 +35,18 @@ namespace Excel_Iterate
                         var ready = _migrationRequest.Targets.Where(t => t.Ready).ToList(); int overwrite = ready.Sum(t => t.Overwritten);
                         if (ready.Count == 0) throw new InvalidOperationException("没有通过预检的目标。");
                         if (_migrationRequest.NonEmptyCells == 0 && UiDialog.Show("源区域 " + _migrationRequest.SourceSheet + "!" + _migrationRequest.SourceRange + " 全部为空。继续会清空 " + ready.Count + " 个目标的对应区域。确定继续？", "全空白源区域", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-                        if (_migrationRequest.ReplaceTargets)
+                        // Existing data in the target area is overwritten only after
+                        // an explicit yes; once confirmed it is replaced, not reported
+                        // as a failure.
+                        string saving = _migrationRequest.ReplaceTargets
+                            ? "将更新 " + ready.Count + " 个目标原文件；原版本自动备份到同目录的“迁移备份”文件夹，可用“还原操作”恢复。源文件不修改。"
+                            : "将另存 " + ready.Count + " 个“迁移结果”副本，目标原文件不修改。";
+                        if (overwrite > 0)
                         {
-                            if (UiDialog.Show("将更新 " + ready.Count + " 个目标原文件，覆盖 " + overwrite + " 个已有内容的单元格（源空白也会清空目标）。每个文件校验通过后才替换，原版本保存在同目录的“迁移备份”子文件夹。源文件不修改。是否执行？", "确认更新目标原文件", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+                            int filled = ready.Count(t => t.Overwritten > 0);
+                            if (UiDialog.Show("目标区域已有数据：" + filled + " 个目标中共有 " + overwrite + " 个单元格已有内容，执行后将被源数据覆盖（源中为空的单元格会清空目标）。" + Environment.NewLine + Environment.NewLine + saving + Environment.NewLine + Environment.NewLine + "是否覆盖原数据？", "确认覆盖原数据", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
                         }
-                        else if (overwrite > 0 && UiDialog.Show("将在 " + ready.Count + " 个结果副本中覆盖 " + overwrite + " 个已有内容的单元格。源空白也会覆盖目标；原文件不修改。是否继续？", "批量迁移数据", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+                        else if (_migrationRequest.ReplaceTargets && UiDialog.Show(saving + "每个文件校验通过后才替换。是否执行？", "确认更新目标原文件", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
                         form.Run(_migrationHost.Execute(), delegate { form.RefreshResults(); ResetMigration(); }, delegate(Exception error) { form.Message(error.Message); ResetMigration(); });
                     });
                 };

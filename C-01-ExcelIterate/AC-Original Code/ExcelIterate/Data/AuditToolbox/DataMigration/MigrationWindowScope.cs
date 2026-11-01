@@ -19,7 +19,7 @@ namespace Excel_Iterate
         [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
         [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
         [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
-        private const int SW_SHOWNOACTIVATE = 4, SW_SHOWNA = 8;
+        private const int SW_SHOWNOACTIVATE = 4, SW_SHOWNA = 8, SW_RESTORE = 9;
         private const uint GW_OWNER = 4;
         private readonly IntPtr foreground;
         private readonly HashSet<uint> hostProcesses = new HashSet<uint>();
@@ -93,6 +93,35 @@ namespace Excel_Iterate
             if (!recovered && current != IntPtr.Zero && current != foreground && !hostProcesses.Contains(process)) return;
             if (!minimized && IsIconic(foreground)) ShowWindow(foreground, 4); // SW_SHOWNOACTIVATE
             if (current != foreground) SetForegroundWindow(foreground);
+        }
+        // Window guard used by the dialog for the whole run. WPS can minimize or
+        // cover its frame some time after Open/Close returns (posted messages,
+        // especially when the frame is maximized), outside any scope above.
+        internal struct HostState { internal IntPtr Owner; internal bool OwnerIconic; }
+        internal static HostState Capture(IntPtr dialog)
+        {
+            var state = new HostState();
+            if (dialog == IntPtr.Zero) return state;
+            state.Owner = GetWindow(dialog, GW_OWNER);
+            state.OwnerIconic = state.Owner != IntPtr.Zero && IsIconic(state.Owner);
+            return state;
+        }
+        // Undo a minimize/hide of the WPS frame or the dialog that happened
+        // during the run. SW_RESTORE brings a maximized frame back maximized.
+        internal static void KeepShown(IntPtr dialog, HostState start)
+        {
+            if (dialog == IntPtr.Zero || !IsWindow(dialog)) return;
+            if (start.Owner != IntPtr.Zero && IsWindow(start.Owner) && !start.OwnerIconic && IsIconic(start.Owner)) ShowWindow(start.Owner, SW_RESTORE);
+            if (IsIconic(dialog)) ShowWindow(dialog, SW_SHOWNOACTIVATE);
+            else if (!IsWindowVisible(dialog)) ShowWindow(dialog, SW_SHOWNA);
+        }
+        // True while the user is working in WPS (any window of this process),
+        // so the dialog may stay above a maximized frame without covering
+        // other programs.
+        internal static bool HostInForeground()
+        {
+            uint process; GetWindowThreadProcessId(GetForegroundWindow(), out process);
+            return process == (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
         }
         internal static void SetOwnedVisible(object book, bool visible)
         {

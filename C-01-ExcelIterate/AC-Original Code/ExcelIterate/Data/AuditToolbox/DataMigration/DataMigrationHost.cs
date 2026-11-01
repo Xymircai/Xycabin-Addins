@@ -655,9 +655,21 @@ namespace Excel_Iterate
                     try { cell.Formula2 = target.Formulas[index].Text; }
                     catch (Exception error) { if (!ComFormulaHost.Missing(error)) throw; cell.Formula = target.Formulas[index].Text; }
                 }
+                else if (sourceCell.Value == null)
+                {
+                    // A blank source cell must really clear existing target
+                    // data. WPS can ignore Value2 = null on a filled cell, so
+                    // the old content survived and the reopen check failed.
+                    cell.ClearContents();
+                    if (cell.Value2 != null || ComFormulaHost.Boolean(cell.HasFormula, "HasFormula")) cell.Formula = "";
+                }
                 else
                 {
-                    if (sourceCell.Value is string) cell.NumberFormat = "@";
+                    // The target's existing format must not reinterpret the
+                    // value (a number written into a text cell becomes text).
+                    // Write under a neutral format; WriteStyle then restores
+                    // the source format.
+                    cell.NumberFormat = sourceCell.Value is string ? "@" : "General";
                     cell.Value2 = sourceCell.Value;
                 }
                 WriteStyle(cell, sourceCell.Style);

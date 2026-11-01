@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace Excel_Iterate
 {
@@ -79,6 +81,26 @@ namespace Excel_Iterate
             }
             if (DataMigrationHost.Digest(target) != original) throw new IOException("还原后内容与备份不一致；迁移后的版本保存在：" + displaced);
             return displaced;
+        }
+        // Permanently delete backup files this window created, then remove
+        // the batch folder and the "迁移备份" folder when they end up empty.
+        // Only the listed files are touched; anything else is left in place.
+        internal static void DeleteBackups(IEnumerable<string> files)
+        {
+            var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string file in files)
+            {
+                string full = Path.GetFullPath(file);
+                PlainPath(full);
+                if (File.Exists(full)) { File.SetAttributes(full, FileAttributes.Normal); File.Delete(full); }
+                folders.Add(Path.GetDirectoryName(full));
+            }
+            foreach (string batch in folders)
+            {
+                if (Directory.Exists(batch) && !Directory.EnumerateFileSystemEntries(batch).Any()) Directory.Delete(batch);
+                string root = Path.GetDirectoryName(batch);
+                if (string.Equals(Path.GetFileName(root), "迁移备份", StringComparison.Ordinal) && Directory.Exists(root) && !Directory.EnumerateFileSystemEntries(root).Any()) Directory.Delete(root);
+            }
         }
         private static void PlainPath(string path)
         {

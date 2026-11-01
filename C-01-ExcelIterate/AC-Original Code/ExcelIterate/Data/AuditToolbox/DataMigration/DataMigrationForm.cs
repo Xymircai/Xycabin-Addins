@@ -19,12 +19,17 @@ namespace Excel_Iterate
         internal readonly ResultGrid Targets = new ResultGrid { Name = "migrationTargets", Dock = DockStyle.Fill };
         private readonly RichTextBox details = new RichTextBox { Name = "migrationDetails", ReadOnly = true, Dock = DockStyle.Fill, BackColor = Color.White, WordWrap = true };
         private readonly Label status = Ui.Label("请选择源文件，或点击“读取当前选区”；选择目标后先预检。", 9, false);
-        private readonly RoundedButton preview = Ui.Button("预检与预览", 120), execute = Ui.Button("执行迁移", 110), restore = Ui.Button("还原操作", 110), open = Ui.Button("打开结果文件夹", 150);
+        private readonly RoundedButton preview = Ui.Button("预检与预览", 120), execute = Ui.Button("执行迁移", 110), restore = Ui.Button("还原操作", 110), clearBackups = Ui.Button("清除备份", 110), open = Ui.Button("打开结果文件夹", 150);
         private readonly List<Control> inputs = new List<Control>();
         // Targets whose original file this window replaced, newest last. A
         // restore puts the pre-migration backup back, but only while the file
         // still holds exactly the bytes the migration wrote.
-        private sealed class RestorePoint { internal string Path, Backup, Hash; internal bool Restored; }
+        private sealed class RestorePoint { internal string Path, Backup, Hash, Displaced; internal bool Restored, Cleared; }
+        // Keeps the dialog on screen while a run is in progress (see MigrationWindowScope).
+        private MigrationWindowScope.HostState hostAtRun;
+        private bool topMostBeforeRun;
+        private readonly Timer guardTail = new Timer { Interval = 100 };
+        private int guardTailTicks;
         private readonly List<RestorePoint> restorePoints = new List<RestorePoint>();
         private readonly ToolTip restoreTip = new ToolTip();
         private MigrationTargetSelectionPopup selectionPopup;
@@ -144,15 +149,18 @@ namespace Excel_Iterate
             execute.Click += delegate { if (ExecuteRequested != null) ExecuteRequested(); };
             restore.Name = "migrationRestore"; restore.Click += delegate { RestoreTargets(); };
             restoreTip.SetToolTip(restore, "把本窗口中以“更新目标原文件”方式迁移过的工作簿，还原为迁移前的备份。");
+            clearBackups.Name = "migrationClearBackups"; clearBackups.Click += delegate { ClearBackups(); };
+            restoreTip.SetToolTip(clearBackups, "永久删除本窗口迁移时生成的备份文件；删除后无法再还原。");
+            guardTail.Tick += delegate { GuardWindow(); if (--guardTailTicks <= 0) guardTail.Stop(); };
             open.Click += delegate { OpenResult(); }; close.Click += delegate { Close(); };
-            actions.Controls.Add(preview); actions.Controls.Add(execute); actions.Controls.Add(restore); actions.Controls.Add(open); actions.Controls.Add(close); root.Controls.Add(actions, 0, 5); Controls.Add(root);
+            actions.Controls.Add(preview); actions.Controls.Add(execute); actions.Controls.Add(restore); actions.Controls.Add(clearBackups); actions.Controls.Add(open); actions.Controls.Add(close); root.Controls.Add(actions, 0, 5); Controls.Add(root);
             inputs.AddRange(new Control[] { SourcePath, SourceSheet, SourceRange, allowEmpty, replaceTargets, pick, pickRange, selection, add, remove, targetSelection });
             allowEmpty.CheckedChanged += delegate { Changed(); };
             replaceTargets.CheckedChanged += delegate { Changed(); Message(replaceTargets.Checked ? "校验通过后更新目标原文件；原版本保存在目标目录的“迁移备份”子文件夹。请先保存并关闭目标。" : "另存“迁移结果”副本，目标原文件不修改；请重新预检。"); };
             SourcePath.TextChanged += delegate { Changed(); }; SourceSheet.TextChanged += delegate { Changed(); }; SourceRange.TextChanged += delegate { Changed(); };
-            pump.Tick += delegate { Tick(); }; execute.Enabled = false; restore.Enabled = false; open.Enabled = false;
+            pump.Tick += delegate { Tick(); }; execute.Enabled = false; restore.Enabled = false; clearBackups.Enabled = false; open.Enabled = false;
             FormClosing += delegate(object sender, FormClosingEventArgs e) { if (Running && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; closeWhenDone = true; if (CancelRequested != null) CancelRequested(); } };
-            Disposed += delegate { CloseTargetSelection(); CloseSheetPopup(); restoreTip.Dispose(); pump.Stop(); if (steps != null) { steps.Dispose(); steps = null; } pump.Dispose(); };
+            Disposed += delegate { CloseTargetSelection(); CloseSheetPopup(); restoreTip.Dispose(); guardTail.Dispose(); pump.Stop(); if (steps != null) { steps.Dispose(); steps = null; } pump.Dispose(); };
             if (!DialogPreviewFactory.IsConstructing) Load += delegate { CompactLegacySourceWidths(); };
         }
         private void CompactLegacySourceWidths()
@@ -491,7 +499,8 @@ namespace Excel_Iterate
             if (Running) throw new InvalidOperationException("当前任务尚未结束。");
             CloseTargetSelection(); CloseSheetPopup();
             finished = complete; failed = error; steps = sequence.GetEnumerator();
-            foreach (Control input in inputs) input.Enabled = false; Targets.ReadOnly = true; preview.Enabled = execute.Enabled = open.Enabled = restore.Enabled = false;
+            foreach (Control input in inputs) input.Enabled = false; Targets.ReadOnly = true; preview.Enabled = execute.Enabled = open.Enabled = restore.Enabled = clearBackups.Enabled = false;
+            guardTail.Stop(); hostAtRun = MigrationWindowScope.Capture(IsHandleCreated ? Handle : IntPtr.Zero); topMostBeforeRun = TopMost;
             // Freeze the status line's size while running so changing progress
             // text never re-lays out the grid and details above it.
             status.AutoSize = false; status.AutoEllipsis = true; statusClock.Reset();
@@ -510,6 +519,7 @@ namespace Excel_Iterate
                 do { if (!steps.MoveNext()) { Finish(null); return; } message = steps.Current.Message; } while (clock.ElapsedMilliseconds < 12);
                 if (message != null && (!statusClock.IsRunning || statusClock.ElapsedMilliseconds >= StatusIntervalMilliseconds) && status.Text != message)
                 { status.Text = message; statusClock.Restart(); }
+                GuardWindow();
             }
             catch (Exception error) { Finish(error); }
             finally { ticking = false; if (!IsDisposed && !Disposing && steps != null) pump.Start(); }
@@ -522,7 +532,20 @@ namespace Excel_Iterate
             foreach (Control input in inputs) input.Enabled = true; Targets.ReadOnly = false; preview.Enabled = true;
             if (error == null) { status.Text = lastRequest == null ? "请查看各目标结果。" : Summary(lastRequest); if (finished != null) finished(); }
             else { status.Text = error.Message; if (failed != null) failed(error); }
-            RefreshResults(); CaptureRestorePoints(); if (error != null) status.Text = error.Message; if (closeWhenDone) Close();
+            RefreshResults(); CaptureRestorePoints(); if (error != null) status.Text = error.Message;
+            // WPS may still minimize/cover its frame shortly after the last
+            // Close; keep watching for about a second, then release TopMost.
+            GuardWindow(); TopMost = topMostBeforeRun; guardTailTicks = 10; guardTail.Start();
+            if (closeWhenDone) Close();
+        }
+        private void GuardWindow()
+        {
+            if (IsDisposed || !IsHandleCreated || !Visible || closeWhenDone) return;
+            MigrationWindowScope.KeepShown(Handle, hostAtRun);
+            // While running and the user is in WPS, stay above a maximized
+            // frame that WPS re-activated; never cover other programs.
+            bool top = topMostBeforeRun || (Running && MigrationWindowScope.HostInForeground());
+            if (TopMost != top) TopMost = top;
         }
         private void CaptureRestorePoints()
         {
@@ -537,13 +560,44 @@ namespace Excel_Iterate
             UpdateRestore();
         }
         private void UpdateRestore()
-        { restore.Enabled = !Running && restorePoints.Any(p => !p.Restored); }
+        {
+            restore.Enabled = !Running && restorePoints.Any(p => !p.Restored && !p.Cleared);
+            clearBackups.Enabled = !Running && restorePoints.Any(p => !p.Cleared);
+        }
+        // Files this window created in "迁移备份": the pre-migration backup
+        // and, after a restore, the displaced migrated version.
+        private static IEnumerable<string> BackupFiles(RestorePoint point)
+        {
+            if (!string.IsNullOrEmpty(point.Backup)) yield return point.Backup;
+            if (!string.IsNullOrEmpty(point.Displaced)) yield return point.Displaced;
+        }
+        internal void ClearBackups(bool confirm = true)
+        {
+            if (Running) return;
+            var pending = restorePoints.Where(p => !p.Cleared).ToList();
+            if (pending.Count == 0) { UpdateRestore(); return; }
+            int files = pending.Sum(p => BackupFiles(p).Count(File.Exists));
+            int restorable = pending.Count(p => !p.Restored);
+            string question = "将永久删除本窗口迁移时生成的 " + files + " 个备份文件（涉及 " + pending.Count + " 个目标工作簿）。" + Environment.NewLine + Environment.NewLine
+                + (restorable > 0 ? "删除后，这 " + restorable + " 个已更新的工作簿将无法再还原为迁移前的版本。" : "删除后无法恢复这些备份。") + Environment.NewLine
+                + "此操作无法撤销。" + Environment.NewLine + Environment.NewLine + "是否清除备份？";
+            if (confirm && UiDialog.Show(this, question, "清除备份", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            int cleared = 0; var failures = new List<string>();
+            foreach (var point in pending)
+            {
+                try { MigrationOutputTransaction.DeleteBackups(BackupFiles(point).ToList()); point.Cleared = true; cleared++; }
+                catch (Exception error) { failures.Add(Path.GetFileName(point.Path) + "：" + error.Message); }
+            }
+            UpdateRestore();
+            Message((cleared > 0 ? "已清除 " + cleared + " 个目标的备份，这些工作簿不能再还原。" : "未清除任何备份。")
+                + (failures.Count == 0 ? "" : " 未清除：" + string.Join("；", failures.ToArray())));
+        }
         internal int RestorableCount { get { return restorePoints.Count(p => !p.Restored); } }
         internal void RestoreTargets(bool confirm = true)
         {
             if (Running) return;
             // Newest first: a file migrated twice steps back one batch at a time.
-            var pending = restorePoints.Where(p => !p.Restored).Reverse().ToList();
+            var pending = restorePoints.Where(p => !p.Restored && !p.Cleared).Reverse().ToList();
             if (pending.Count == 0) { UpdateRestore(); return; }
             string question = "将把 " + pending.Count + " 个已更新的目标工作簿还原为迁移前的备份。" + Environment.NewLine + Environment.NewLine
                 + "· 请先在 WPS 中关闭这些工作簿。" + Environment.NewLine
@@ -554,7 +608,7 @@ namespace Excel_Iterate
             foreach (var point in pending)
             {
                 string failure = null;
-                try { MigrationOutputTransaction.Restore(point.Path, point.Backup, point.Hash); point.Restored = true; restored++; }
+                try { point.Displaced = MigrationOutputTransaction.Restore(point.Path, point.Backup, point.Hash); point.Restored = true; restored++; }
                 catch (Exception error) { failure = error.Message; failures.Add(Path.GetFileName(point.Path) + "：" + error.Message); }
                 foreach (DataGridViewRow row in Targets.Rows)
                 {

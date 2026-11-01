@@ -24,6 +24,7 @@ using System.Runtime.InteropServices;
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("MergeHeadersProbe")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("SingleSummaryProbe")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("CompanyWorkbookProbe")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("SingleSummaryLiveProbe")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("MergeLiveProbe")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("TrackerProbe")]

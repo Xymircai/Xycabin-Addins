@@ -262,9 +262,18 @@ BUTTONS = [
                 "id": "menuBatchProcessSheets",
                 "label": "批量生成过程表",
                 "builtin_icon": "table",
-                "screentip": "按 Lead 表批量铺列生成过程表（每家公司一列）",
-                "supertip": "单体汇总表：Lead 表里勾选公司，从模板列起每家公司铺一列，表头写「编码&简称」，公式只把 [模板公司全称.xlsx] 换成 [当前列公司全称.xlsx]。执行前静默备份工作表，生成日志表；本功能不自动保存工作簿。",
+                "screentip": "按公司复制模板工作簿，或生成单体汇总表",
+                "supertip": "按公司生成工作簿：完整复制所选模板并按来源行填写 Lead，原模板不变，不覆盖已有文件。单体汇总表生成：从模板列起每家公司铺一列，备份工作表后换链，不自动保存工作簿。",
                 "children": [
+                    {
+                        "id": "btnCompanyWorkbooks",
+                        "label": "按公司生成工作簿",
+                        "builtin_icon": "table",
+                        "screentip": "完整复制模板，按来源行命名并填写 Lead",
+                        "supertip": "选择 xlsx/xls 模板，配置来源字段、数据行范围及 Lead 唯一写入行；预检后逐公司生成完整副本，保留原模板且不覆盖已有文件。可选只复制模式。",
+                        "action": "feature",
+                        "callback": "OnCompanyWorkbooks",
+                    },
                     {
                         "id": "btnSingleSummary",
                         "label": "单体汇总表生成",

@@ -193,7 +193,11 @@
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationTargetPicker.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationWindowScope.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationOutputTransaction.cs",
-    "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationTargetSelectionPopup.cs"
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationTargetSelectionPopup.cs",
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/Connect.CompanyWorkbooks.Entry.cs",
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookEngine.cs",
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookHost.cs",
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookForm.cs"
   ],
   "tools": [
     {
@@ -307,7 +311,10 @@
     {
       "name": "SingleSummaryProbe",
       "source": "src/testharness/SingleSummaryProbe.cs",
-      "references": ["@addin", "System.Windows.Forms.dll"],
+      "references": [
+        "@addin",
+        "System.Windows.Forms.dll"
+      ],
       "offline": true
     },
     {
@@ -444,6 +451,18 @@
         "@shared/src/tools/LiveProbeSafety.cs"
       ],
       "offline": false
+    },
+    {
+      "name": "CompanyWorkbookProbe",
+      "source": "src/testharness/CompanyWorkbookProbe.cs",
+      "references": [
+        "@addin",
+        "System.Windows.Forms.dll"
+      ],
+      "offline": true,
+      "additional_sources": [
+        "src/testharness/CompanyWorkbookHostChecks.cs"
+      ]
     }
   ],
   "pdf_worker": true,
@@ -604,7 +623,9 @@
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/SingleSummary/SingleSummaryEngine.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/SingleSummary/SingleSummaryHost.cs"
       ],
-      "tests": ["src/testharness/SingleSummaryProbe.cs"]
+      "tests": [
+        "src/testharness/SingleSummaryProbe.cs"
+      ]
     },
     "btnWrapIFError": {
       "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap/WrapIFError",
@@ -1315,6 +1336,18 @@
         "src/testharness/DataMigrationProbe.cs",
         "src/tools/DataMigrationLiveProbe.cs"
       ]
+    },
+    "btnCompanyWorkbooks": {
+      "directory": "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks",
+      "entry": "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/Connect.CompanyWorkbooks.Entry.cs",
+      "implementation": [
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookEngine.cs",
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookHost.cs",
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookForm.cs"
+      ],
+      "tests": [
+        "src/testharness/CompanyWorkbookProbe.cs"
+      ]
     }
   },
   "source_aliases": {
@@ -1611,6 +1644,7 @@
     "menuAgentExperiments": "AgentExperiments",
     "btnAgentOcrPlaceholder": "AgentOcrPlaceholder",
     "btnAgentRequirements": "AgentRequirements",
-    "btnDataMigration": "DataMigration"
+    "btnDataMigration": "DataMigration",
+    "btnCompanyWorkbooks": "CompanyWorkbooks"
   }
 }

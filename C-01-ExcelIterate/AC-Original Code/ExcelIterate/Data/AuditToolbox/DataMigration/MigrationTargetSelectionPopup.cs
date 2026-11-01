@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using RadioButtonState = System.Windows.Forms.VisualStyles.RadioButtonState;
 
 namespace Excel_Iterate
 {
@@ -58,22 +59,14 @@ namespace Excel_Iterate
         }
     }
 
-    // A lightweight dropdown laid out like Excel's AutoFilter menu: search box,
-    // a framed list headed by "(全选)", then 确定/取消 and a resize grip. It is
-    // not a second modeless Form. All edits remain a draft until confirmation;
-    // searching never changes the main grid's rows.
-    internal sealed class MigrationTargetSelectionPopup : ToolStripDropDown
+    // Shared chrome for the grid's Excel-style header dropdowns ("选择" and
+    // "工作表"): framed search box, a framed list area the subclass fills,
+    // count on the left, 确定/取消 on the right, and a corner resize grip.
+    // It is a lightweight ToolStripDropDown, not a second modeless Form.
+    internal abstract class MigrationFilterPopup : ToolStripDropDown
     {
-        private sealed class Choice
-        {
-            internal DataGridViewRow Row;
-            internal string Path, Sheet;
-            internal bool Selected;
-            public override string ToString() { return System.IO.Path.GetFileName(Path) + (Sheet.Length == 0 ? "" : "  ·  " + Sheet); }
-        }
-
         // 1px framed white panel; the frame turns blue while a child has focus.
-        private sealed class FramePanel : Panel
+        protected sealed class FramePanel : Panel
         {
             private Color border;
             internal Color Border { get { return border; } set { if (border != value) { border = value; Invalidate(); } } }
@@ -123,9 +116,9 @@ namespace Excel_Iterate
         // Bottom-right drag handle, like the one on Excel's filter menu.
         private sealed class SizeGrip : Control
         {
-            private readonly MigrationTargetSelectionPopup owner;
+            private readonly MigrationFilterPopup owner;
             private Point start; private Size origin; private bool dragging;
-            internal SizeGrip(MigrationTargetSelectionPopup popup)
+            internal SizeGrip(MigrationFilterPopup popup)
             {
                 owner = popup; Cursor = Cursors.SizeNWSE; BackColor = Color.White; TabStop = false;
                 SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
@@ -165,48 +158,41 @@ namespace Excel_Iterate
         }
 
         private static readonly Color OuterFrame = Color.FromArgb(160, 170, 186);
-        private static readonly Color InnerFrame = Color.FromArgb(205, 212, 224);
-        // Last size the user dragged to, in 96-DPI units; shared within the session.
-        private static Size rememberedSize96 = Size.Empty;
+        protected static readonly Color InnerFrame = Color.FromArgb(205, 212, 224);
+        // Last size the user dragged each popup to, in 96-DPI units, per session.
+        private static readonly Dictionary<string, Size> rememberedSizes96 = new Dictionary<string, Size>();
 
-        private readonly List<Choice> choices = new List<Choice>();
-        private readonly List<Choice> matching = new List<Choice>();
-        private readonly TextBox search = new TextBox { Name = "migrationSelectionSearch", BorderStyle = BorderStyle.None };
-        private readonly CheckedListBox list = new CheckedListBox { Name = "migrationSelectionList", Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false, BorderStyle = BorderStyle.None, HorizontalScrollbar = true };
-        private readonly CheckBox all = new CheckBox { Name = "migrationSelectionAll", Text = "(全选)", AutoSize = true, AutoCheck = false, BackColor = Color.White };
-        private readonly LinkLabel invert = new LinkLabel { Name = "migrationSelectionInvert", Text = "反选", AutoSize = true, LinkBehavior = LinkBehavior.HoverUnderline, BackColor = Color.White };
-        private readonly Label count = new Label { Name = "migrationSelectionCount", AutoSize = false, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Ui.InkDim };
-        private readonly Label empty = new Label { Name = "migrationSelectionEmpty", Text = "没有匹配的工作簿", AutoSize = false, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Ui.InkDim, BackColor = Color.White, Visible = false };
-        private readonly SearchGlyph glyph = new SearchGlyph { Name = "migrationSelectionGlyph" };
-        private readonly ToolTip tips = new ToolTip();
-        private readonly Action<IDictionary<DataGridViewRow, bool>> apply;
+        private readonly TextBox search = new TextBox { BorderStyle = BorderStyle.None };
+        private readonly SearchGlyph glyph = new SearchGlyph();
+        protected readonly Label CountLabel = new Label { AutoSize = false, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Ui.InkDim };
+        protected readonly Label EmptyNote = new Label { AutoSize = false, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Ui.InkDim, BackColor = Color.White, Visible = false };
+        protected readonly ToolTip Tips = new ToolTip();
+        // The framed list area: Strip on top, a hairline, then ListHost (Fill).
+        protected readonly Panel Strip, ListHost;
         private readonly FramePanel root;
         private readonly ToolStripControlHost host;
         private readonly Size minimum;
         private readonly float scale;
-        private bool populating;
+        private readonly string sizeKey;
         internal TextBox Search { get { return search; } }
-        internal CheckedListBox List { get { return list; } }
-        internal int MatchCount { get { return matching.Count; } }
 
-        internal MigrationTargetSelectionPopup(DataGridView grid, Action<IDictionary<DataGridViewRow, bool>> onApply)
+        protected MigrationFilterPopup(DataGridView grid, string prefix, string cue, string emptyText, int columnWidth, Size defaultSize96)
         {
-            Name = "migrationSelectionPopup"; apply = onApply;
+            Name = prefix + "Popup"; sizeKey = prefix;
             AutoSize = false; Padding = Padding.Empty; Margin = Padding.Empty; BackColor = Color.White; DropShadowEnabled = true;
             Font = grid.Font;
             using (var g = grid.CreateGraphics()) scale = g.DpiX / 96f;
-            foreach (DataGridViewRow row in grid.Rows)
-                if (!row.IsNewRow) choices.Add(new Choice { Row = row, Path = Convert.ToString(row.Cells["path"].Value), Sheet = Convert.ToString(row.Cells["sheet"].Value), Selected = DataMigrationForm.IsIncluded(row) });
+            search.Name = prefix + "Search"; glyph.Name = prefix + "Glyph"; CountLabel.Name = prefix + "Count"; EmptyNote.Name = prefix + "Empty"; EmptyNote.Text = emptyText;
+            foreach (Control control in new Control[] { search, CountLabel, EmptyNote }) control.Font = grid.Font;
 
-            foreach (Control control in new Control[] { search, list, all, invert, count, empty }) control.Font = grid.Font;
-            minimum = new Size(P(260), P(250));
-            int columnWidth = grid.Columns.Contains("include") ? grid.Columns["include"].Width : 0;
-            Size size = rememberedSize96.IsEmpty ? new Size(Math.Max(P(320), columnWidth), P(360)) : new Size(P(rememberedSize96.Width), P(rememberedSize96.Height));
+            minimum = new Size(P(240), P(240));
+            Size remembered;
+            Size size = rememberedSizes96.TryGetValue(sizeKey, out remembered) ? new Size(P(remembered.Width), P(remembered.Height)) : new Size(Math.Max(P(defaultSize96.Width), columnWidth), P(defaultSize96.Height));
             var area = Screen.FromControl(grid).WorkingArea;
             size = new Size(Math.Max(minimum.Width, Math.Min(size.Width, area.Width - P(24))), Math.Max(minimum.Height, Math.Min(size.Height, area.Height - P(24))));
 
-            root = new FramePanel(OuterFrame) { Name = "migrationSelectionFrame", Size = size, Font = grid.Font };
-            var layout = new TableLayoutPanel { Name = "migrationSelectionPanel", Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, BackColor = Color.White, Padding = new Padding(P(8), P(8), P(8), P(8)), Margin = Padding.Empty };
+            root = new FramePanel(OuterFrame) { Name = prefix + "Frame", Size = size, Font = grid.Font };
+            var layout = new TableLayoutPanel { Name = prefix + "Panel", Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, BackColor = Color.White, Padding = new Padding(P(8)), Margin = Padding.Empty };
             layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             int searchHeight = Math.Max(P(28), search.PreferredHeight + P(10));
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, searchHeight + P(6)));
@@ -214,7 +200,7 @@ namespace Excel_Iterate
             layout.RowStyles.Add(new RowStyle(SizeType.Absolute, P(30) + P(8)));
 
             // Search box: borderless TextBox + glyph inside a framed strip.
-            var searchFrame = new FramePanel(InnerFrame) { Name = "migrationSelectionSearchFrame", Dock = DockStyle.Top, Height = searchHeight, Margin = new Padding(0, 0, 0, P(6)) };
+            var searchFrame = new FramePanel(InnerFrame) { Name = prefix + "SearchFrame", Dock = DockStyle.Top, Height = searchHeight, Margin = new Padding(0, 0, 0, P(6)) };
             search.BackColor = Color.White;
             searchFrame.Controls.Add(search); searchFrame.Controls.Add(glyph);
             searchFrame.Layout += delegate
@@ -225,69 +211,62 @@ namespace Excel_Iterate
             };
             layout.Controls.Add(searchFrame, 0, 0);
 
-            // List: "(全选)" strip, a hairline, then the workbook choices.
-            var listFrame = new FramePanel(InnerFrame) { Name = "migrationSelectionListFrame", Dock = DockStyle.Fill, Margin = Padding.Empty };
-            var strip = new Panel { Name = "migrationSelectionStrip", Dock = DockStyle.Top, Height = Math.Max(P(28), all.PreferredSize.Height + P(8)), BackColor = Color.White };
-            strip.Controls.Add(all); strip.Controls.Add(invert);
-            strip.Layout += delegate
-            {
-                var allSize = all.PreferredSize; var invertSize = invert.PreferredSize;
-                invert.SetBounds(strip.Width - P(10) - invertSize.Width, (strip.Height - invertSize.Height) / 2, invertSize.Width, invertSize.Height);
-                all.SetBounds(P(5), (strip.Height - allSize.Height) / 2, Math.Min(allSize.Width, Math.Max(0, invert.Left - P(12) - P(5))), allSize.Height);
-            };
+            // List area: subclass content goes into Strip and ListHost.
+            var listFrame = new FramePanel(InnerFrame) { Name = prefix + "ListFrame", Dock = DockStyle.Fill, Margin = Padding.Empty };
+            Strip = new Panel { Name = prefix + "Strip", Dock = DockStyle.Top, Height = Math.Max(P(28), Font.Height + P(10)), BackColor = Color.White };
             var rule = new Panel { Dock = DockStyle.Top, Height = 1, BackColor = Ui.GridLine };
-            var listHost = new Panel { Name = "migrationSelectionListHost", Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(P(4), P(3), 0, 0) };
-            list.BackColor = Color.White; list.ForeColor = Ui.Ink;
-            listHost.Controls.Add(list); listHost.Controls.Add(empty); empty.BringToFront();
-            listHost.Layout += delegate { empty.SetBounds(listHost.Padding.Left, listHost.Padding.Top, Math.Max(0, listHost.ClientSize.Width - listHost.Padding.Horizontal), Math.Max(0, Math.Min(P(48), listHost.ClientSize.Height - listHost.Padding.Vertical))); };
-            // Docking runs from the highest index down: strip, rule, then Fill.
-            listFrame.Controls.Add(listHost); listFrame.Controls.Add(rule); listFrame.Controls.Add(strip);
-            listHost.BringToFront();
+            ListHost = new Panel { Name = prefix + "ListHost", Dock = DockStyle.Fill, BackColor = Color.White, Padding = new Padding(P(4), P(3), 0, 0) };
+            ListHost.Controls.Add(EmptyNote);
+            ListHost.Layout += delegate { EmptyNote.SetBounds(ListHost.Padding.Left, ListHost.Padding.Top, Math.Max(0, ListHost.ClientSize.Width - ListHost.Padding.Horizontal), Math.Max(0, Math.Min(P(48), ListHost.ClientSize.Height - ListHost.Padding.Vertical))); };
+            // Docking runs from the highest index down: Strip, rule, then Fill.
+            listFrame.Controls.Add(ListHost); listFrame.Controls.Add(rule); listFrame.Controls.Add(Strip);
+            ListHost.BringToFront();
             layout.Controls.Add(listFrame, 0, 1);
 
             // Count on the left, 确定 (default) and 取消 on the right.
-            var actions = new TableLayoutPanel { Name = "migrationSelectionActions", Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new Padding(0, P(8), 0, 0), Padding = Padding.Empty, BackColor = Color.White };
+            var actions = new TableLayoutPanel { Name = prefix + "Actions", Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new Padding(0, P(8), 0, 0), Padding = Padding.Empty, BackColor = Color.White };
             actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             actions.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            var confirm = SmallButton("确定", true); confirm.Name = "migrationSelectionApply";
-            var cancel = SmallButton("取消", false); cancel.Name = "migrationSelectionCancel";
-            count.Dock = DockStyle.Fill; count.Margin = Padding.Empty;
-            actions.Controls.Add(count, 0, 0); actions.Controls.Add(confirm, 1, 0); actions.Controls.Add(cancel, 2, 0);
+            var confirm = SmallButton("确定", true); confirm.Name = prefix + "Apply";
+            var cancel = SmallButton("取消", false); cancel.Name = prefix + "Cancel";
+            CountLabel.Dock = DockStyle.Fill; CountLabel.Margin = Padding.Empty;
+            actions.Controls.Add(CountLabel, 0, 0); actions.Controls.Add(confirm, 1, 0); actions.Controls.Add(cancel, 2, 0);
             layout.Controls.Add(actions, 0, 2);
 
             root.Controls.Add(layout);
-            var grip = new SizeGrip(this) { Name = "migrationSelectionGrip", Size = new Size(P(10), P(10)) };
+            var grip = new SizeGrip(this) { Name = prefix + "Grip", Size = new Size(P(10), P(10)) };
             root.Controls.Add(grip); grip.BringToFront();
             root.Layout += delegate { grip.Location = new Point(root.Width - 1 - grip.Width, root.Height - 1 - grip.Height); };
 
             host = new ToolStripControlHost(root) { AutoSize = false, Size = root.Size, Margin = Padding.Empty, Padding = Padding.Empty };
             Items.Add(host); Size = root.Size;
 
-            search.TextChanged += delegate { glyph.ClearMode = search.TextLength > 0; Populate(); };
+            search.TextChanged += delegate { glyph.ClearMode = search.TextLength > 0; Refilter(); };
             search.GotFocus += delegate { searchFrame.Border = Ui.Blue; };
             search.LostFocus += delegate { searchFrame.Border = InnerFrame; };
-            search.HandleCreated += delegate { Native.SendMessage(search.Handle, Native.EM_SETCUEBANNER, (IntPtr)1, "搜索文件名、路径或工作表"); };
+            search.HandleCreated += delegate { Native.SendMessage(search.Handle, Native.EM_SETCUEBANNER, (IntPtr)1, cue); };
             glyph.Click += delegate { if (search.TextLength > 0) { search.Clear(); } search.Focus(); };
             searchFrame.Click += delegate { search.Focus(); };
-            all.Click += delegate { SelectMatching(all.CheckState != CheckState.Checked); };
-            invert.LinkClicked += delegate { InvertMatching(); };
-            list.ItemCheck += delegate(object sender, ItemCheckEventArgs e)
-            { if (!populating) { matching[e.Index].Selected = e.NewValue == CheckState.Checked; UpdateCount(); } };
-            list.MouseMove += delegate(object sender, MouseEventArgs e)
-            { int index = list.IndexFromPoint(e.Location); string text = index < 0 || index >= matching.Count ? "" : matching[index].Path; if (tips.GetToolTip(list) != text) tips.SetToolTip(list, text); };
-            list.KeyDown += delegate(object sender, KeyEventArgs e)
-            { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; ApplySelection(); } };
-            confirm.Click += delegate { ApplySelection(); }; cancel.Click += delegate { Close(); };
+            confirm.Click += delegate { Commit(); }; cancel.Click += delegate { Close(); };
             Opened += delegate { BeginInvoke(new Action(delegate { if (!IsDisposed && Visible) search.Focus(); })); };
             search.KeyDown += delegate(object sender, KeyEventArgs e)
             {
-                if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; ApplySelection(); }
+                if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Commit(); }
                 else if (e.KeyCode == Keys.Escape) { e.SuppressKeyPress = true; if (search.TextLength > 0) search.Clear(); else Close(); }
-                else if (e.KeyCode == Keys.Down && list.Items.Count > 0) { e.SuppressKeyPress = true; list.Focus(); if (list.SelectedIndex < 0) list.SelectedIndex = 0; }
+                else if (e.KeyCode == Keys.Down) { e.SuppressKeyPress = true; FocusList(); }
             };
-            Populate();
         }
-        private int P(int value) { return (int)Math.Round(value * scale); }
+        protected abstract void Refilter();
+        protected abstract void Commit();
+        protected abstract void FocusList();
+        protected int P(int value) { return (int)Math.Round(value * scale); }
+        protected string Term { get { return search.Text.Trim(); } }
+        // Places a list control in ListHost under the "no match" label.
+        protected void HostList(Control list)
+        {
+            list.Dock = DockStyle.Fill; list.Font = Font; list.BackColor = Color.White; list.ForeColor = Ui.Ink;
+            ListHost.Controls.Add(list); EmptyNote.BringToFront();
+        }
         private RoundedButton SmallButton(string text, bool primary)
         {
             var button = Ui.Button(text, 72);
@@ -305,11 +284,65 @@ namespace Excel_Iterate
             SuspendLayout();
             try { root.Size = size; host.Size = size; Size = size; }
             finally { ResumeLayout(true); }
-            rememberedSize96 = new Size((int)Math.Round(size.Width / scale), (int)Math.Round(size.Height / scale));
+            rememberedSizes96[sizeKey] = new Size((int)Math.Round(size.Width / scale), (int)Math.Round(size.Height / scale));
         }
+        protected override void Dispose(bool disposing)
+        { if (disposing) Tips.Dispose(); base.Dispose(disposing); }
+    }
+
+    // "选择" dropdown: search targets and check/uncheck them in bulk. All edits
+    // remain a draft until 确定; searching never changes the main grid's rows.
+    internal sealed class MigrationTargetSelectionPopup : MigrationFilterPopup
+    {
+        private sealed class Choice
+        {
+            internal DataGridViewRow Row;
+            internal string Path, Sheet;
+            internal bool Selected;
+            public override string ToString() { return System.IO.Path.GetFileName(Path) + (Sheet.Length == 0 ? "" : "  ·  " + Sheet); }
+        }
+        private readonly List<Choice> choices = new List<Choice>();
+        private readonly List<Choice> matching = new List<Choice>();
+        private readonly CheckedListBox list = new CheckedListBox { Name = "migrationSelectionList", CheckOnClick = true, IntegralHeight = false, BorderStyle = BorderStyle.None, HorizontalScrollbar = true };
+        private readonly CheckBox all = new CheckBox { Name = "migrationSelectionAll", Text = "(全选)", AutoSize = true, AutoCheck = false, BackColor = Color.White };
+        private readonly LinkLabel invert = new LinkLabel { Name = "migrationSelectionInvert", Text = "反选", AutoSize = true, LinkBehavior = LinkBehavior.HoverUnderline, BackColor = Color.White };
+        private readonly Action<IDictionary<DataGridViewRow, bool>> apply;
+        private bool populating;
+        internal CheckedListBox List { get { return list; } }
+        internal int MatchCount { get { return matching.Count; } }
+
+        internal MigrationTargetSelectionPopup(DataGridView grid, Action<IDictionary<DataGridViewRow, bool>> onApply)
+            : base(grid, "migrationSelection", "搜索文件名、路径或工作表", "没有匹配的工作簿",
+                grid.Columns.Contains("include") ? grid.Columns["include"].Width : 0, new Size(320, 360))
+        {
+            apply = onApply;
+            foreach (DataGridViewRow row in grid.Rows)
+                if (!row.IsNewRow) choices.Add(new Choice { Row = row, Path = Convert.ToString(row.Cells["path"].Value), Sheet = Convert.ToString(row.Cells["sheet"].Value), Selected = DataMigrationForm.IsIncluded(row) });
+            all.Font = invert.Font = Font;
+            Strip.Controls.Add(all); Strip.Controls.Add(invert);
+            Strip.Layout += delegate
+            {
+                var allSize = all.PreferredSize; var invertSize = invert.PreferredSize;
+                invert.SetBounds(Strip.Width - P(10) - invertSize.Width, (Strip.Height - invertSize.Height) / 2, invertSize.Width, invertSize.Height);
+                all.SetBounds(P(5), (Strip.Height - allSize.Height) / 2, Math.Min(allSize.Width, Math.Max(0, invert.Left - P(12) - P(5))), allSize.Height);
+            };
+            HostList(list);
+            all.Click += delegate { SelectMatching(all.CheckState != CheckState.Checked); };
+            invert.LinkClicked += delegate { InvertMatching(); };
+            list.ItemCheck += delegate(object sender, ItemCheckEventArgs e)
+            { if (!populating) { matching[e.Index].Selected = e.NewValue == CheckState.Checked; UpdateCount(); } };
+            list.MouseMove += delegate(object sender, MouseEventArgs e)
+            { int index = list.IndexFromPoint(e.Location); string text = index < 0 || index >= matching.Count ? "" : matching[index].Path; if (Tips.GetToolTip(list) != text) Tips.SetToolTip(list, text); };
+            list.KeyDown += delegate(object sender, KeyEventArgs e)
+            { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; ApplySelection(); } };
+            Populate();
+        }
+        protected override void Refilter() { Populate(); }
+        protected override void Commit() { ApplySelection(); }
+        protected override void FocusList() { if (list.Items.Count > 0) { list.Focus(); if (list.SelectedIndex < 0) list.SelectedIndex = 0; } }
         private void Populate()
         {
-            string term = search.Text.Trim(); populating = true; list.BeginUpdate();
+            string term = Term; populating = true; list.BeginUpdate();
             try
             {
                 matching.Clear(); list.Items.Clear();
@@ -319,7 +352,7 @@ namespace Excel_Iterate
             }
             finally { list.EndUpdate(); populating = false; }
             all.Text = term.Length == 0 ? "(全选)" : "(选择所有搜索结果)";
-            empty.Visible = matching.Count == 0;
+            EmptyNote.Visible = matching.Count == 0;
             UpdateCount();
         }
         internal void SelectMatching(bool selected)
@@ -334,13 +367,145 @@ namespace Excel_Iterate
             all.CheckState = matching.Count == 0 || selected == 0 ? CheckState.Unchecked : selected == matching.Count ? CheckState.Checked : CheckState.Indeterminate;
             string text = "已选 " + choices.Count(c => c.Selected) + " / " + choices.Count;
             if (matching.Count != choices.Count) text += "，显示 " + matching.Count;
-            count.Text = text;
+            CountLabel.Text = text;
         }
         internal void ApplySelection()
         {
             apply(choices.ToDictionary(c => c.Row, c => c.Selected)); Close();
         }
-        protected override void Dispose(bool disposing)
-        { if (disposing) tips.Dispose(); base.Dispose(disposing); }
+    }
+
+    // "工作表" dropdown: pick one worksheet that every target in scope has and
+    // apply it to all of them. Names only some targets have are listed, grayed
+    // with their coverage, but cannot be chosen.
+    internal sealed class MigrationSheetPopup : MigrationFilterPopup
+    {
+        private sealed class SheetChoice
+        {
+            internal string Name; internal int Count; internal bool Common, Header;
+            public override string ToString() { return Name; }
+        }
+        private readonly List<SheetChoice> choices = new List<SheetChoice>();
+        private readonly List<SheetChoice> matching = new List<SheetChoice>();
+        private readonly ListBox list = new ListBox { Name = "migrationSheetList", IntegralHeight = false, BorderStyle = BorderStyle.None, DrawMode = DrawMode.OwnerDrawFixed, SelectionMode = SelectionMode.None };
+        private readonly Label scope = new Label { Name = "migrationSheetScope", AutoSize = false, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Ui.InkDim, BackColor = Color.White };
+        private readonly Action<string> apply;
+        private readonly int total;
+        private string chosen;
+        private int hover = -1;
+        internal ListBox List { get { return list; } }
+        internal string Chosen { get { return chosen; } }
+        internal int MatchCount { get { return matching.Count(c => c.Common); } }
+
+        internal MigrationSheetPopup(DataGridView grid, IList<string> common, IList<KeyValuePair<string, int>> partial, int scopeCount, bool scopeIsChecked, string current, Action<string> onApply)
+            : base(grid, "migrationSheet", "搜索工作表名称", "没有匹配的工作表",
+                grid.Columns.Contains("sheet") ? grid.Columns["sheet"].Width : 0, new Size(300, 340))
+        {
+            apply = onApply; total = scopeCount;
+            foreach (string name in common) choices.Add(new SheetChoice { Name = name, Count = scopeCount, Common = true });
+            foreach (var pair in partial) choices.Add(new SheetChoice { Name = pair.Key, Count = pair.Value });
+            chosen = common.FirstOrDefault(n => string.Equals(n, current, StringComparison.OrdinalIgnoreCase));
+
+            scope.Font = Font;
+            scope.Text = scopeCount == 0 ? "没有可读取工作表的目标" : "应用到 " + scopeCount + " 个" + (scopeIsChecked ? "已勾选" : "") + "目标";
+            Strip.Controls.Add(scope);
+            Strip.Layout += delegate { scope.SetBounds(P(6), 0, Math.Max(0, Strip.Width - P(12)), Strip.Height); };
+
+            HostList(list);
+            list.ItemHeight = Math.Max(P(22), Font.Height + P(6));
+            list.DrawItem += DrawChoice;
+            list.MouseMove += delegate(object sender, MouseEventArgs e)
+            {
+                int index = list.IndexFromPoint(e.Location);
+                if (index >= matching.Count) index = -1;
+                if (index != hover) { hover = index; list.Invalidate(); }
+                string tip = index < 0 || matching[index].Common || matching[index].Header ? "" : "只有 " + matching[index].Count + "/" + total + " 个目标有这张工作表，不能统一应用";
+                if (Tips.GetToolTip(list) != tip) Tips.SetToolTip(list, tip);
+            };
+            list.MouseLeave += delegate { if (hover != -1) { hover = -1; list.Invalidate(); } };
+            list.MouseClick += delegate(object sender, MouseEventArgs e) { Choose(list.IndexFromPoint(e.Location)); };
+            list.MouseDoubleClick += delegate(object sender, MouseEventArgs e)
+            { int index = list.IndexFromPoint(e.Location); if (index >= 0 && index < matching.Count && matching[index].Common) { Choose(index); Commit(); } };
+            list.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Commit(); }
+                else if (e.KeyCode == Keys.Up || e.KeyCode == Keys.Down) { e.SuppressKeyPress = true; Step(e.KeyCode == Keys.Down ? 1 : -1); }
+            };
+            Populate();
+        }
+        protected override void Refilter() { Populate(); }
+        protected override void Commit() { if (chosen != null) apply(chosen); Close(); }
+        protected override void FocusList() { list.Focus(); if (chosen == null) Step(1); }
+        private void Populate()
+        {
+            string term = Term; list.BeginUpdate();
+            try
+            {
+                matching.Clear(); list.Items.Clear(); bool header = false;
+                foreach (var choice in choices)
+                {
+                    if (term.Length != 0 && choice.Name.IndexOf(term, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    if (!choice.Common && !header)
+                    {
+                        // A non-selectable caption separates the partial names.
+                        var caption = new SheetChoice { Name = "仅部分目标存在（不能统一应用）", Header = true };
+                        matching.Add(caption); list.Items.Add(caption); header = true;
+                    }
+                    matching.Add(choice); list.Items.Add(choice);
+                }
+            }
+            finally { list.EndUpdate(); }
+            hover = -1;
+            EmptyNote.Visible = matching.Count == 0;
+            UpdateCount();
+        }
+        private void Choose(int index)
+        {
+            if (index < 0 || index >= matching.Count || !matching[index].Common) return;
+            chosen = matching[index].Name; list.Invalidate(); UpdateCount();
+        }
+        private void Step(int direction)
+        {
+            var commons = matching.Select((c, i) => new { c, i }).Where(x => x.c.Common).Select(x => x.i).ToList();
+            if (commons.Count == 0) return;
+            int current = chosen == null ? -1 : matching.FindIndex(c => c.Common && c.Name == chosen);
+            int position = commons.IndexOf(current);
+            position = position < 0 ? (direction > 0 ? 0 : commons.Count - 1) : Math.Max(0, Math.Min(commons.Count - 1, position + direction));
+            Choose(commons[position]);
+            if (commons[position] < list.TopIndex) list.TopIndex = commons[position];
+            else if (list.ClientSize.Height > 0 && commons[position] >= list.TopIndex + list.ClientSize.Height / list.ItemHeight) list.TopIndex = commons[position] - list.ClientSize.Height / list.ItemHeight + 1;
+        }
+        private void UpdateCount()
+        {
+            if (IsDisposed) return;
+            int commons = choices.Count(c => c.Common);
+            CountLabel.Text = chosen != null ? "已选“" + chosen + "”" : commons == 0 ? "没有共同工作表" : "共同工作表 " + commons + " 个";
+        }
+        private void DrawChoice(object sender, DrawItemEventArgs e)
+        {
+            if (e.Index < 0 || e.Index >= matching.Count) return;
+            var choice = matching[e.Index]; var g = e.Graphics; var bounds = e.Bounds;
+            bool isChosen = choice.Common && choice.Name == chosen, hot = choice.Common && e.Index == hover;
+            using (var back = new SolidBrush(isChosen ? Ui.SelectBack : hot ? Color.FromArgb(244, 247, 253) : Color.White)) g.FillRectangle(back, bounds);
+            var flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
+            if (choice.Header)
+            {
+                var caption = new Rectangle(bounds.Left + P(2), bounds.Top, bounds.Width - P(4), bounds.Height);
+                TextRenderer.DrawText(g, choice.Name, Font, caption, Ui.InkDim, flags);
+                return;
+            }
+            var glyph = RadioButtonRenderer.GetGlyphSize(g, RadioButtonState.UncheckedNormal);
+            var at = new Point(bounds.Left + P(2), bounds.Top + (bounds.Height - glyph.Height) / 2);
+            RadioButtonRenderer.DrawRadioButton(g, at, !choice.Common ? RadioButtonState.UncheckedDisabled : isChosen ? RadioButtonState.CheckedNormal : RadioButtonState.UncheckedNormal);
+            int left = at.X + glyph.Width + P(6), right = bounds.Right - P(6);
+            if (!choice.Common)
+            {
+                string coverage = choice.Count + "/" + total;
+                int width = TextRenderer.MeasureText(g, coverage, Font, Size.Empty, flags).Width;
+                TextRenderer.DrawText(g, coverage, Font, new Rectangle(right - width, bounds.Top, width, bounds.Height), Ui.InkDim, flags);
+                right -= width + P(8);
+            }
+            TextRenderer.DrawText(g, choice.Name, Font, new Rectangle(left, bounds.Top, Math.Max(0, right - left), bounds.Height), choice.Common ? (isChosen ? Ui.SelectInk : Ui.Ink) : SystemColors.GrayText, flags);
+        }
     }
 }

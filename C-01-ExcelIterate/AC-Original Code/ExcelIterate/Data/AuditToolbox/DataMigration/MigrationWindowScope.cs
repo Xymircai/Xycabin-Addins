@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace Excel_Iterate
@@ -16,11 +17,20 @@ namespace Excel_Iterate
         [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
         [DllImport("user32.dll")] private static extern bool LockSetForegroundWindow(uint code);
         [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
+        [DllImport("user32.dll")] private static extern bool IsWindowVisible(IntPtr window);
+        [DllImport("user32.dll")] private static extern IntPtr GetWindow(IntPtr window, uint command);
+        private const int SW_SHOWNOACTIVATE = 4, SW_SHOWNA = 8;
+        private const uint GW_OWNER = 4;
         private readonly IntPtr foreground;
         private readonly HashSet<uint> hostProcesses = new HashSet<uint>();
         internal string HostIdentity { get { return string.Join(",", hostProcesses); } }
         private readonly bool minimized;
         private readonly bool foregroundLock;
+        // The migration dialog is owned by the WPS frame. Opening, hiding or
+        // closing helper workbooks can minimize that frame, and Windows then
+        // hides every owned window with it. Remember both states up front.
+        private readonly IntPtr dialog, owner;
+        private readonly bool dialogShown, ownerIconic;
         [ThreadStatic] private static int lockDepth;
         internal MigrationWindowScope(object app)
         {
@@ -30,6 +40,13 @@ namespace Excel_Iterate
             // never acquire it for an unrelated foreground application.
             if (System.Windows.Forms.Form.FromHandle(foreground) is DataMigrationForm && (lockDepth > 0 || LockSetForegroundWindow(1)))
             { foregroundLock = true; lockDepth++; }
+            dialog = FindDialog(foreground);
+            if (dialog != IntPtr.Zero)
+            {
+                dialogShown = IsWindowVisible(dialog) && !IsIconic(dialog);
+                owner = GetWindow(dialog, GW_OWNER);
+                ownerIconic = owner != IntPtr.Zero && IsIconic(owner);
+            }
             try
             {
                 IntPtr window = new IntPtr(Convert.ToInt64(((dynamic)app).Hwnd));
@@ -44,13 +61,36 @@ namespace Excel_Iterate
             foreach (IntPtr value in new[] { window, GetAncestor(window, 2), GetAncestor(window, 3) })
             { uint process; GetWindowThreadProcessId(value, out process); if (process != 0) hostProcesses.Add(process); }
         }
+        private static IntPtr FindDialog(IntPtr foreground)
+        {
+            if (System.Windows.Forms.Form.FromHandle(foreground) is DataMigrationForm) return foreground;
+            // The dialog may not be in front (for example after a previous
+            // step), but it must still be kept on screen while it works.
+            var form = System.Windows.Forms.Application.OpenForms.OfType<DataMigrationForm>().FirstOrDefault(f => !f.IsDisposed && f.IsHandleCreated && f.Visible);
+            return form == null ? IntPtr.Zero : form.Handle;
+        }
+        // Undo a minimize/hide that our own Open/Close caused: bring back the
+        // owner frame (which re-shows its owned dialog) and the dialog itself,
+        // without activating either. Returns true when anything was undone.
+        private bool RecoverDialog()
+        {
+            if (!dialogShown || !IsWindow(dialog)) return false;
+            bool recovered = false;
+            if (owner != IntPtr.Zero && IsWindow(owner) && !ownerIconic && IsIconic(owner)) { ShowWindow(owner, SW_SHOWNOACTIVATE); recovered = true; }
+            if (IsIconic(dialog)) { ShowWindow(dialog, SW_SHOWNOACTIVATE); recovered = true; }
+            else if (!IsWindowVisible(dialog)) { ShowWindow(dialog, SW_SHOWNA); recovered = true; }
+            return recovered;
+        }
         public void Dispose()
         {
             if (foregroundLock && --lockDepth == 0) LockSetForegroundWindow(2);
+            bool recovered = RecoverDialog();
             if (foreground == IntPtr.Zero || hostProcesses.Count == 0 || !IsWindow(foreground)) return;
             IntPtr current = GetForegroundWindow(); uint process; GetWindowThreadProcessId(current, out process);
             // Do not raise the dialog if the user switched to another program.
-            if (current != IntPtr.Zero && current != foreground && !hostProcesses.Contains(process)) return;
+            // When our own operation minimized WPS, the foreground moved to
+            // another program without the user doing anything: restore anyway.
+            if (!recovered && current != IntPtr.Zero && current != foreground && !hostProcesses.Contains(process)) return;
             if (!minimized && IsIconic(foreground)) ShowWindow(foreground, 4); // SW_SHOWNOACTIVATE
             if (current != foreground) SetForegroundWindow(foreground);
         }

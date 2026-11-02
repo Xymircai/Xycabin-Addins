@@ -88,7 +88,7 @@ internal static class CompanyWorkbookHostChecks
         var request = new CompanyWorkbookRequest { SourceSheet = "source", TargetSheet = "lead", NameField = "name", CodeField = "code", FullNameField = "full", TargetCodeField = "code", TargetNameField = "full", Output = folder, HeaderRow = 1, FirstRow = 3, LastRow = 5, TargetHeaderRow = 1, TargetRow = 8, UpdateLead = true };
         var app = new CompanyFakeApp(); var cells = app.Workbooks.Template.Worksheets.Source.Cells;
         cells.Item(1, 1).Value2 = "name"; cells.Item(1, 2).Value2 = "code"; cells.Item(1, 3).Value2 = "full";
-        for (int row = 3; row <= 5; row++) { cells.Item(row, 1).Value2 = "Fixture" + row; cells.Item(row, 2).Value2 = "=literal" + row; cells.Item(row, 3).Value2 = "Full" + row; }
+        for (int row = 3; row <= 5; row++) { cells.Item(row, 1).Value2 = "Fixture" + row + ".xlsx"; cells.Item(row, 2).Value2 = "=literal" + row; cells.Item(row, 3).Value2 = "Full" + row; }
         var lead = app.Workbooks.Template.Worksheets.Lead.Cells; lead.Item(1, 2).Value2 = "code"; lead.Item(1, 3).Value2 = "full";
         byte[] bytes = new byte[] { 1, 2, 3, 99, 0 }; string template = Path.Combine(folder, "template.xls"); File.WriteAllBytes(template, bytes);
         string snapshot;
@@ -96,6 +96,7 @@ internal static class CompanyWorkbookHostChecks
         {
             snapshot = host.Snapshot;
             var rows = host.Preview(request, delegate { }); check(rows.Count == 3 && rows[0].Row == 3, "custom start row");
+            check(Path.GetFileName(rows[0].OutputPath) == "Fixture3.xls" && rows[0].Name == "Fixture3.xlsx" && app.Workbooks.Outputs.Count == 0, "real preview pipeline normalizes names without generating workbooks");
             cells.Item(1, 3).Value2 = "code"; reject(delegate { host.Headers("source", 1); }, "duplicate header"); cells.Item(1, 3).Value2 = "full";
             cells.Item(4, 1).Value2 = "Fixture3"; reject(delegate { host.Preview(request, delegate { }); }, "duplicate company"); cells.Item(4, 1).Value2 = "Fixture4";
             cells.Item(4, 2).Value2 = ""; reject(delegate { host.Preview(request, delegate { }); }, "empty code"); cells.Item(4, 2).Value2 = "=literal4";

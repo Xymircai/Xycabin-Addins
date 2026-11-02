@@ -122,7 +122,7 @@ namespace Excel_Iterate
                     catch (Exception error) { throw new InvalidOperationException("来源表「" + request.SourceSheet + "」第 " + row + " 行：" + error.Message, error); }
                 }
             }
-            CompanyWorkbookRules.ValidateRecords(result, request.Output, Path.GetExtension(Snapshot));
+            CompanyWorkbookRules.ValidateRecords(result, request.Output, Path.GetExtension(Snapshot), request.StripExcelSuffix, request.RemoveTailCharacters);
             // Check write access without touching existing outputs.
             string probe = Path.Combine(request.Output, ".company-write-" + Guid.NewGuid().ToString("N"));
             using (var file = new FileStream(probe, FileMode.CreateNew, FileAccess.Write)) { }

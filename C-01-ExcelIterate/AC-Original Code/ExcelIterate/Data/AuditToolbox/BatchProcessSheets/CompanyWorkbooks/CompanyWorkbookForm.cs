@@ -12,6 +12,11 @@ namespace Excel_Iterate
         private readonly ComboBox source = Choice(), target = Choice(), naming = Choice(), code = Choice(), full = Choice(), targetCode = Choice(), targetName = Choice();
         private readonly NumericUpDown header = Number(1), first = Number(0), last = Number(0), leadHeader = Number(1), leadRow = Number(0);
         private readonly CheckBox update = new CheckBox { Text = "同时更新 Lead 的指定行", Checked = true, AutoSize = true };
+        internal readonly CheckBox StripExcelSuffix = new CheckBox { Text = "自动去除末尾 Excel 后缀", Checked = true, AutoSize = true, Name = "companyStripExcelSuffix" };
+        internal readonly NumericUpDown RemoveTailCharacters = new NumericUpDown { Minimum = 0, Maximum = 32767, Width = 85, Name = "companyRemoveTailCharacters" };
+        internal readonly RichTextBox NamePreview = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, BackColor = Color.White, WordWrap = false, Name = "companyNamePreview" };
+        private readonly TabControl details = new TabControl { Dock = DockStyle.Fill };
+        private readonly TabPage namesTab = new TabPage("文件名预览"), logTab = new TabPage("运行日志");
         private readonly CheckBox confirmed = new CheckBox { Text = "已确认上述来源范围及 Lead 唯一写入行；仅更新指定的两个字段", AutoSize = true };
         private readonly RichTextBox log = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, BackColor = Color.White };
         internal readonly ProgressBar Progress = new ProgressBar { Dock = DockStyle.Top, Style = ProgressBarStyle.Continuous, Height = 18, Name = "companyTaskProgress" };
@@ -22,7 +27,8 @@ namespace Excel_Iterate
         private readonly CompanyWorkbookProgress taskProgress = new CompanyWorkbookProgress();
         private readonly Stopwatch elapsed = new Stopwatch();
         private readonly FlowLayoutPanel inputs = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
-        private readonly RoundedButton start = Ui.Button("预检并开始生成", 155), cancel = Ui.Button("取消任务", 100);
+        private readonly RoundedButton start = Ui.Button("开始生成", 115), cancel = Ui.Button("取消任务", 100);
+        internal readonly RoundedButton PreviewNames = Ui.Button("预览文件名", 120);
         private readonly Timer timer = new Timer { Interval = 30 };
         private CompanyWorkbookHost host;
         private CompanyWorkbookRequest request;
@@ -45,6 +51,8 @@ namespace Excel_Iterate
             AddRow("来源工作表", source, Label("表头行"), header);
             AddRow("来源数据行", Label("起始（必填）"), first, Label("结束（必填，含此行）"), last);
             AddRow("文件命名字段", naming);
+            AddRow("名称处理", Label("从原文末尾去除"), RemoveTailCharacters, Label("个字符，再"), StripExcelSuffix);
+            AddRow("命名顺序", Label("先去除指定字符，再去掉 Excel 后缀，最后统一添加模板后缀；默认去除 0 个字符。"));
             AddRow("生成方式", update);
             AddRow("公司来源字段", Label("编码"), code, Label("全称"), full);
             AddRow("目标工作表", target, Label("表头行"), leadHeader);
@@ -59,15 +67,22 @@ namespace Excel_Iterate
             for (int i = 0; i < 4; i++) progressArea.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             progressArea.Controls.Add(ProgressCounts, 0, 0); progressArea.Controls.Add(Progress, 0, 1);
             progressArea.Controls.Add(ProgressTiming, 0, 2); progressArea.Controls.Add(CurrentTask, 0, 3);
-            root.Controls.Add(inputs, 0, 0); root.Controls.Add(progressArea, 0, 1); root.Controls.Add(log, 0, 2);
+            namesTab.Controls.Add(NamePreview); logTab.Controls.Add(log); details.TabPages.Add(namesTab); details.TabPages.Add(logTab);
+            root.Controls.Add(inputs, 0, 0); root.Controls.Add(progressArea, 0, 1); root.Controls.Add(details, 0, 2);
             var actions = Ui.ActionBar(); var close = Ui.Button("关闭", 90);
-            actions.Controls.Add(start); actions.Controls.Add(cancel); actions.Controls.Add(close); root.Controls.Add(actions, 0, 3); Controls.Add(root);
+            actions.Controls.Add(PreviewNames); actions.Controls.Add(start); actions.Controls.Add(cancel); actions.Controls.Add(close); root.Controls.Add(actions, 0, 3); Controls.Add(root);
+            PreviewNames.Click += delegate { PreviewFileNames(); };
             start.Click += delegate { Start(); }; cancel.Click += delegate { RequestCancel(); }; close.Click += delegate { Close(); };
             cancel.Enabled = false;
             source.SelectedIndexChanged += delegate { RefreshFields(false); };
             target.SelectedIndexChanged += delegate { RefreshFields(true); };
             header.ValueChanged += delegate { RefreshFields(false); }; leadHeader.ValueChanged += delegate { RefreshFields(true); };
             update.CheckedChanged += delegate { SetLeadEnabled(); };
+            StripExcelSuffix.CheckedChanged += delegate { InvalidateNames(); };
+            RemoveTailCharacters.ValueChanged += delegate { InvalidateNames(); };
+            naming.SelectedIndexChanged += delegate { InvalidateNames(); };
+            first.ValueChanged += delegate { InvalidateNames(); }; last.ValueChanged += delegate { InvalidateNames(); };
+            output.TextChanged += delegate { InvalidateNames(); };
             timer.Tick += delegate { Tick(); };
             FormClosing += delegate(object sender, FormClosingEventArgs e)
             { if (Running || ticking || preparing) { e.Cancel = true; closePending = true; RequestCancel(); } };
@@ -95,6 +110,41 @@ namespace Excel_Iterate
             Append("已请求取消，当前文件完成后停止。");
         }
         private static Label Label(string text) { return new Label { Text = text, AutoSize = true, Padding = new Padding(0, 6, 0, 0) }; }
+        private void InvalidateNames()
+        {
+            if (Running || preparing) return;
+            NamePreview.Clear(); confirmed.Checked = false;
+        }
+        private CompanyWorkbookRequest BuildRequest(bool namesOnly)
+        {
+            return new CompanyWorkbookRequest { SourceSheet = source.Text, TargetSheet = target.Text, NameField = naming.Text, CodeField = code.Text, FullNameField = full.Text,
+                TargetCodeField = targetCode.Text, TargetNameField = targetName.Text, Output = output.Text, HeaderRow = (int)header.Value,
+                FirstRow = (int)first.Value, LastRow = (int)last.Value, TargetHeaderRow = (int)leadHeader.Value, TargetRow = (int)leadRow.Value, UpdateLead = update.Checked && !namesOnly,
+                StripExcelSuffix = StripExcelSuffix.Checked, RemoveTailCharacters = (int)RemoveTailCharacters.Value };
+        }
+        internal void ShowNamePreview(IList<CompanyWorkbookRecord> rows)
+        {
+            var text = new System.Text.StringBuilder("共 " + rows.Count + " 个文件；后缀与模板一致。\r\n来源行｜来源名称 → 最终文件名\r\n");
+            foreach (var row in rows)
+                text.Append(row.Row).Append("｜").Append((row.Name ?? "").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t")).Append(" → ").Append(System.IO.Path.GetFileName(row.OutputPath)).AppendLine();
+            NamePreview.Text = text.ToString();
+        }
+        private void PreviewFileNames()
+        {
+            if (Running || ticking || preparing) return;
+            if (CanRun != null && !CanRun()) { Append("宿主正在执行其他任务，请稍后再试。"); return; }
+            try
+            {
+                if (host == null) throw new InvalidOperationException("请先选择模板。");
+                preparing = true; SetBusy(true); cancel.Enabled = false; NamePreview.Clear(); confirmed.Checked = false;
+                var preview = host.Preview(BuildRequest(true), Append);
+                ShowNamePreview(preview); details.SelectedTab = namesTab;
+                elapsed.Reset(); taskProgress.Reset(preview.Count); CurrentTask.Text = "尚未开始生成。"; RenderProgress("文件名已预览，等待生成", false);
+                Append("文件名预览完成，共 " + preview.Count + " 项；未生成工作簿。生成前还会校验 Lead 配置和数据。");
+            }
+            catch (Exception error) { NamePreview.Text = "预览失败，请查看运行日志。"; details.SelectedTab = logTab; Append("预览文件名失败：" + error.Message); }
+            finally { preparing = false; SetBusy(false); if (closePending) Close(); }
+        }
         private void AddRow(string title, params Control[] controls)
         {
             var row = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Width = 1000, Margin = new Padding(0, 3, 0, 3) };
@@ -148,6 +198,7 @@ namespace Excel_Iterate
         private void RefreshFields(bool isTarget)
         {
             if (loading || Running) return;
+            InvalidateNames();
             var boxes = isTarget ? new[] { targetCode, targetName } : new[] { naming, code, full };
             string[] previous = Array.ConvertAll(boxes, b => b.Text);
             foreach (var box in boxes) box.Items.Clear();
@@ -169,7 +220,7 @@ namespace Excel_Iterate
         private void SetLeadEnabled() { foreach (Control c in new Control[] { target, leadHeader, leadRow, targetCode, targetName, code, full }) c.Enabled = update.Checked; }
         private void SetBusy(bool busy)
         {
-            inputs.Enabled = !busy; start.Enabled = !busy; cancel.Enabled = busy;
+            inputs.Enabled = !busy; start.Enabled = PreviewNames.Enabled = !busy; cancel.Enabled = busy;
             if (BusyChanged != null) BusyChanged(busy);
         }
         private void Start()
@@ -184,17 +235,17 @@ namespace Excel_Iterate
                 SetBusy(true);
                 cancel.Enabled = false;
                 ResetProgress("正在预检，尚未开始生成");
-                request = new CompanyWorkbookRequest { SourceSheet = source.Text, TargetSheet = target.Text, NameField = naming.Text, CodeField = code.Text, FullNameField = full.Text,
-                    TargetCodeField = targetCode.Text, TargetNameField = targetName.Text, Output = output.Text, HeaderRow = (int)header.Value,
-                    FirstRow = (int)first.Value, LastRow = (int)last.Value, TargetHeaderRow = (int)leadHeader.Value, TargetRow = (int)leadRow.Value, UpdateLead = update.Checked };
+                NamePreview.Clear();
+                request = BuildRequest(false);
                 records = host.Preview(request, Append);
+                ShowNamePreview(records); details.SelectedTab = logTab;
                 taskProgress.Reset(records.Count); elapsed.Restart();
                 cancel.Enabled = !cancelled;
                 RenderProgress(cancelled ? "正在取消" : "开始生成", true);
                 Append("预检通过，共 " + records.Count + " 家；来源「" + request.SourceSheet + "」，目标「" + request.TargetSheet + "」第 " + request.TargetRow + " 行。开始生成。");
                 timer.Start();
             }
-            catch (Exception error) { records = null; ResetProgress("预检失败，未开始生成"); Append("预检失败：" + error); SetBusy(false); }
+            catch (Exception error) { records = null; NamePreview.Clear(); details.SelectedTab = logTab; ResetProgress("预检失败，未开始生成"); Append("预检失败：" + error); SetBusy(false); }
             finally { preparing = false; if (closePending && !Running) Close(); }
         }
         private void Tick()
@@ -205,7 +256,7 @@ namespace Excel_Iterate
             {
                 if (cancelled || taskProgress.Remaining == 0) { Finish(); return; }
                 var record = records[taskProgress.Completed];
-                CurrentTask.Text = "正在处理第 " + (taskProgress.Completed + 1) + " / " + taskProgress.Total + " 项：" + record.Name;
+                CurrentTask.Text = "正在处理第 " + (taskProgress.Completed + 1) + " / " + taskProgress.Total + " 项：" + System.IO.Path.GetFileName(record.OutputPath);
                 RenderProgress("正在生成", true);
                 bool succeeded = false;
                 try { host.Generate(request, record, CompanyWorkbookHost.UpdateLead); succeeded = true; Append("成功：来源第 " + record.Row + " 行 → " + record.OutputPath); }

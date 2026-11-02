@@ -16,6 +16,24 @@ internal static class CompanyWorkbookProbe
         {
             foreach (string invalid in new[] { "", " ", "A ", " A", "A.", "A/B", "A:B", "CON", "nul.txt", "COM1", "LPT²", ".." }) Reject(delegate { CompanyWorkbookRules.FileName(invalid); }, invalid);
             Check(CompanyWorkbookRules.FileName("Company（01）") == "Company（01）", "legal name");
+            Check(CompanyWorkbookRules.NamingStem("Company.XLSX", 0, true) == "Company" && CompanyWorkbookRules.NamingStem("Company.xlsx.xlsx", 0, true) == "Company", "case-insensitive and repeated Excel suffixes removed");
+            Check(CompanyWorkbookRules.NamingStem("Company_旧", 2, true) == "Company" && CompanyWorkbookRules.NamingStem("Company.xlsx", 5, true) == "Company", "manual tail removal operates on the original source before suffix cleanup");
+            Check(CompanyWorkbookRules.NamingStem("甲😀", 1, true) == "甲" && CompanyWorkbookRules.NamingStem("A.2026", 0, true) == "A.2026", "Unicode characters and meaningful dotted names preserved");
+            Check(CompanyWorkbookRules.NamingStem("Company.xlsx", 0, false) == "Company.xlsx", "automatic cleanup is explicitly configurable");
+            Reject(delegate { CompanyWorkbookRules.NamingStem("Company", 7, true); }, "manual trimming cannot empty a name");
+            Reject(delegate { CompanyWorkbookRules.NamingStem("Company", -1, true); }, "negative trimming rejected");
+            Reject(delegate { CompanyWorkbookRules.NamingStem(".xlsx", 0, true); }, "suffix-only name rejected");
+            var suffixRows = new List<CompanyWorkbookRecord> { new CompanyWorkbookRecord { Row = 3, Name = "Company.xlsx", Code = "01", FullName = "Full" } };
+            CompanyWorkbookRules.ValidateRecords(suffixRows, folder, ".xls");
+            Check(Path.GetFileName(suffixRows[0].OutputPath) == "Company.xls" && suffixRows[0].Name == "Company.xlsx" && suffixRows[0].Code == "01", "template extension used once and source record unchanged");
+            File.WriteAllText(suffixRows[0].OutputPath, "keep");
+            Reject(delegate { CompanyWorkbookRules.ValidateRecords(suffixRows, folder, ".xls"); }, "normalized name cannot overwrite an existing file");
+            Check(File.ReadAllText(suffixRows[0].OutputPath) == "keep", "normalized name collision preserves existing file bytes");
+            File.Delete(suffixRows[0].OutputPath);
+            suffixRows.Add(new CompanyWorkbookRecord { Row = 4, Name = "Company.XLS" });
+            Reject(delegate { CompanyWorkbookRules.ValidateRecords(suffixRows, folder, ".xlsx"); }, "suffix cleanup collisions rejected");
+            suffixRows[0].Name = "Company1"; suffixRows[1].Name = "Company2";
+            Reject(delegate { CompanyWorkbookRules.ValidateRecords(suffixRows, folder, ".xlsx", true, 1); }, "manual trimming collisions rejected");
             var request = new CompanyWorkbookRequest { SourceSheet = "source", TargetSheet = "lead", NameField = "name", CodeField = "code", FullNameField = "full", TargetCodeField = "code", TargetNameField = "full", Output = folder, HeaderRow = 1, FirstRow = 3, LastRow = 5, TargetHeaderRow = 1, TargetRow = 8, UpdateLead = true };
             request.Validate(); request.FirstRow = 0; Reject(request.Validate, "explicit source rows"); request.FirstRow = 3;
             request.TargetRow = 0; Reject(request.Validate, "explicit lead row"); request.TargetRow = 8;
@@ -56,6 +74,11 @@ internal static class CompanyWorkbookProbe
             using (var form = new CompanyWorkbookForm())
             {
                 Check(!form.Visible, "production form constructs offline");
+                Check(form.StripExcelSuffix.Checked && form.RemoveTailCharacters.Value == 0, "safe naming defaults");
+                form.ShowNamePreview(new List<CompanyWorkbookRecord> { new CompanyWorkbookRecord { Row = 3, Name = "Company.xlsx", OutputPath = Path.Combine(folder, "Company.xls") } });
+                Check(form.NamePreview.Text.Contains("Company.xlsx → Company.xls"), "preview displays actual final filename alongside raw source");
+                form.RemoveTailCharacters.Value = 1;
+                Check(form.NamePreview.Text.Length == 0, "changing naming rules invalidates the old preview");
                 form.ResetProgress("新任务");
                 Check(form.Progress.Value == 0 && form.ProgressCounts.Text.Contains("0 / 0") && !form.ProgressTiming.Text.Contains("预计剩余"), "production progress reset clears stale completion and ETA");
             }

@@ -50,8 +50,11 @@ namespace Excel_Iterate
         internal string SourceSheet, TargetSheet, NameField, CodeField, FullNameField, TargetCodeField, TargetNameField, Output;
         internal int HeaderRow, FirstRow, LastRow, TargetHeaderRow, TargetRow;
         internal bool UpdateLead;
+        internal bool StripExcelSuffix = true;
+        internal int RemoveTailCharacters;
         internal void Validate()
         {
+            if (RemoveTailCharacters < 0) throw new InvalidOperationException("末尾去除字符数不能为负数。");
             if (HeaderRow < 1 || FirstRow <= HeaderRow || LastRow < FirstRow)
                 throw new InvalidOperationException("请明确填写来源表头行、起始行和结束行；起始行须在表头之后。");
             if (string.IsNullOrWhiteSpace(SourceSheet) || string.IsNullOrWhiteSpace(NameField))
@@ -70,6 +73,30 @@ namespace Excel_Iterate
     }
     internal static class CompanyWorkbookRules
     {
+        private static readonly string[] ExcelSuffixes = { ".xlsx", ".xlsm", ".xlsb", ".xltx", ".xltm", ".xls", ".xlt", ".et", ".ett" };
+        internal static string NamingStem(string raw, int removeTailCharacters, bool stripExcelSuffix)
+        {
+            if (removeTailCharacters < 0) throw new InvalidOperationException("末尾去除字符数不能为负数。");
+            string name = raw ?? "";
+            if (removeTailCharacters > 0)
+            {
+                int[] characters = System.Globalization.StringInfo.ParseCombiningCharacters(name);
+                if (removeTailCharacters >= characters.Length) throw new InvalidOperationException("去除末尾字符后名称为空，请减小去除数量。");
+                name = name.Substring(0, characters[characters.Length - removeTailCharacters]);
+            }
+            if (stripExcelSuffix)
+            {
+                bool removed;
+                do
+                {
+                    removed = false;
+                    foreach (string suffix in ExcelSuffixes)
+                        if (name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                        { name = name.Substring(0, name.Length - suffix.Length); removed = true; break; }
+                } while (removed);
+            }
+            return FileName(name);
+        }
         internal static string Text(object value)
         {
             if (value is System.Runtime.InteropServices.ErrorWrapper) throw new InvalidOperationException("单元格包含 Excel 错误值。");
@@ -96,15 +123,15 @@ namespace Excel_Iterate
             if (!headers.TryGetValue(field.Trim(), out column)) throw new InvalidOperationException("找不到字段「" + field + "」。");
             return column;
         }
-        internal static void ValidateRecords(IList<CompanyWorkbookRecord> rows, string output, string extension)
+        internal static void ValidateRecords(IList<CompanyWorkbookRecord> rows, string output, string extension, bool stripExcelSuffix = true, int removeTailCharacters = 0)
         {
             var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var row in rows)
             {
                 try
                 {
-                    string name = FileName(row.Name);
-                    if (!names.Add(name)) throw new InvalidOperationException("公司文件名重复（忽略大小写）。");
+                    string name = NamingStem(row.Name, removeTailCharacters, stripExcelSuffix);
+                    if (!names.Add(name)) throw new InvalidOperationException("处理后的文件名重复（忽略大小写）：" + name + extension);
                     row.OutputPath = Path.Combine(Path.GetFullPath(output), name + extension);
                     if (row.OutputPath.Length >= 240 || (name + extension).Length > 255) throw new InvalidOperationException("输出路径过长。");
                     if (File.Exists(row.OutputPath) || Directory.Exists(row.OutputPath)) throw new InvalidOperationException("同名输出已存在，不会覆盖：" + row.OutputPath);

@@ -665,6 +665,8 @@ namespace Excel_Iterate
                     {
                         dynamic yearCell = bag.Own(s.Cells[request.YearHeaderRow, firstColumn + i]);
                         yearCell.Value2 = columns[i].YearLabel;
+                        yearCell.HorizontalAlignment = -4108; // xlCenter
+                        yearCell.VerticalAlignment = -4108;   // xlCenter
                     }
                 }
 

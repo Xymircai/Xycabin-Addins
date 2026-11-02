@@ -135,6 +135,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+本轮将“2025年度”等年度表头单元格显式设为水平、垂直居中，仅修改年度表头的两项对齐属性，其他模板及数据区域格式保留。编译与既有 SingleSummaryProbe 99 项回归通过，见[编译日志](../C-01-ExcelIterate/build/summary-year-alignment-build.log)及[回归结果](../C-01-ExcelIterate/build/summary-year-alignment-tests.json)。实际 Excel/WPS 显示未验收；固定签名证书仍缺失，未生成新安装包。
+
 本轮实现单体汇总表多年度展开：每家公司按年度占多列，每列重复公司表头，下方指定行显示年度，默认倒序；年度路径只按完整目录规则换年，含来源预检、逐列计划、整批还原范围及实际公司行勾选回写。编译通过，SingleSummaryProbe 99 项、CompanyWorkbookProbe 71 项、DisciplineProbe 31 项、DialogSizesProbe core 111 项及 RibbonProbe 通过，弹窗目录和模态隔离检查通过。见[多年度测试结果](../C-01-ExcelIterate/build/summary-annual-tests.json)、[详细日志](../C-01-ExcelIterate/build/summary-annual-tests.log)和[编译日志](../C-01-ExcelIterate/build/summary-annual-build.log)。检查使用模型、托管宿主及自建空文件，不代表真实 Excel/WPS/VSTO 写入及还原已验收；固定证书仍缺失，未生成新安装包。
 
 本轮修复公司工作簿重复扩展名，加入默认 Excel 后缀清理、末尾去除字符数及独立文件名预览；生成前按处理后的名称校验碰撞，保持来源记录和 Lead 字段原值。编译通过，CompanyWorkbookProbe 71 项（含后缀大小写/重复、字符裁剪、处理后重名及既有文件保护）、SingleSummaryProbe 70 项、DisciplineProbe 31 项及 DialogSizesProbe core 111 项通过，弹窗目录与模态隔离检查通过。见[命名测试结果](../C-01-ExcelIterate/build/company-filenames-tests.json)、[详细日志](../C-01-ExcelIterate/build/company-filenames-tests.log)和[编译日志](../C-01-ExcelIterate/build/company-filenames-build.log)。未验证真实 Excel/WPS/VSTO；固定签名证书仍缺失，未生成新安装包。

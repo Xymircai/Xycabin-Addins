@@ -208,6 +208,7 @@ namespace Excel_Iterate.TestHarness
             }
 
             SummaryWorkbookBindingChecks.Run(Assert);
+            SummaryAnnualChecks.Run(Assert);
 
             Console.WriteLine();
             Console.WriteLine("PASS " + _pass + "，FAIL " + _fail);

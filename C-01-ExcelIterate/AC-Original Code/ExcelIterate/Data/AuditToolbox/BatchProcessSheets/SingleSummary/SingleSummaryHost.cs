@@ -136,6 +136,7 @@ namespace Excel_Iterate
     /// <summary>模板列体检结果。</summary>
     internal sealed class SummaryTemplateProbe
     {
+        internal readonly List<string> Formulas = new List<string>();
         internal int HeaderRow;
         internal int LastRow;                 // 模板列最后一个非空行
         internal int LastColumn;              // 目标区间最后一列
@@ -303,7 +304,12 @@ namespace Excel_Iterate
             return ReadValues(range);
         }
 
-        /// <summary>回写「选用」列：勾选 TRUE、取消 FALSE；符号名取自需求默认。</summary>
+        internal static void ApplySelection(SummaryLeadSnapshot snapshot, IList<SummaryCompany> selected)
+        {
+            var rows = new HashSet<int>(); foreach (var company in selected) rows.Add(company.Row);
+            foreach (var company in snapshot.Companies) company.Selected = rows.Contains(company.Row);
+        }
+        /// <summary>按实际来源行回写，非候选行不写，年度重复列不重复回写。</summary>
         internal static void WriteSelection(object sheet, SummaryLeadSnapshot snapshot)
         {
             if (snapshot.Companies.Count == 0) return;
@@ -315,15 +321,12 @@ namespace Excel_Iterate
                     dynamic header = bag.Own(s.Cells[snapshot.HeaderRow, snapshot.PickWriteColumn]);
                     header.Value2 = SummaryHeaders.PickHeader;
                 }
-                int first = snapshot.Companies[0].Row;
-                int last = snapshot.Companies[snapshot.Companies.Count - 1].Row;
-                dynamic range = bag.Own(s.Range[
-                    ComFormulaHost.Address(first, snapshot.PickWriteColumn) + ":"
-                    + ComFormulaHost.Address(last, snapshot.PickWriteColumn)]);
-                object[,] values = new object[last - first + 1, 1];
-                for (int i = 0; i < snapshot.Companies.Count; i++)
-                    values[i, 0] = snapshot.Companies[i].Selected;
-                range.Value2 = values;
+                foreach (var company in snapshot.Companies)
+                    using (var one = new ComBag())
+                    {
+                        dynamic cell = one.Own(s.Cells[company.Row, snapshot.PickWriteColumn]);
+                        cell.Value2 = company.Selected;
+                    }
             }
         }
     }
@@ -331,6 +334,47 @@ namespace Excel_Iterate
     /// <summary>模板列体检：占位表头、末行、外链文件名、跨列合并。</summary>
     internal static class SummaryTemplateReader
     {
+        internal static List<string> AnnualPreview(object book, object sheet, SummaryRequest request, SummaryTemplateProbe probe)
+        {
+            var lines = new List<string>();
+            if (!request.Annual) return lines;
+            SummaryAnnualLinks.Prepare(request, probe.Formulas);
+            using (var bag = new ComBag())
+            {
+                dynamic s = sheet;
+                dynamic rows = bag.Own(s.Rows);
+                if (request.YearHeaderRow > Convert.ToInt32(rows.Count)) throw new InvalidOperationException("年度表头行超出当前工作表范围。");
+                var columns = request.Columns();
+                for (int column = request.TemplateColumn; column < request.TemplateColumn + columns.Count; column++)
+                    foreach (int row in new[] { request.SheetHeaderRow, request.YearHeaderRow })
+                    {
+                        dynamic cell = bag.Own(s.Cells[row, column]);
+                        if (Convert.ToBoolean(cell.MergeCells) || Convert.ToBoolean(cell.HasArray))
+                            throw new InvalidOperationException("公司和年度表头须为独立单元格，不能合并或含数组公式：" + SummaryColumns.Letter(column) + row);
+                    }
+                probe.LastRow = Math.Max(probe.LastRow, request.YearHeaderRow);
+                lines.Add("年度目录：" + request.YearPathPattern + "；模板年度：" + request.TemplateYear + "；年度表头：第 " + request.YearHeaderRow + " 行。");
+                var checkedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var column in columns)
+                    foreach (string path in SummaryAnnualLinks.Paths(probe.Formulas, request, column))
+                    {
+                        string full = path;
+                        if (request.CheckYearFiles)
+                        {
+                            if (!System.IO.Path.IsPathRooted(full))
+                            {
+                                string folder = System.IO.Path.GetDirectoryName(Convert.ToString(((dynamic)book).FullName));
+                                if (string.IsNullOrEmpty(folder)) throw new InvalidOperationException("相对来源路径需要已保存的目标工作簿，或取消来源文件检查。");
+                                full = System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, full));
+                            }
+                            if (checkedPaths.Add(full) && !System.IO.File.Exists(full)) throw new InvalidOperationException("年度来源文件不存在或当前无法访问：" + full);
+                        }
+                        lines.Add(SummaryColumns.Letter(column.Column) + "｜" + column.Company.Code + "｜" + column.YearLabel + "｜" + full);
+                    }
+                if (!request.CheckYearFiles) lines.Add("已关闭年度来源文件检查：仅生成链接，不代表来源文件存在或可读取。");
+            }
+            return lines;
+        }
         internal static SummaryTemplateProbe Read(object sheet, int headerRow, int firstColumn, int lastColumn, string placeholder)
         {
             SummaryTemplateProbe probe = new SummaryTemplateProbe();
@@ -378,6 +422,7 @@ namespace Excel_Iterate
                     string text = formula as string;
                     if (text == null || text.Length == 0 || text[0] != '=') continue;
                     probe.FormulaCells++;
+                    probe.Formulas.Add(text);
                     SummaryLinkRewriter.Tokens(text, probe.Tokens);
                 }
 
@@ -507,11 +552,11 @@ namespace Excel_Iterate
         internal static SummaryRunReport Run(object app, object book, object sheet, SummaryRequest request,
             SummaryTemplateProbe probe, string backupSheet, Action<string> status)
         {
-            List<SummaryCompany> chosen = request.Chosen();
+            List<SummaryYearColumn> columns = request.Columns();
             SummaryRunReport report = new SummaryRunReport();
-            report.Columns = chosen.Count;
+            report.Columns = columns.Count;
             int firstColumn = request.TemplateColumn;
-            int lastColumn = firstColumn + chosen.Count - 1;
+            int lastColumn = firstColumn + columns.Count - 1;
 
             // 1) 备份由调用方在此之前完成（失败时也要能还原，所以备份名先落到会话里）
             report.BackupSheet = backupSheet;
@@ -546,10 +591,10 @@ namespace Excel_Iterate
                     + ComFormulaHost.Address(lastRow, firstColumn)]);
 
                 // 3) 逐列铺开：List[0] 就是模板列本身，从第 2 家公司起复制到右侧
-                for (int i = 1; i < chosen.Count; i++)
+                for (int i = 1; i < columns.Count; i++)
                 {
                     if (status != null) status("正在生成第 " + (i + 1).ToString(CultureInfo.InvariantCulture)
-                        + "/" + chosen.Count.ToString(CultureInfo.InvariantCulture) + " 列…");
+                        + "/" + columns.Count.ToString(CultureInfo.InvariantCulture) + " 列…");
                     int column = firstColumn + i;
                     dynamic targetRange = bag.Own(s.Range[
                         ComFormulaHost.Address(startRow, column) + ":"
@@ -563,17 +608,17 @@ namespace Excel_Iterate
                 // 4) 换链 + 公式原样带出
                 //    复制会把相对引用平移，所以复制出来的列必须把公式原文写回；
                 //    模板列本身没有复制，只在确实替换成功时才写。
-                for (int i = 0; i < chosen.Count; i++)
+                for (int i = 0; i < columns.Count; i++)
                 {
                     int column = firstColumn + i;
-                    SummaryCompany company = chosen[i];
+                    SummaryCompany company = columns[i].Company;
                     string letter = SummaryColumns.Letter(column);
                     int touched = 0;
                     for (int r = 0; r < rows; r++)
                     {
                         string original = sourceFormulas[r];
                         if (original == null) continue;
-                        SummaryRewrite rewrite = SummaryLinkRewriter.Replace(original, request.SourceFile, company.FileName);
+                        SummaryRewrite rewrite = request.Rewrite(original, columns[i]);
                         bool mustWriteBack = i > 0 || rewrite.Count > 0;
                         if (!mustWriteBack) continue;
                         // WPS 拒绝「文件名含括号且引用没加引号」的外链公式（实测 0x8FE3000B），
@@ -612,15 +657,20 @@ namespace Excel_Iterate
                 }
 
                 // 5) 表头：只改该列表头行的「大合并」占位，逐列写各自「编码&简称」
-                for (int i = 0; i < chosen.Count; i++)
+                for (int i = 0; i < columns.Count; i++)
                 {
                     dynamic cell = bag.Own(s.Cells[headerRow, firstColumn + i]);
-                    cell.Value2 = chosen[i].Code;
+                    cell.Value2 = columns[i].Company.Code;
+                    if (request.Annual)
+                    {
+                        dynamic yearCell = bag.Own(s.Cells[request.YearHeaderRow, firstColumn + i]);
+                        yearCell.Value2 = columns[i].YearLabel;
+                    }
                 }
 
                 // 6) 读回校验：表头与首列公式必须与预期一致
-                string verify = Verify(s, chosen, request, headerRow, startRow, lastRow, sourceFormulas);
-                if (verify != null) report.Warnings.Add(verify);
+                string verify = Verify(s, columns, request, headerRow, startRow, lastRow, sourceFormulas);
+                if (verify != null) { if (request.Annual) throw new InvalidOperationException(verify); report.Warnings.Add(verify); }
 
                 // 6b) 趁「不询问链接」仍然生效时先把目标表算完：
                 //     否则稍后自动重算会逐条弹「更新值」，用户看到的就是反复弹窗。
@@ -635,7 +685,7 @@ namespace Excel_Iterate
             }
 
             // 7) 日志表（不自动保存工作簿，日志与备份都留在未保存状态）
-            report.LogSheet = AppendLog(book, request, chosen, probe, report);
+            report.LogSheet = AppendLog(book, request, columns, probe, report);
             return report;
         }
 
@@ -686,7 +736,7 @@ namespace Excel_Iterate
 
         // ---------------------------- 日志表 ----------------------------
 
-        private static string AppendLog(object book, SummaryRequest request, List<SummaryCompany> chosen,
+        private static string AppendLog(object book, SummaryRequest request, List<SummaryYearColumn> columns,
             SummaryTemplateProbe probe, SummaryRunReport report)
         {
             using (ComBag bag = new ComBag())
@@ -731,23 +781,23 @@ namespace Excel_Iterate
                 }
 
                 string stamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
-                object[,] rows = new object[chosen.Count, 6];
-                for (int i = 0; i < chosen.Count; i++)
+                object[,] rows = new object[columns.Count, 6];
+                for (int i = 0; i < columns.Count; i++)
                 {
-                    SummaryCompany company = chosen[i];
-                    string column = SummaryColumns.Letter(request.TemplateColumn + i);
+                    SummaryCompany company = columns[i].Company;
+                    string column = SummaryColumns.Letter(columns[i].Column);
                     rows[i, 0] = stamp;
                     rows[i, 1] = company.Code;
                     rows[i, 2] = company.Name;
                     rows[i, 3] = column;
                     rows[i, 4] = "已生成";
                     rows[i, 5] = "[" + request.SourceFile + "] → [" + company.FileName + "]"
-                        + "；第 " + request.HeaderRow.ToString(CultureInfo.InvariantCulture) + "～"
-                        + probe.LastRow.ToString(CultureInfo.InvariantCulture) + " 行";
+                        + (request.Annual ? "；" + columns[i].YearLabel + "；目录 " + request.YearPathPattern : "")
+                        + "；第 1～" + probe.LastRow.ToString(CultureInfo.InvariantCulture) + " 行；Lead 表头第 " + request.HeaderRow.ToString(CultureInfo.InvariantCulture) + " 行";
                 }
                 dynamic body = bag.Own(s.Range[
                     "A" + startRow.ToString(CultureInfo.InvariantCulture) + ":F"
-                    + (startRow + chosen.Count - 1).ToString(CultureInfo.InvariantCulture)]);
+                    + (startRow + columns.Count - 1).ToString(CultureInfo.InvariantCulture)]);
                 body.Value2 = rows;
                 try { ((dynamic)bag.Own(s.Columns)).AutoFit(); } catch (Exception ex) { Connect.Log("单体汇总表生成：日志列宽自适应失败 " + ex.Message); }
                 return Convert.ToString(sheet.Name);
@@ -810,40 +860,35 @@ namespace Excel_Iterate
         }
 
         /// <summary>读回校验：表头值、首列公式是否与预期一致；不一致只记警告，不假装成功。</summary>
-        private static string Verify(object sheet, List<SummaryCompany> chosen, SummaryRequest request,
+        private static string Verify(object sheet, List<SummaryYearColumn> columns, SummaryRequest request,
             int headerRow, int startRow, int lastRow, List<string> sourceFormulas)
         {
-            List<string> problems = new List<string>();
             using (ComBag bag = new ComBag())
             {
                 dynamic s = sheet;
-                for (int i = 0; i < chosen.Count; i++)
+                for (int i = 0; i < columns.Count; i++)
                 {
-                    dynamic cell = bag.Own(s.Cells[headerRow, request.TemplateColumn + i]);
-                    string actual = SummaryArrays.Text(cell.Value2);
-                    if (!string.Equals(actual, chosen[i].Code.Trim(), StringComparison.Ordinal))
-                        problems.Add(SummaryColumns.Letter(request.TemplateColumn + i) + headerRow.ToString(CultureInfo.InvariantCulture)
-                            + " 表头读回为「" + actual + "」，应为「" + chosen[i].Code + "」");
-                }
-                object first = ReadFormulas(bag, s, request.TemplateColumn, startRow, lastRow);
-                int rows = lastRow - startRow + 1;
-                for (int r = 0; r < rows; r++)
-                {
-                    if (sourceFormulas[r] == null) continue;
-                    string actual = SummaryArrays.Text(SummaryArrays.Pick(first, r, rows, 0, 1));
-                    SummaryCompany company = chosen[0];
-                    SummaryRewrite expectRewrite = SummaryLinkRewriter.Replace(sourceFormulas[r], request.SourceFile, company.FileName);
-                    string expected = expectRewrite.Text;
-                    if (expectRewrite.Count > 0) expected = SummaryLinkRewriter.QuoteLinks(expected, company.FileName);
-                    if (!string.Equals(actual, expected, StringComparison.Ordinal))
+                    dynamic cell = bag.Own(s.Cells[headerRow, columns[i].Column]);
+                    if (SummaryArrays.Text(cell.Value2) != columns[i].Company.Code)
+                        return "公司表头读回不一致：" + SummaryColumns.Letter(columns[i].Column);
+                    if (request.Annual)
                     {
-                        problems.Add(SummaryColumns.Letter(request.TemplateColumn)
-                            + (startRow + r).ToString(CultureInfo.InvariantCulture) + " 公式读回与预期不一致");
-                        break;
+                        dynamic year = bag.Own(s.Cells[request.YearHeaderRow, columns[i].Column]);
+                        if (SummaryArrays.Text(year.Value2) != columns[i].YearLabel) return "年度表头读回不一致：" + SummaryColumns.Letter(columns[i].Column);
+                    }
+                    if (!request.Annual && i > 0) continue;
+                    object formulas = ReadFormulas(bag, s, columns[i].Column, startRow, lastRow);
+                    for (int r = 0; r < sourceFormulas.Count; r++)
+                    {
+                        if (sourceFormulas[r] == null || startRow + r == headerRow || (request.Annual && startRow + r == request.YearHeaderRow)) continue;
+                        SummaryRewrite rewrite = request.Rewrite(sourceFormulas[r], columns[i]);
+                        string expected = rewrite.Count > 0 ? SummaryLinkRewriter.QuoteLinks(rewrite.Text, columns[i].Company.FileName) : rewrite.Text;
+                        string actual = SummaryArrays.Text(SummaryArrays.Pick(formulas, r, lastRow - startRow + 1, 0, 1));
+                        if (actual != expected) return "公式读回不一致：" + SummaryColumns.Letter(columns[i].Column) + (startRow + r);
                     }
                 }
             }
-            return problems.Count == 0 ? null : "读回校验：" + string.Join("；", problems.ToArray());
+            return null;
         }
     }
 }

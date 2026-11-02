@@ -44,9 +44,43 @@ namespace Excel_Iterate
         internal int TemplateColumn;         // 模板列列号（1 起，D=4）
         internal string SourceFile = "";     // 模板公司文件名，如 "示例有限公司.xlsx"
         internal string Placeholder = SummaryHeaders.Placeholder;  // 模板列的表头占位名，默认「大合并」，可改；留空=不校验
+        internal bool Annual, DescendingYears = true, CheckYearFiles = true;
+        internal int FirstYear = DateTime.Now.Year, LastYear = DateTime.Now.Year, YearHeaderRow;
+        internal string YearPathPattern = "";
+        internal int TemplateYear;
         internal readonly List<SummaryCompany> Companies = new List<SummaryCompany>();
 
         internal string TemplateLetter { get { return SummaryColumns.Letter(TemplateColumn); } }
+        internal int YearCount { get { return Annual ? LastYear - FirstYear + 1 : 1; } }
+        internal string ValidateYears()
+        {
+            if (!Annual) return null;
+            if (FirstYear < 1900 || LastYear > 9999 || LastYear < FirstYear) return "年度范围须为 1900～9999，结束年度不能早于开始年度。";
+            if (YearHeaderRow <= SheetHeaderRow || YearHeaderRow > 1048576) return "年度表头行须在公司表头行下方，请明确填写行号。";
+            if (YearPathPattern.Length > 0)
+            {
+                int marker = YearPathPattern.IndexOf("{yyyy}", StringComparison.Ordinal);
+                if (marker < 0 || YearPathPattern.IndexOf("{yyyy}", marker + 1, StringComparison.Ordinal) >= 0 || YearPathPattern.IndexOfAny(new[] { '\\', '/' }) >= 0)
+                    return "年度目录须为一个目录段且只含一个 {yyyy}，例如 GROUP_示例_{yyyy}1231；也可留空自动识别。";
+            }
+            return null;
+        }
+        internal List<SummaryYearColumn> Columns()
+        {
+            var columns = new List<SummaryYearColumn>();
+            string invalid = ValidateYears(); if (invalid != null) throw new InvalidOperationException(invalid);
+            long total = (long)Chosen().Count * YearCount;
+            if (TemplateColumn < 1 || TemplateColumn + total - 1 > 16384) throw new InvalidOperationException("公司数乘以年度数后超出工作表列上限。");
+            foreach (var company in Chosen())
+                for (int i = 0; i < YearCount; i++)
+                    columns.Add(new SummaryYearColumn { Company = company, Year = Annual ? (DescendingYears ? LastYear - i : FirstYear + i) : 0, Column = TemplateColumn + columns.Count });
+            return columns;
+        }
+        internal SummaryRewrite Rewrite(string formula, SummaryYearColumn column)
+        {
+            return Annual ? SummaryAnnualLinks.Rewrite(formula, SourceFile, column.Company.FileName, YearPathPattern, column.Year)
+                : SummaryLinkRewriter.Replace(formula, SourceFile, column.Company.FileName);
+        }
 
         /// <summary>本次真正参与生成的公司（勾选且两列都非空），保持 Lead 行序。</summary>
         internal List<SummaryCompany> Chosen()
@@ -60,6 +94,7 @@ namespace Excel_Iterate
         /// <summary>返回 null 表示通过；否则是给用户看的阻断原因。</summary>
         internal string Validate()
         {
+            string years = ValidateYears(); if (years != null) return years;
             if (LeadSheet.Trim().Length == 0) return "请先选择 Lead 工作表。";
             if (TargetSheet.Trim().Length == 0) return "找不到汇总工作表，请重新打开窗口。";
             if (string.Equals(LeadSheet.Trim(), TargetSheet.Trim(), StringComparison.OrdinalIgnoreCase))
@@ -71,15 +106,152 @@ namespace Excel_Iterate
             if (!SummaryLinkRewriter.IsLinkFile(SourceFile)) return "模板公司全称需拼成「全称.xlsx」的样式。";
             List<SummaryCompany> chosen = Chosen();
             if (chosen.Count == 0) return "没有勾选任何公司（N=0），已阻断，未改动工作表。";
-            if (TemplateColumn + chosen.Count - 1 > 16384)
+            if (TemplateColumn + (long)chosen.Count * YearCount - 1 > 16384)
                 return "勾选 " + chosen.Count.ToString(CultureInfo.InvariantCulture)
-                    + " 家公司，从 " + TemplateLetter + " 起向右会超出工作表列上限。";
+                    + " 家公司 × " + YearCount + " 个年度，从 " + TemplateLetter + " 起向右会超出工作表列上限。";
             HashSet<string> names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (SummaryCompany company in chosen)
                 if (!names.Add(company.Name.Trim()))
                     return "勾选名单中「全称」重复：" + company.Name.Trim()
                         + "。重复会生成两列同名链接，请先回 Lead 表修掉。";
             return null;
+        }
+    }
+
+    internal sealed class SummaryYearColumn
+    {
+        internal SummaryCompany Company;
+        internal int Year, Column;
+        internal string YearLabel { get { return Year.ToString(CultureInfo.InvariantCulture) + "年度"; } }
+    }
+
+    internal static class SummaryAnnualLinks
+    {
+        private sealed class Reference
+        {
+            internal int Start, Length;
+            internal bool Quoted;
+            internal string Prefix, Tail;
+        }
+        private static Reference ReferenceAt(string identifier, string source, int start, int length, bool quoted)
+        {
+            string marker = "[" + source.Replace("''", "'") + "]";
+            int open = identifier.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            return open < 0 ? null : new Reference { Start = start, Length = length, Quoted = quoted, Prefix = identifier.Substring(0, open), Tail = identifier.Substring(open + marker.Length) };
+        }
+        private static List<Reference> References(string formula, string source)
+        {
+            var found = new List<Reference>();
+            if (string.IsNullOrEmpty(formula) || string.IsNullOrEmpty(source)) return found;
+            for (int i = 0; i < formula.Length; i++)
+            {
+                if (formula[i] == '"')
+                {
+                    for (i++; i < formula.Length; i++)
+                        if (formula[i] == '"') { if (i + 1 < formula.Length && formula[i + 1] == '"') { i++; continue; } break; }
+                }
+                else if (formula[i] == '\'')
+                {
+                    int start = i, end = i + 1;
+                    for (; end < formula.Length; end++)
+                        if (formula[end] == '\'') { if (end + 1 < formula.Length && formula[end + 1] == '\'') { end++; continue; } break; }
+                    if (end < formula.Length && end + 1 < formula.Length && formula[end + 1] == '!')
+                    {
+                        var item = ReferenceAt(formula.Substring(start + 1, end - start - 1).Replace("''", "'"), source, start, end - start + 1, true);
+                        if (item != null) found.Add(item);
+                    }
+                    i = end;
+                }
+                else if (formula[i] == '[')
+                {
+                    int close = formula.IndexOf(']', i + 1);
+                    if (close < 0 || !string.Equals(formula.Substring(i + 1, close - i - 1), source, StringComparison.OrdinalIgnoreCase)) continue;
+                    int bang = formula.IndexOf('!', close + 1); if (bang < 0) continue;
+                    int start = i;
+                    while (start > 0 && "=+-*/^&(),;<> \t\r\n'".IndexOf(formula[start - 1]) < 0) start--;
+                    var item = ReferenceAt(formula.Substring(start, bang - start), source, start, bang - start, false);
+                    if (item != null) found.Add(item);
+                    i = bang;
+                }
+            }
+            return found;
+        }
+        private static int YearIn(string segment, string pattern)
+        {
+            int marker = pattern.IndexOf("{yyyy}", StringComparison.Ordinal); if (marker < 0) return 0;
+            string before = pattern.Substring(0, marker), after = pattern.Substring(marker + 6);
+            int year;
+            if (segment.Length != before.Length + after.Length + 4 || !segment.StartsWith(before, StringComparison.OrdinalIgnoreCase)
+                || !segment.EndsWith(after, StringComparison.OrdinalIgnoreCase)
+                || !int.TryParse(segment.Substring(before.Length, 4), NumberStyles.None, CultureInfo.InvariantCulture, out year) || year < 1900) return 0;
+            return year;
+        }
+        private static string Prefix(string prefix, string pattern, int year, out int originalYear)
+        {
+            int count = 0, sourceYear = 0;
+            string changed = System.Text.RegularExpressions.Regex.Replace(prefix, @"[^\\/]+", delegate(System.Text.RegularExpressions.Match match)
+            {
+                int value = YearIn(match.Value, pattern); if (value == 0) return match.Value;
+                count++; sourceYear = value;
+                int marker = pattern.IndexOf("{yyyy}", StringComparison.Ordinal);
+                return match.Value.Substring(0, marker) + year.ToString("0000", CultureInfo.InvariantCulture) + match.Value.Substring(marker + 4);
+            });
+            if (count != 1) throw new InvalidOperationException("模板公司链接必须恰好匹配一个年度目录段：" + prefix + "；当前规则：" + pattern);
+            originalYear = sourceYear; return changed;
+        }
+        internal static void Prepare(SummaryRequest request, IList<string> formulas)
+        {
+            if (!request.Annual) return;
+            string invalid = request.ValidateYears(); if (invalid != null) throw new InvalidOperationException(invalid);
+            var references = new List<Reference>();
+            foreach (string formula in formulas) references.AddRange(References(formula, request.SourceFile));
+            if (references.Count == 0) throw new InvalidOperationException("多年度模式未找到模板公司的外链公式，请核对模板公司文件名。");
+            if (request.YearPathPattern.Length == 0)
+            {
+                var candidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var reference in references)
+                    foreach (string segment in reference.Prefix.Split(new[] { '\\', '/' }))
+                        foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(segment, @"(?<!\d)\d{8}(?!\d)"))
+                        {
+                            DateTime date;
+                            if (DateTime.TryParseExact(match.Value, "yyyyMMdd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date) && date.Year >= 1900)
+                                candidates.Add(segment.Substring(0, match.Index) + "{yyyy}" + segment.Substring(match.Index + 4));
+                        }
+                if (candidates.Count != 1) throw new InvalidOperationException("年度目录无法唯一识别，请填写一个含 {yyyy} 的目录段。候选：" + string.Join("、", new List<string>(candidates).ToArray()));
+                foreach (string pattern in candidates) request.YearPathPattern = pattern;
+            }
+            var years = new HashSet<int>();
+            foreach (var reference in references) { int year; Prefix(reference.Prefix, request.YearPathPattern, request.FirstYear, out year); years.Add(year); }
+            if (years.Count != 1) throw new InvalidOperationException("模板公司链接含多个来源年度，不能猜测同比/上年关系，请先统一模板年度链接。");
+            foreach (int year in years) request.TemplateYear = year;
+        }
+        internal static SummaryRewrite Rewrite(string formula, string source, string target, string pattern, int year)
+        {
+            var result = new SummaryRewrite { Text = formula ?? "" };
+            var builder = new StringBuilder(); int cursor = 0;
+            foreach (var reference in References(formula, source))
+            {
+                int originalYear;
+                string identifier = Prefix(reference.Prefix, pattern, year, out originalYear) + "[" + target + "]" + reference.Tail;
+                string text = reference.Quoted ? "'" + identifier.Replace("'", "''") + "'" : identifier;
+                builder.Append(formula, cursor, reference.Start - cursor).Append(text);
+                if (!string.Equals(text, formula.Substring(reference.Start, reference.Length), StringComparison.Ordinal)) result.Count++;
+                cursor = reference.Start + reference.Length;
+            }
+            if (cursor > 0) { builder.Append(formula, cursor, formula.Length - cursor); result.Text = builder.ToString(); }
+            return result;
+        }
+        internal static List<string> Paths(IList<string> formulas, SummaryRequest request, SummaryYearColumn column)
+        {
+            var paths = new List<string>();
+            foreach (string formula in formulas)
+                foreach (var reference in References(formula, request.SourceFile))
+                {
+                    int originalYear;
+                    string path = Prefix(reference.Prefix, request.YearPathPattern, column.Year, out originalYear) + column.Company.FileName;
+                    if (!paths.Exists(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase))) paths.Add(path);
+                }
+            return paths;
         }
     }
 

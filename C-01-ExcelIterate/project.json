@@ -317,7 +317,8 @@
       ],
       "offline": true,
       "additional_sources": [
-        "src/testharness/SummaryWorkbookBindingChecks.cs"
+        "src/testharness/SummaryWorkbookBindingChecks.cs",
+        "src/testharness/SummaryAnnualChecks.cs"
       ]
     },
     {

@@ -33,6 +33,14 @@ namespace Excel_Iterate
         private readonly TextBox templateColumn = new TextBox { Width = 56, Text = "D", Name = "templateColumnBox" };
         private readonly TextBox placeholderBox = new TextBox { Width = 90, Text = SummaryHeaders.Placeholder, Name = "placeholderBox" };
         private readonly TextBox sourceFile = new TextBox { Width = 280, Name = "sourceFileBox" };
+        internal readonly CheckBox AnnualMode = new CheckBox { Text = "按年度展开公司列", AutoSize = true, Name = "summaryAnnualMode" };
+        internal readonly NumericUpDown FirstYear = new NumericUpDown { Minimum = 1900, Maximum = 9999, Value = DateTime.Now.Year, Width = 80, Name = "summaryFirstYear" };
+        internal readonly NumericUpDown LastYear = new NumericUpDown { Minimum = 1900, Maximum = 9999, Value = DateTime.Now.Year, Width = 80, Name = "summaryLastYear" };
+        internal readonly NumericUpDown YearRow = new NumericUpDown { Minimum = 0, Maximum = 1048576, Value = 0, Width = 80, Name = "summaryYearRow" };
+        internal readonly CheckBox DescendingYears = new CheckBox { Text = "年度倒序", AutoSize = true, Checked = true, Name = "summaryYearDescending" };
+        internal readonly CheckBox CheckYearFiles = new CheckBox { Text = "检查年度来源文件是否存在", AutoSize = true, Checked = true, Name = "summaryCheckYearFiles" };
+        internal readonly TextBox YearPathPattern = new TextBox { Width = 310, Name = "summaryYearPathPattern" };
+        private readonly FlowLayoutPanel annualOptions = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Top, Visible = false };
         private readonly Label hostLabel = Ui.Label("", 9, false);
         private readonly Label hint = Ui.Label("", 9, true);
         private readonly RichTextBox logView = new RichTextBox
@@ -115,6 +123,13 @@ namespace Excel_Iterate
             paramsPanel.Controls.Add(row2);
             paramsPanel.Controls.Add(rowA);
             paramsPanel.Controls.Add(rowB);
+            paramsPanel.Controls.Add(AnnualMode);
+            var years = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
+            years.Controls.Add(Ui.Grip(FirstYear, "开始年度")); years.Controls.Add(Ui.Grip(LastYear, "结束年度"));
+            years.Controls.Add(Ui.Grip(YearRow, "年度表头行（必填）")); years.Controls.Add(DescendingYears);
+            var paths = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
+            paths.Controls.Add(Ui.Grip(YearPathPattern, "年度目录段（留空自动识别，手填含 {yyyy}）")); paths.Controls.Add(CheckYearFiles);
+            annualOptions.Controls.Add(years); annualOptions.Controls.Add(paths); paramsPanel.Controls.Add(annualOptions);
             // 参数区按内容高度撑开：Dock=Fill 放在 AutoSize 行里会把这一行压扁，
             // 表现就是参数行被裁掉半截（渲染截图实测）。改为 Dock=Top + AutoSize。
             UiCard paramCard = new UiCard
@@ -187,6 +202,12 @@ namespace Excel_Iterate
             templateColumn.TextChanged += InvalidatePreview;
             placeholderBox.TextChanged += InvalidatePreview;
             sourceFile.TextChanged += InvalidatePreview;
+            AnnualMode.CheckedChanged += delegate { annualOptions.Visible = AnnualMode.Checked; InvalidatePreview(AnnualMode, EventArgs.Empty); };
+            FirstYear.ValueChanged += InvalidatePreview; LastYear.ValueChanged += InvalidatePreview; YearRow.ValueChanged += InvalidatePreview;
+            DescendingYears.CheckedChanged += InvalidatePreview; CheckYearFiles.CheckedChanged += InvalidatePreview; YearPathPattern.TextChanged += InvalidatePreview;
+            Companies.CurrentCellDirtyStateChanged += delegate { if (Companies.IsCurrentCellDirty) Companies.CommitEdit(DataGridViewDataErrorContexts.Commit); };
+            Companies.CellValueChanged += delegate(object sender, DataGridViewCellEventArgs e)
+            { if (!busy && AnnualMode.Checked && e.ColumnIndex == 0) InvalidatePreview(Companies, EventArgs.Empty); };
 
             RefreshActions();
         }
@@ -255,6 +276,7 @@ namespace Excel_Iterate
         {
             SetContext("", new List<string>(), "", "", "");
             sourceFile.Clear(); Companies.Rows.Clear();
+            YearPathPattern.Clear();
         }
         /// <summary>Only the explicitly selected workbook supplies this context.</summary>
         internal void SetContext(string workbook, List<string> sheets, string lead, string targetSheet, string columnLetter)
@@ -290,6 +312,7 @@ namespace Excel_Iterate
         /// <summary>从界面收集请求（不含 COM）。</summary>
         internal SummaryRequest BuildRequest()
         {
+            Companies.EndEdit();
             SummaryRequest request = new SummaryRequest();
             request.LeadSheet = Convert.ToString(leadSheet.Text).Trim();
             request.TargetSheet = TargetSheetName;
@@ -307,6 +330,9 @@ namespace Excel_Iterate
             string source = sourceFile.Text.Trim();
             if (source.Length > 0 && !source.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase)) source += ".xlsx";
             request.SourceFile = source;
+            request.Annual = AnnualMode.Checked; request.FirstYear = (int)FirstYear.Value; request.LastYear = (int)LastYear.Value;
+            request.YearHeaderRow = (int)YearRow.Value; request.DescendingYears = DescendingYears.Checked;
+            request.YearPathPattern = YearPathPattern.Text.Trim(); request.CheckYearFiles = CheckYearFiles.Checked;
             foreach (DataGridViewRow gridRow in Companies.Rows)
             {
                 SummaryCompany company = gridRow.Tag as SummaryCompany;
@@ -402,6 +428,7 @@ namespace Excel_Iterate
             bool idle = !busy && !canUndo;
             Workbooks.Enabled = BrowseWorkbook.Enabled = CurrentWorkbook.Enabled = RefreshWorkbooks.Enabled = idle;
             TargetSheet.Enabled = idle && workbookPath.Length > 0;
+            AnnualMode.Enabled = annualOptions.Enabled = idle;
             leadSheet.Enabled = headerRow.Enabled = sheetHeaderRow.Enabled = templateColumn.Enabled = placeholderBox.Enabled = sourceFile.Enabled = idle;
             Companies.ReadOnly = !idle;
             Refresh.Enabled = idle && workbookPath.Length > 0;
@@ -415,7 +442,7 @@ namespace Excel_Iterate
         public Size MeasureDefaultClient()
         {
             root.PerformLayout();
-            return new Size(DialogSizing.LogicalClient(this).Width, 640);
+            return new Size(DialogSizing.LogicalClient(this).Width, 760);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)

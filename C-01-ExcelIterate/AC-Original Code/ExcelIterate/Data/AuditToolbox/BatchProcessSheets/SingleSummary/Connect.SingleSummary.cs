@@ -177,6 +177,7 @@ namespace Excel_Iterate
                 SummaryRequest request = form.BuildRequest();
                 if (request.TemplateColumn < 1) throw new InvalidOperationException("模板列请填列字母，例如 D。");
                 if (request.HeaderRow < 1) throw new InvalidOperationException("表头行必须是正整数。");
+                string yearError = request.ValidateYears(); if (yearError != null) throw new InvalidOperationException(yearError);
 
                 using (ComBag bag = new ComBag())
                 {
@@ -187,7 +188,11 @@ namespace Excel_Iterate
                     if (target == null) throw new InvalidOperationException("找不到汇总工作表：" + request.TargetSheet);
 
                     SummaryLeadSnapshot snapshot = SummaryLeadReader.Read(lead, request.HeaderRow);
+                    foreach (var company in snapshot.Companies)
+                        foreach (var prior in request.Companies)
+                            if (company.Row == prior.Row && company.Code == prior.Code && company.Name == prior.Name) { company.Selected = prior.Selected; break; }
                     form.SetCompanies(snapshot.Companies);
+                    request.Companies.Clear(); request.Companies.AddRange(snapshot.Companies);
 
                     StringBuilder text = new StringBuilder();
                     foreach (string blocking in snapshot.Blocking) text.AppendLine("阻断：" + blocking);
@@ -197,8 +202,10 @@ namespace Excel_Iterate
                         return;
                     }
 
-                    int count = snapshot.Companies.Count;
-                    int lastColumn = request.TemplateColumn + count - 1;
+                    int count = request.Chosen().Count;
+                    if (count == 0) throw new InvalidOperationException("没有勾选任何公司，请先选择公司再预检。");
+                    var columns = request.Columns();
+                    int lastColumn = request.TemplateColumn + columns.Count - 1;
                     SummaryTemplateProbe probe = SummaryTemplateReader.Read(target, request.SheetHeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
                     // 占位名可配：模板列实际表头与默认值不一致时，先按实际值改一次再复检
                     if (!probe.Placeholder && probe.PlaceholderText.Trim().Length > 0
@@ -221,7 +228,7 @@ namespace Excel_Iterate
                             + snapshot.LastColumn.ToString(CultureInfo.InvariantCulture) + " 列右侧新增）") + "）");
                     text.AppendLine("候选公司 " + count.ToString(CultureInfo.InvariantCulture) + " 家，将生成 "
                         + SummaryColumns.Letter(request.TemplateColumn) + "～" + SummaryColumns.Letter(Math.Max(1, lastColumn))
-                        + " 共 " + count.ToString(CultureInfo.InvariantCulture) + " 列（模板列即第 1 家公司）。");
+                        + " 共 " + columns.Count.ToString(CultureInfo.InvariantCulture) + " 列（每家公司 " + request.YearCount + " 列，模板列也参与生成）。");
                     text.AppendLine("汇总表第 " + request.SheetHeaderRow.ToString(CultureInfo.InvariantCulture)
                         + " 行占位「" + (request.Placeholder.Length == 0 ? "（空=不校验）" : request.Placeholder) + "」："
                         + (probe.Placeholder ? "已确认" : "不一致，已阻断") + "；复制范围 "
@@ -238,6 +245,13 @@ namespace Excel_Iterate
                     else if (request.SourceFile.Length == 0)
                         text.AppendLine("已按公式推断模板公司全称：" + suggested + "（可改）。");
 
+                    request.SourceFile = suggested;
+                    if (request.Annual && suggested.Length > 0 && probe.Blocking.Count == 0)
+                    {
+                        foreach (string line in SummaryTemplateReader.AnnualPreview(book, target, request, probe)) text.AppendLine(line);
+                        text.AppendLine("公司名在每列重复写入，年度按" + (request.DescendingYears ? "倒序" : "升序") + "排列；公司表头不合并。");
+                    }
+
                     bool ok = probe.Blocking.Count == 0 && suggested.Length > 0;
                     form.SetPreview(suggested, ok, text.ToString());
 
@@ -248,7 +262,7 @@ namespace Excel_Iterate
                     _summarySession.BackupSheet = "";
                     _summarySession.HeaderRow = request.SheetHeaderRow;
                     _summarySession.FirstColumn = request.TemplateColumn;
-                    _summarySession.ColumnCount = count;
+                    _summarySession.ColumnCount = columns.Count;
                     _summarySession.LastRow = probe.LastRow;
                     _summarySession.Probe = probe;
                     _summarySession.CanUndo = false;
@@ -309,17 +323,19 @@ namespace Excel_Iterate
                     if (drift != null) throw new InvalidOperationException(drift);
 
                     List<SummaryCompany> chosen = request.Chosen();
-                    int lastColumn = request.TemplateColumn + chosen.Count - 1;
+                    var columns = request.Columns();
+                    int lastColumn = request.TemplateColumn + columns.Count - 1;
                     SummaryTemplateProbe probe = SummaryTemplateReader.Read(target, request.SheetHeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
                     if (probe.Blocking.Count > 0) throw new InvalidOperationException(string.Join("；", probe.Blocking.ToArray()));
+                    foreach (string line in SummaryTemplateReader.AnnualPreview(book, target, request, probe)) form.AppendLog(line);
 
                     string confirm = "工作簿：" + request.WorkbookName + "\r\n将覆盖 "
                         + SummaryColumns.Letter(request.TemplateColumn) + "～" + SummaryColumns.Letter(lastColumn)
-                        + " 共 " + chosen.Count.ToString(CultureInfo.InvariantCulture) + " 列，第 "
-                        + request.HeaderRow.ToString(CultureInfo.InvariantCulture) + "～"
+                        + " 共 " + columns.Count.ToString(CultureInfo.InvariantCulture) + " 列（" + chosen.Count + " 家公司 × " + request.YearCount + "），第 1～"
                         + probe.LastRow.ToString(CultureInfo.InvariantCulture) + " 行。"
-                        + "\r\n换链：" + request.SourceFile + " → 各列公司全称.xlsx（只改方括号里的文件名）"
+                        + "\r\n换链：" + request.SourceFile + " → 各列公司全称.xlsx" + (request.Annual ? "（另按列年度替换指定目录年份）" : "（只改方括号里的文件名）")
                         + "\r\n执行前自动备份工作表，勾选状态回写 Lead 的「" + SummaryHeaders.PickHeader + "」列；本功能不自动保存工作簿。"
+                        + (request.Annual ? "\r\n年度范围：" + request.FirstYear + "—" + request.LastYear + "，" + (request.DescendingYears ? "倒序" : "升序") + "；年度表头第 " + request.YearHeaderRow + " 行，目录 " + request.YearPathPattern : "")
                         + "\r\n继续吗？";
                     if (UiDialog.Show(form, confirm, "确认生成单体汇总表",
                         MessageBoxButtons.OKCancel, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.OK)
@@ -330,6 +346,7 @@ namespace Excel_Iterate
 
                     RequireSummaryBook(); // Recheck identity after the isolated confirmation.
                     // 回写「选用」列（勾选 TRUE / 取消 FALSE），再生成
+                    SummaryLeadReader.ApplySelection(snapshot, chosen);
                     using (HostQuiet quiet = new HostQuiet(_summaryWorkbook.Application))
                         SummaryLeadReader.WriteSelection(lead, snapshot);
                     form.AppendLog("已回写「" + SummaryHeaders.PickHeader + "」列：" + chosen.Count.ToString(CultureInfo.InvariantCulture) + " 家勾选。");
@@ -340,7 +357,7 @@ namespace Excel_Iterate
                     _summarySession.TargetSheet = request.TargetSheet;
                     _summarySession.HeaderRow = request.SheetHeaderRow;
                     _summarySession.FirstColumn = request.TemplateColumn;
-                    _summarySession.ColumnCount = chosen.Count;
+                    _summarySession.ColumnCount = columns.Count;
                     _summarySession.LastRow = probe.LastRow;
                     _summarySession.BackupSheet = backupSheet;
                     _summarySession.WorkbookVersion = _summaryWorkbook.Version;

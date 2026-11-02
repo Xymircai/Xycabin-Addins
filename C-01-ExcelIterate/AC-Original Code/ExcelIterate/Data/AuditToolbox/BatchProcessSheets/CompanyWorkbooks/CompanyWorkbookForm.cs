@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Diagnostics;
 using System.Windows.Forms;
 
 namespace Excel_Iterate
@@ -13,15 +14,20 @@ namespace Excel_Iterate
         private readonly CheckBox update = new CheckBox { Text = "同时更新 Lead 的指定行", Checked = true, AutoSize = true };
         private readonly CheckBox confirmed = new CheckBox { Text = "已确认上述来源范围及 Lead 唯一写入行；仅更新指定的两个字段", AutoSize = true };
         private readonly RichTextBox log = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, BackColor = Color.White };
-        private readonly ProgressBar progress = new ProgressBar { Dock = DockStyle.Top };
+        internal readonly ProgressBar Progress = new ProgressBar { Dock = DockStyle.Top, Style = ProgressBarStyle.Continuous, Height = 18, Name = "companyTaskProgress" };
+        internal readonly Label ProgressCounts = new Label { AutoSize = true, Dock = DockStyle.Top, Name = "companyProgressCounts" };
+        internal readonly Label ProgressTiming = new Label { AutoSize = true, Dock = DockStyle.Top, Name = "companyProgressTiming" };
+        internal readonly Label CurrentTask = new Label { Height = 24, Dock = DockStyle.Top, Name = "companyCurrentTask", AutoEllipsis = true };
+        private readonly TableLayoutPanel progressArea = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 4, Padding = new Padding(0, 6, 0, 6) };
+        private readonly CompanyWorkbookProgress taskProgress = new CompanyWorkbookProgress();
+        private readonly Stopwatch elapsed = new Stopwatch();
         private readonly FlowLayoutPanel inputs = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, FlowDirection = FlowDirection.TopDown, WrapContents = false };
         private readonly RoundedButton start = Ui.Button("预检并开始生成", 155), cancel = Ui.Button("取消任务", 100);
         private readonly Timer timer = new Timer { Interval = 30 };
         private CompanyWorkbookHost host;
         private CompanyWorkbookRequest request;
         private List<CompanyWorkbookRecord> records;
-        private int index, success, failed;
-        private bool ticking, cancelled, closePending, loading;
+        private bool ticking, cancelled, closePending, loading, preparing;
         internal event Action<bool> BusyChanged;
         internal Func<string, CompanyWorkbookHost> OpenTemplate;
         internal Func<bool> CanRun;
@@ -49,10 +55,14 @@ namespace Excel_Iterate
             AddRow("输出文件夹", output, chooseOutput);
             AddRow("核对", confirmed);
             AddRow("说明", Label("读取磁盘模板快照；空行提示跳过，其他异常阻断；已有文件绝不覆盖。\n只复制模式保留原文件字节；更新 Lead 模式会经宿主保存，请先用小样本核验。"));
-            root.Controls.Add(inputs, 0, 0); root.Controls.Add(progress, 0, 1); root.Controls.Add(log, 0, 2);
+            progressArea.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            for (int i = 0; i < 4; i++) progressArea.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            progressArea.Controls.Add(ProgressCounts, 0, 0); progressArea.Controls.Add(Progress, 0, 1);
+            progressArea.Controls.Add(ProgressTiming, 0, 2); progressArea.Controls.Add(CurrentTask, 0, 3);
+            root.Controls.Add(inputs, 0, 0); root.Controls.Add(progressArea, 0, 1); root.Controls.Add(log, 0, 2);
             var actions = Ui.ActionBar(); var close = Ui.Button("关闭", 90);
             actions.Controls.Add(start); actions.Controls.Add(cancel); actions.Controls.Add(close); root.Controls.Add(actions, 0, 3); Controls.Add(root);
-            start.Click += delegate { Start(); }; cancel.Click += delegate { cancelled = true; Append("已请求取消，当前文件完成后停止。"); }; close.Click += delegate { Close(); };
+            start.Click += delegate { Start(); }; cancel.Click += delegate { RequestCancel(); }; close.Click += delegate { Close(); };
             cancel.Enabled = false;
             source.SelectedIndexChanged += delegate { RefreshFields(false); };
             target.SelectedIndexChanged += delegate { RefreshFields(true); };
@@ -60,8 +70,29 @@ namespace Excel_Iterate
             update.CheckedChanged += delegate { SetLeadEnabled(); };
             timer.Tick += delegate { Tick(); };
             FormClosing += delegate(object sender, FormClosingEventArgs e)
-            { if (Running || ticking) { e.Cancel = true; closePending = true; cancelled = true; } };
+            { if (Running || ticking || preparing) { e.Cancel = true; closePending = true; RequestCancel(); } };
             Disposed += delegate { timer.Stop(); timer.Dispose(); ReleaseHost(); };
+            ResetProgress("等待开始");
+        }
+        internal void ResetProgress(string state)
+        {
+            elapsed.Reset(); taskProgress.Reset(0); CurrentTask.Text = "";
+            RenderProgress(state, false);
+        }
+        private void RenderProgress(string state, bool running)
+        {
+            Progress.Maximum = Math.Max(1, taskProgress.Total); Progress.Value = taskProgress.Completed;
+            ProgressCounts.Text = taskProgress.Counts(state);
+            ProgressTiming.Text = taskProgress.Timing(elapsed.Elapsed, running);
+            // Paint before the next STA COM operation without pumping other commands.
+            progressArea.Refresh();
+        }
+        private void RequestCancel()
+        {
+            if (cancelled) return;
+            cancelled = true; cancel.Enabled = false;
+            RenderProgress("正在取消，等待当前文件收尾", true);
+            Append("已请求取消，当前文件完成后停止。");
         }
         private static Label Label(string text) { return new Label { Text = text, AutoSize = true, Padding = new Padding(0, 6, 0, 0) }; }
         private void AddRow(string title, params Control[] controls)
@@ -94,6 +125,7 @@ namespace Excel_Iterate
                 try
                 {
                     SetBusy(true);
+                    ResetProgress("等待配置");
                     ReleaseHost(); template.Clear();
                     loading = true; source.Items.Clear(); target.Items.Clear(); naming.Items.Clear(); code.Items.Clear(); full.Items.Clear(); targetCode.Items.Clear(); targetName.Items.Clear();
                     if (OpenTemplate == null) throw new InvalidOperationException("模板读取服务尚未连接。");
@@ -148,16 +180,22 @@ namespace Excel_Iterate
             {
                 if (host == null) throw new InvalidOperationException("请先选择模板。");
                 if (!confirmed.Checked) throw new InvalidOperationException("请核对并勾选确认来源范围及目标写入行。");
+                preparing = true; cancelled = false;
                 SetBusy(true);
+                cancel.Enabled = false;
+                ResetProgress("正在预检，尚未开始生成");
                 request = new CompanyWorkbookRequest { SourceSheet = source.Text, TargetSheet = target.Text, NameField = naming.Text, CodeField = code.Text, FullNameField = full.Text,
                     TargetCodeField = targetCode.Text, TargetNameField = targetName.Text, Output = output.Text, HeaderRow = (int)header.Value,
                     FirstRow = (int)first.Value, LastRow = (int)last.Value, TargetHeaderRow = (int)leadHeader.Value, TargetRow = (int)leadRow.Value, UpdateLead = update.Checked };
-                records = host.Preview(request, Append); index = success = failed = 0; cancelled = false;
-                progress.Maximum = records.Count; progress.Value = 0;
+                records = host.Preview(request, Append);
+                taskProgress.Reset(records.Count); elapsed.Restart();
+                cancel.Enabled = !cancelled;
+                RenderProgress(cancelled ? "正在取消" : "开始生成", true);
                 Append("预检通过，共 " + records.Count + " 家；来源「" + request.SourceSheet + "」，目标「" + request.TargetSheet + "」第 " + request.TargetRow + " 行。开始生成。");
                 timer.Start();
             }
-            catch (Exception error) { records = null; Append("预检失败：" + error); SetBusy(false); }
+            catch (Exception error) { records = null; ResetProgress("预检失败，未开始生成"); Append("预检失败：" + error); SetBusy(false); }
+            finally { preparing = false; if (closePending && !Running) Close(); }
         }
         private void Tick()
         {
@@ -165,16 +203,19 @@ namespace Excel_Iterate
             ticking = true; timer.Stop();
             try
             {
-                if (cancelled || index >= records.Count) { Finish(); return; }
-                var record = records[index];
-                try { host.Generate(request, record, CompanyWorkbookHost.UpdateLead); success++; Append("成功：来源第 " + record.Row + " 行 → " + record.OutputPath); }
+                if (cancelled || taskProgress.Remaining == 0) { Finish(); return; }
+                var record = records[taskProgress.Completed];
+                CurrentTask.Text = "正在处理第 " + (taskProgress.Completed + 1) + " / " + taskProgress.Total + " 项：" + record.Name;
+                RenderProgress("正在生成", true);
+                bool succeeded = false;
+                try { host.Generate(request, record, CompanyWorkbookHost.UpdateLead); succeeded = true; Append("成功：来源第 " + record.Row + " 行 → " + record.OutputPath); }
                 catch (Exception error)
                 {
-                    failed++;
                     if (error is CompanyWorkbookStateException) cancelled = true;
                     Append("失败：来源第 " + record.Row + " 行 → " + record.OutputPath + "；工作表「" + request.TargetSheet + "」，字段「" + request.TargetCodeField + " / " + request.TargetNameField + "」：" + error);
                 }
-                index++; progress.Value = index;
+                taskProgress.Complete(succeeded);
+                RenderProgress(cancelled ? "正在取消" : "正在生成", true);
             }
             finally
             {
@@ -185,7 +226,11 @@ namespace Excel_Iterate
         }
         private void Finish()
         {
-            Append((cancelled ? "已取消" : "已结束") + "：成功 " + success + "，失败 " + failed + "，未处理 " + (records.Count - index) + "。已成功文件保留；日志可选中复制。");
+            elapsed.Stop();
+            string state = taskProgress.Remaining == 0 ? (taskProgress.Failed > 0 ? "已结束（存在失败）" : "全部完成") : "已取消";
+            CurrentTask.Text = taskProgress.Remaining == 0 ? "本批任务已全部处理。" : "已停止，已成功文件保留。";
+            RenderProgress(state, false);
+            Append(state + "：成功 " + taskProgress.Succeeded + "，失败 " + taskProgress.Failed + "，未处理 " + taskProgress.Remaining + "。已成功文件保留；日志可选中复制。");
             records = null; SetBusy(false);
         }
     }

@@ -5,6 +5,46 @@ using System.Text.RegularExpressions;
 
 namespace Excel_Iterate
 {
+    internal sealed class CompanyWorkbookProgress
+    {
+        internal int Total { get; private set; }
+        internal int Completed { get; private set; }
+        internal int Succeeded { get; private set; }
+        internal int Failed { get; private set; }
+        internal int Remaining { get { return Total - Completed; } }
+        internal double Percent { get { return Total == 0 ? 0 : Math.Floor(Completed * 1000.0 / Total) / 10; } }
+        internal void Reset(int total)
+        {
+            if (total < 0) throw new ArgumentOutOfRangeException("total");
+            Total = total; Completed = Succeeded = Failed = 0;
+        }
+        internal void Complete(bool succeeded)
+        {
+            if (Completed >= Total) throw new InvalidOperationException("没有待完成的任务。");
+            Completed++; if (succeeded) Succeeded++; else Failed++;
+        }
+        internal string Counts(string state)
+        {
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "{0} · 已处理 {1} / {2} 项（{3:0.0}%） · 成功 {4} · 失败 {5} · 剩余 {6}",
+                state, Completed, Total, Percent, Succeeded, Failed, Remaining);
+        }
+        internal string Timing(TimeSpan elapsed, bool running)
+        {
+            string text = "已用 " + Duration(elapsed.TotalSeconds);
+            if (Completed == 0 || elapsed.TotalSeconds <= 0)
+                return text + (running ? " · 平均耗时与预计剩余：首项完成后计算" : "");
+            double average = elapsed.TotalSeconds / Completed;
+            text += " · 平均 " + (average < 0.1 ? "<0.1" : average.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)) + " 秒/项";
+            if (running && Remaining > 0) text += " · 预计剩余约 " + Duration(average * Remaining);
+            return text;
+        }
+        private static string Duration(double seconds)
+        {
+            long whole = (long)Math.Ceiling(Math.Max(0, seconds));
+            return string.Format(System.Globalization.CultureInfo.InvariantCulture, "{0:00}:{1:00}:{2:00}", whole / 3600, whole / 60 % 60, whole % 60);
+        }
+    }
     internal sealed class CompanyWorkbookRequest
     {
         internal string SourceSheet, TargetSheet, NameField, CodeField, FullNameField, TargetCodeField, TargetNameField, Output;

@@ -38,7 +38,27 @@ internal static class CompanyWorkbookProbe
             Check(CompanyWorkbookRules.Text("！literal") == "！literal", "literal exclamation preserved");
             request.UpdateLead = false; request.TargetRow = 0; request.TargetSheet = ""; request.Validate(); checks++;
             CompanyWorkbookHostChecks.Run(folder, Check, Reject);
-            using (var form = new CompanyWorkbookForm()) Check(!form.Visible, "production form constructs offline");
+            var progress = new CompanyWorkbookProgress(); progress.Reset(4);
+            Check(progress.Completed == 0 && progress.Percent == 0 && progress.Timing(TimeSpan.Zero, true).Contains("首项完成后计算"), "first task has no invented speed or ETA");
+            progress.Complete(true); progress.Complete(false);
+            Check(progress.Completed == 2 && progress.Remaining == 2 && progress.Succeeded == 1 && progress.Failed == 1 && progress.Percent == 50, "failed tasks count as processed, not successful outputs");
+            Check(progress.Timing(TimeSpan.FromSeconds(10), true).Contains("5.0 秒/项") && progress.Timing(TimeSpan.FromSeconds(10), true).Contains("预计剩余约 00:00:10"), "ETA derives from actual completed work and elapsed time");
+            Check(progress.Percent == 50 && !progress.Timing(TimeSpan.FromSeconds(10), false).Contains("预计剩余"), "stopped batches retain partial progress and omit ETA");
+            progress.Complete(true); progress.Complete(true);
+            Check(progress.Percent == 100 && progress.Remaining == 0 && progress.Failed == 1, "completed processing preserves failure count");
+            Reject(delegate { progress.Complete(true); }, "progress cannot overshoot task total");
+            progress.Reset(10001); for (int i = 0; i < 10000; i++) progress.Complete(true);
+            Check(progress.Percent < 100 && progress.Remaining == 1, "rounding cannot show 100 percent before final task");
+            progress.Reset(3);
+            Check(progress.Completed == 0 && progress.Failed == 0 && progress.Succeeded == 0 && progress.Percent == 0, "new batch clears old counts");
+            progress.Complete(true);
+            Check(progress.Timing(TimeSpan.FromHours(26), true).Contains("26:00:00") && progress.Timing(TimeSpan.FromMilliseconds(1), true).Contains("<0.1 秒/项"), "long and fast tasks remain readable");
+            using (var form = new CompanyWorkbookForm())
+            {
+                Check(!form.Visible, "production form constructs offline");
+                form.ResetProgress("新任务");
+                Check(form.Progress.Value == 0 && form.ProgressCounts.Text.Contains("0 / 0") && !form.ProgressTiming.Text.Contains("预计剩余"), "production progress reset clears stale completion and ETA");
+            }
             Console.WriteLine("PASS: " + checks + " offline validation checks; no Excel/VSTO runtime validation.");
             Directory.Delete(folder, true); return 0;
         }

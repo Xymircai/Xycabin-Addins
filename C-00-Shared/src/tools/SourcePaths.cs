@@ -33,7 +33,12 @@ namespace WpsShared
         {
             var serializer = new DataContractJsonSerializer(typeof(Manifest),
                 new DataContractJsonSerializerSettings { UseSimpleDictionaryFormat = true });
-            using (var stream = File.OpenRead(Path.Combine(root, "project.json")))
+            // project.json 可能带 UTF-8 BOM（上游提交即如此）。DataContractJsonSerializer
+            // 会把 BOM 当正文而抛 XmlException，故先剥掉 BOM 再反序列化；
+            // 与 Python 侧统一按 utf-8-sig 读取的口径保持一致。
+            byte[] bytes = File.ReadAllBytes(Path.Combine(root, "project.json"));
+            int offset = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0;
+            using (var stream = new MemoryStream(bytes, offset, bytes.Length - offset, false))
                 return (Manifest)serializer.ReadObject(stream);
         }
 

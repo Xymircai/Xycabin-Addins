@@ -135,6 +135,36 @@ Invoke-Checked -Program "gh" -Arguments @("auth", "status", "--hostname", "githu
 
 原证书与私钥、VSTO 依赖仍按上文准备。发布沿用固定身份，不能为了绕过签名失败而替换证书。
 
+### 按门禁清理冗余
+
+只有明确要求清理时才执行，规则以 [B3 第 4 节](<C-04-Devlog/B3-Gate Control.md#4-冗余文件清理>) 为准。范围为三个产品目录；`build`、旧日期、相同摘要或没有搜索到引用，都不能单独作为删除依据。
+
+1. 先运行 `git status --short --branch`，记录版本、现有改动、各目录字节数和候选文件 SHA-256，并按必要输入、当前产物、有效证据、可删历史、未确认五类盘点。核对静态引用、动态加载、文档链接及恢复用途。
+2. 将保留输入复制到独立临时目录，保留 `C-00-Shared`、三个产品、`C-04-Devlog`、根目录检查器及必要 `lib` 的同级关系；排除全部旧 `build`、生成 EXE/HTML 与字节码缓存。使用原证书，在隔离目录完成联合完整重建、签名、五载荷和独立后台验证。隔离失败时保留诊断，不删除原候选。
+3. 将真实运行日志、隔离范围及返回码保存到网站 `build`，按 `file_inventory.py` 的格式生成本轮 `cleanup-review.json` 和 proof：绑定源指纹、候选逐文件摘要、用途与经验归并结论、成功日志及其摘要。不得复用旧路径的证明、伪造 `fixture-state`，也不要手填“成功”代替实际运行。
+4. 执行下列盘点命令，逐项审阅 `remove`、`retain` 和字节数；仅对已确认项执行同一清单的应用命令。当前专项审阅入口只接受产品 `build` 下的候选，源码区域的缓存按保守规则保留。
+
+```powershell
+Invoke-Checked -Program $TaskPython -Arguments @("C-03-Website·Xycabin/src/tools/cleanup.py", "--dry-run")
+$CleanupReport = "C-03-Website·Xycabin/build/cleanup-report.json"
+$CleanupPlan = Get-Content -LiteralPath $CleanupReport -Raw -Encoding utf8 | ConvertFrom-Json
+$CleanupPlan.remove | Select-Object path, files, bytes, reason | Format-Table -Wrap
+$CleanupPlan.retain | Group-Object category | Select-Object Name, Count
+# 只有上面的逐项审阅和隔离验证通过，才执行下一条。
+Invoke-Checked -Program $TaskPython -Arguments @("C-03-Website·Xycabin/src/tools/cleanup.py", "--apply")
+```
+
+清单生成后，源输入或候选内容发生变化必须重新核验、盘点。程序会复核绝对路径、重解析点、引用和摘要；出现失败须保留报告，不能改用递归删除绕过。证书、私钥、必要依赖、当前三件产物、实机证据及未完成恢复资料始终保留。移动到项目内其他目录不算释放空间。
+
+清理完成后运行网站的一键批处理，选择 **2（完整验证）**，它会依次重建两个 EXE 和内嵌同一两包的 HTML，并执行收尾独立验证：
+
+```powershell
+& ".\C-03-Website·Xycabin\AA-Program\一键重建并打包.bat"
+if ($LASTEXITCODE -ne 0) { throw "联合重建或收尾验证失败，停止提交和发布" }
+```
+
+核对 `cleanup-report.json` 的实际删除/失败状态，以及网站 `build/last-run-summary.json`、`build/validate-run-summary.json` 均成功。按后文提交、推送源码和更新 Release 三附件；清理的忽略文件本身不会出现在 Git 提交中，应在 B1 交付审计区记录类别、路径、实际释放字节与保留原因。
+
 ### 新增或调整功能
 
 分类约束见 [B3 的 R-30](<C-04-Devlog/B3-Gate Control.md#6-功能源码分类与代码索引>)，代码定位见 [B4-Code Index](<C-04-Devlog/B4-Code Index.md>)。
@@ -215,7 +245,7 @@ gh api "repos/$RepoName/commits/main" --jq '.sha[0:7] + " " + .commit.message'
 |---|---|---|
 | `TrackerProbe.exe` 无任何输出即以 `0xE0434352` 退出，事件日志报 `Exception.ToString()` 失败 | `project.json` 被保存为带 UTF-8 BOM；`DataContractJsonSerializer` 把 BOM 当正文抛 `XmlException` | 已在 `SourcePaths.ReadManifest` 剥离 BOM。新增清单读取点须同样处理，或把 `project.json` 保存为无 BOM |
 | `Feature099Probe` 报 `actual preview button has text N …` | 新增或改动对话框后，控件超出默认尺寸，被 `AutoScroll` 区域裁出可视范围，探针采样到的文字像素为 0 | 调整 `DialogSizes.cs` 的默认尺寸或窗体行比例，使全部控件可见；不要为通过而放宽探针 |
-| 日志出现 `[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]`，联合重建中断 | 运行环境对批量删除按轮计数（常见阈值 50），清理 `build/stage-*` 时超限 | 改在系统终端直接执行联合重建；或先清理 `build/stage-*` 残留目录再重跑 |
+| 日志出现 `[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]`，联合重建中断 | 当前执行环境拒绝了批量删除 | 保留失败日志，按 B3 的隔离验证、审阅清单与应用流程处理已确认候选；不得仅凭 `stage-*` 名称删除或绕过审批 |
 | `git push` 长时间无响应，`api.github.com` TLS 超时 | 本机代理不可用 | 换用可用网络或修复代理后再推送；未推送前不要更换 Release 附件，避免源码与附件错位 |
 
 ### 备份和更新现有 Release

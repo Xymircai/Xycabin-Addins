@@ -1,6 +1,6 @@
 **三项目档案与版本**
 
-最后更新：2026-10-30 ｜ 当前版本：**0.9.9.3** ｜ 交付物：`Excel_Iterate_Setup.exe`、`WordUpdater_Setup.exe`、`XyCabin.html`
+最后更新：2026-11-03 ｜ 当前版本：**0.9.9.3** ｜ 交付物：`Excel_Iterate_Setup.exe`、`WordUpdater_Setup.exe`、`XyCabin.html`
 
 # 一. Agent及开发者接手概览
 
@@ -134,6 +134,18 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 本轮沿用版本与发布身份，公共源码迁至C-00-Shared，项目清单直接引用，生成文件与产品入口保留原位置。抵消窗口在首次可见前应用最大化，来源事件先订阅再回填；局部缓冲覆盖布局、网格和拖柄，尺寸预览保持普通窗口。默认布局按窗口及DPI延迟测量；从属扫描和抵消预检通过原宿主线程分块读取、后台纯数据运算，来源变化时中止。宿主不支持变化监听时回退同步读取并记录兼容路径。EliminationSession统一持有目标、快照和任务，大结果预览按需取值，仍完整测宽、支持复制；取消与失败重试保留尚未还原的目标。实际WPS黑影、键入、菜单、跨屏DPI与写入还原由用户验收，离线检查不能代替。
 
 ### (2). 本轮交付证据
+
+**最新交付：门禁冗余清理与当前 main 完整重建。** 隔离副本不携带旧 build、生成 EXE/HTML 或字节码缓存；原批处理选择 2 完成联合完整重建及收尾独立验证。清理后在原目录再次运行同一批处理，返回 0；原证书、0.9.9.3 与稳定 ID 沿用。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 清理 | 7 个目标、18 个文件，实际删除 20,148,605 字节（19.22 MiB）；涉及 `build/stage-feature-layout`、`build/stage-optimization`、两个 `build/manifest-fixture-*` 及三处 build 内字节码缓存 |
+| 当前安装包 | [Excel_Iterate_Setup.exe](../C-01-ExcelIterate/AA-Program/Excel_Iterate_Setup.exe)，5,265,408 字节；SHA-256：25568089d8b4a98853530ad7b2c122809e66ea1bf98e88b0adcefeb6b8d0fffb |
+| 验证 | 30 项后台任务全通过，缓存复用 0；R-30=pass、cached=false；原证书清单双签名、五载荷、文档/图形及网页快照通过 |
+| 本地审计 | [清理实绩](../C-03-Website·Xycabin/build/cleanup-report.json)、[隔离证明](../C-03-Website·Xycabin/build/cleanup-isolated-proof.json)、[原目录批处理日志](../C-03-Website·Xycabin/build/cleanup-official-build.log)；build 证据不入 Git |
+| 边界 | 仅源码布局探针修复无旧 HTML 时的构建依赖；功能源码、配置、必要 lib、证书、文档资源与真实验收资料保留；真实 WPS 点击与安装效果仍待实机验收 |
+
+以下为历史交付记录，旧安装包摘要不再代表本轮产物。
 
 本轮解决上游 PR #11 合并冲突：保留批量生成过程表功能，合入上游六个数据迁移文件更新，合并双方交付记录，生成文件保留功能分支内容。迁移检查替身补齐 ClearContents，以匹配上游新增的清空单元格调用。编译、单体汇总 99 项、公司工作簿 71 项、数据迁移 168 项及共享源码分类检查通过；见[合并编译日志](../C-01-ExcelIterate/build/pr11-merge-build-2.log)与[迁移检查日志](../C-01-ExcelIterate/build/pr11-migration-tests-2.log)。检查使用受管替身，未进行 Excel/WPS 实机验收；固定签名证书缺失，未更新安装包。
 
@@ -292,6 +304,18 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+**最新交付：门禁冗余清理与当前 main 完整重建。** 隔离副本不携带旧 build、生成 EXE/HTML 或字节码缓存；原批处理选择 2 完成联合完整重建及收尾独立验证。清理后在原目录再次运行同一批处理，返回 0；原证书、0.9.9.3 与稳定 ID 沿用。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 清理 | 2 个目标、2 个文件，实际删除 8,494,080 字节（8.10 MiB）；涉及 `build/stage-feature-layout`、`build/stage-optimization` |
+| 当前安装包 | [WordUpdater_Setup.exe](../C-02-WordUpdater/AA-Program/WordUpdater_Setup.exe)，4,296,704 字节；SHA-256：85cd8d8077b21cdb7ca37f08472ad00d10d29bd4ea30700f8a4de94acdc3257b |
+| 验证 | 25 项后台任务全通过，缓存复用 0；R-30=pass、cached=false；原证书清单双签名、五载荷、文档/图形及网页快照通过 |
+| 本地审计 | [清理实绩](../C-03-Website·Xycabin/build/cleanup-report.json)、[隔离证明](../C-03-Website·Xycabin/build/cleanup-isolated-proof.json)、[原目录批处理日志](../C-03-Website·Xycabin/build/cleanup-official-build.log)；build 证据不入 Git |
+| 边界 | 仅源码布局探针修复无旧 HTML 时的构建依赖；功能源码、配置、必要 lib、证书、文档资源与真实验收资料保留；真实 WPS 点击与安装效果仍待实机验收 |
+
+以下为历史交付记录，旧安装包摘要不再代表本轮产物。
+
 本轮随迁移文档及内嵌资源重新编译 WordUpdater，22 项后台安全探针全部通过，含 Feature099 2450 项、内嵌文档核心 113 项和弹窗核心 67 项。业务代码及正式身份未改，本轮未签名打包、安装或发布。见[两产品验证状态](../C-01-ExcelIterate/build/local-delivery/quiet-replace/delivery-state.json)。
 
 本轮随本地迁移源码合并重新编译 WordUpdater；共享登记、清单程序集身份与卸载流程改动一并覆盖。后台探针全部通过，含 Feature099 2450 项、弹窗核心 67 项、内嵌文档 113 项、程序集身份 12 项及卸载流程 54 项。见[本轮结果](../C-02-WordUpdater/build/local-delivery/upstream-integration/regressions.json)及[合并摘要](../C-02-WordUpdater/build/local-delivery/upstream-integration/integration-summary.json)。本轮未签名打包、安装、推送、发布或操作真实 WPS 文字文档。
@@ -351,6 +375,27 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 源码与正式产物内容指纹控制增量；两包、独立页和交付记录统一事务发布。后台前端/下载/音频替身不发声、不真实下载，不能代替file页面、听感、浏览器许可或安装效果。当前交付摘要在审计区，方法不重复历史流水。
 
 ### (2). 本轮交付证据
+
+**最新交付：按 R-21 完成三项目冗余清理并重建。** 隔离副本不携带旧 build、生成 EXE/HTML 或字节码缓存；原批处理选择 2 完成联合完整重建及收尾独立验证。清理后在原目录再次运行同一批处理，返回 0；原证书、0.9.9.3 与稳定 ID 沿用。
+
+| 项目 | 删除文件数 | 实际删除字节 |
+| --- | --- | --- |
+| C-01-ExcelIterate | 18 | 20,148,605（19.22 MiB） |
+| C-02-WordUpdater | 2 | 8,494,080（8.10 MiB） |
+| C-03-Website·Xycabin | 1009 | 187,838,793（179.14 MiB） |
+| 合计 | 1029 | 216,481,478（206.45 MiB） |
+
+清理共 55 个目标，失败 0；类别为构建暂存、清单测试夹具、历史生成 HTML 与有对应源码的 build 内 Python 字节码缓存。网站删除 12 个 stage 目录、3 份历史/探针 HTML 和 31 处字节码缓存。完整路径与逐文件摘要见[应用后的 schema 3 清单](../C-03-Website·Xycabin/build/cleanup-report.json)，[隔离成功证明](../C-03-Website·Xycabin/build/cleanup-isolated-proof.json)绑定真实批处理日志及输入指纹；未伪造 fixture-state。
+
+保留网站 `build/site-downloads.html`，因现行 rebuild.py 存在引用且门禁拒绝删除；保留 `document-refactor-20261012`、`grid-output-format-20261014`、`file-names-layout-filter-20261014`、`output-rename` 中的源码 ZIP、独有历史与验收资料，以及 `github-release-*` 的发布恢复证据。Excel 的 `optimization-audit`、实机日志/截图、两个 `.cer` 证书、两产品全部 lib 及锁定 PDF 包保留；源码区域缓存按专项入口的保守边界保留，未确认恢复资料不删除。上述历史目录仅删除单独核准的字节码缓存。
+
+三目录包含新产物和证据后的总字节由 656,350,848 降至 443,201,825，净减少 213,149,023 字节；这是本地重建完成时的快照，后续审计日志会略有增长。根 build 另保留旧 Release 备份。两个本轮自建临时隔离目录约 95.1 MiB，自动审批拒绝删除（blocked by policy），因此保留，不计入项目内释放量。
+
+当前 [XyCabin.html](../C-03-Website·Xycabin/AA-Program/XyCabin.html) 为 13,973,932 字节，SHA-256：8808ae597e62357feeccbfd6b74193550c7c3d3cdd9418479119cde076dde165；HTML 两包与独立 EXE 逐字节一致，两 DLL 内嵌同一无安装包网页。联合重建 14 个阶段与收尾验证 11 个阶段均返回 0，[重建摘要](../C-03-Website·Xycabin/build/last-run-summary.json)及[验证摘要](../C-03-Website·Xycabin/build/validate-run-summary.json)均 success；Excel/Word 分别 30/25 项完整后台任务、0 缓存复用。
+
+本轮源输入复核：除五份配置生成文件的时间戳外，隔离输入副本对应的源码、配置、依赖和资源字节均保持一致。新发现的 SourceLayoutProbe 无旧网页构建问题已修复并归并 B2。GitHub 和 Release 的远端摘要将在回下载核对成功后回填；本轮没有进行真实 WPS 安装或操作用户文档。
+
+以下为历史交付记录，旧网页及附件摘要不再代表本轮产物。
 
 本轮本地源码合并保留上游构建与发布流程，网站仅保留字体注册表非路径值的缓存兼容改动；CacheProbe 10 项与 WorkflowProbe 77 项通过。未重建发布网站或更新远端附件，既有远端发布记录如下。
 

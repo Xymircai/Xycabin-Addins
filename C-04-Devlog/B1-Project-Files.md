@@ -143,6 +143,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 | 当前安装包 | [Excel_Iterate_Setup.exe](../C-01-ExcelIterate/AA-Program/Excel_Iterate_Setup.exe)，5,265,408 字节；SHA-256：25568089d8b4a98853530ad7b2c122809e66ea1bf98e88b0adcefeb6b8d0fffb |
 | 验证 | 30 项后台任务全通过，缓存复用 0；R-30=pass、cached=false；原证书清单双签名、五载荷、文档/图形及网页快照通过 |
 | 本地审计 | [清理实绩](../C-03-Website·Xycabin/build/cleanup-report.json)、[隔离证明](../C-03-Website·Xycabin/build/cleanup-isolated-proof.json)、[原目录批处理日志](../C-03-Website·Xycabin/build/cleanup-official-build.log)；build 证据不入 Git |
+| GitHub 与 Release | 构建源码 [938470e](https://github.com/Xymircai/Xycabin-Addins/tree/938470efe79810f3fcd95e9275d561a3ee5693cc) 已普通推送至 main；[现有 Release](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3) 三附件已同批替换并回下载，大小与 SHA-256 均匹配本表；[远端核验记录](../C-03-Website·Xycabin/build/cleanup-publication-state.json)；原标签未移动 |
 | 边界 | 仅源码布局探针修复无旧 HTML 时的构建依赖；功能源码、配置、必要 lib、证书、文档资源与真实验收资料保留；真实 WPS 点击与安装效果仍待实机验收 |
 
 以下为历史交付记录，旧安装包摘要不再代表本轮产物。
@@ -312,6 +313,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 | 当前安装包 | [WordUpdater_Setup.exe](../C-02-WordUpdater/AA-Program/WordUpdater_Setup.exe)，4,296,704 字节；SHA-256：85cd8d8077b21cdb7ca37f08472ad00d10d29bd4ea30700f8a4de94acdc3257b |
 | 验证 | 25 项后台任务全通过，缓存复用 0；R-30=pass、cached=false；原证书清单双签名、五载荷、文档/图形及网页快照通过 |
 | 本地审计 | [清理实绩](../C-03-Website·Xycabin/build/cleanup-report.json)、[隔离证明](../C-03-Website·Xycabin/build/cleanup-isolated-proof.json)、[原目录批处理日志](../C-03-Website·Xycabin/build/cleanup-official-build.log)；build 证据不入 Git |
+| GitHub 与 Release | 构建源码 [938470e](https://github.com/Xymircai/Xycabin-Addins/tree/938470efe79810f3fcd95e9275d561a3ee5693cc) 已普通推送至 main；[现有 Release](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3) 三附件已同批替换并回下载，大小与 SHA-256 均匹配本表；[远端核验记录](../C-03-Website·Xycabin/build/cleanup-publication-state.json)；原标签未移动 |
 | 边界 | 仅源码布局探针修复无旧 HTML 时的构建依赖；功能源码、配置、必要 lib、证书、文档资源与真实验收资料保留；真实 WPS 点击与安装效果仍待实机验收 |
 
 以下为历史交付记录，旧安装包摘要不再代表本轮产物。
@@ -393,7 +395,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 当前 [XyCabin.html](../C-03-Website·Xycabin/AA-Program/XyCabin.html) 为 13,973,932 字节，SHA-256：8808ae597e62357feeccbfd6b74193550c7c3d3cdd9418479119cde076dde165；HTML 两包与独立 EXE 逐字节一致，两 DLL 内嵌同一无安装包网页。联合重建 14 个阶段与收尾验证 11 个阶段均返回 0，[重建摘要](../C-03-Website·Xycabin/build/last-run-summary.json)及[验证摘要](../C-03-Website·Xycabin/build/validate-run-summary.json)均 success；Excel/Word 分别 30/25 项完整后台任务、0 缓存复用。
 
-本轮源输入复核：除五份配置生成文件的时间戳外，隔离输入副本对应的源码、配置、依赖和资源字节均保持一致。新发现的 SourceLayoutProbe 无旧网页构建问题已修复并归并 B2。GitHub 和 Release 的远端摘要将在回下载核对成功后回填；本轮没有进行真实 WPS 安装或操作用户文档。
+本轮源输入复核：除五份配置生成文件的时间戳外，隔离输入副本对应的源码、配置、依赖和资源字节均保持一致。新发现的 SourceLayoutProbe 无旧网页构建问题已修复并归并 B2。构建源码 [938470e](https://github.com/Xymircai/Xycabin-Addins/tree/938470efe79810f3fcd95e9275d561a3ee5693cc) 已普通推送至 main，README 可在 GitHub 网页查看；[现有 Release](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3) 的标题、说明和三个附件已更新，回下载 SHA-256 与本地一致，HTML 内嵌两包及网页正文核验通过，原标签未移动。见[发布状态](../C-03-Website·Xycabin/build/cleanup-publication-state.json)。首次发布因说明文本的 Windows 换行比对失败，已精确恢复旧附件与原说明后修正并重发，失败与回滚记录保留在根 build 审计目录。本轮没有进行真实 WPS 安装或操作用户文档。
 
 以下为历史交付记录，旧网页及附件摘要不再代表本轮产物。
 

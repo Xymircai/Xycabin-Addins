@@ -287,6 +287,18 @@ foreach ($ReleaseFile in $ReleaseFiles) {
 
 三文件必须同批重建和验证，HTML 内嵌的两个 EXE 与独立附件须逐字节一致。GitHub 的附件上传不具有三文件原子性；部分失败时使用 backup 原文件以同名 --clobber 恢复三个附件，并使用 release-before.json 的原 name/body 恢复说明，再核对原摘要。保留失败记录，修复后重跑，不能将部分成功标为发布成功。
 
+恢复旧说明时应保留 JSON 中原 body 的换行，避免自动转换造成额外的回车。以下仅用于三附件已恢复后的失败回滚，正常发布不执行：
+
+```powershell
+$ReleaseBefore = Get-Content -LiteralPath (Join-Path $ReleaseAudit "release-before.json") -Raw -Encoding utf8 | ConvertFrom-Json
+$RestoreNotes = Join-Path $ReleaseAudit "release-old-notes.md"
+$Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText([System.IO.Path]::GetFullPath($RestoreNotes), [string]$ReleaseBefore.body, $Utf8NoBom)
+Invoke-Checked -Program "gh" -Arguments @("release", "edit", $ReleaseTag, "--repo", $RepoName, "--title", ([string]$ReleaseBefore.name), "--notes-file", $RestoreNotes)
+```
+
+核对说明时，将 API 返回的 body 与上传文件实际 UTF-8 字节解码后的文本比较；不要混用自动归一化后的换行。附件仍必须独立校验大小和 SHA-256，不能以说明文本通过代替附件校验。
+
 已有标签与 GitHub 自动生成的“Source code”附件仍对应历史提交，本轮源码使用发布说明中的提交链接和 ZIP。相同版本但字节更新的用户需手动下载并重装；仅在明确指定新四段版本号时升版、新建标签和 Release。
 
 ### 回填发布证据

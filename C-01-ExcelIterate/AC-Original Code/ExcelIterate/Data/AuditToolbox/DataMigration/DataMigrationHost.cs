@@ -457,6 +457,7 @@ namespace Excel_Iterate
             }
         }
         private void Quiet(Action action) { Quiet<bool>(delegate { action(); return true; }); }
+        private const int WriteSliceMilliseconds = 150;
         internal IEnumerable<MigrationProgress> Execute()
         {
             Check(); watch.Validate(); ValidateOriginal(source, sourceHash);
@@ -496,22 +497,32 @@ namespace Excel_Iterate
                 try { ReleaseTarget(target); } catch (Exception error) { failure = failure ?? error; }
                 if (failure == null)
                 {
-                    for (int i = 0; i < cells.Count; i++)
+                    // Write in short time slices instead of one host round-trip
+                    // per cell: every Quiet toggles ScreenUpdating/EnableEvents and
+                    // the window scope, which made WPS and the dialog flash
+                    // continuously. Settings are still restored before each yield.
+                    for (int i = 0; i < cells.Count; )
                     {
                         try
                         {
-                            Check(); watch.Validate(); copyWatch.Validate(); int index = i;
-                            Quiet(delegate { WriteCell(sheet, target, index); });
+                            Check(); watch.Validate(); copyWatch.Validate(); int first = i;
+                            i = Quiet<int>(delegate
+                            {
+                                var clock = System.Diagnostics.Stopwatch.StartNew(); int index = first;
+                                do { WriteCell(sheet, target, index); index++; }
+                                while (index < cells.Count && !Cancelled && clock.ElapsedMilliseconds < WriteSliceMilliseconds);
+                                return index;
+                            });
                         }
                         catch (Exception error) { failure = error; break; }
-                        yield return new MigrationProgress("写入 " + Path.GetFileName(target.Path) + " " + (i + 1) + "/" + cells.Count);
+                        yield return new MigrationProgress("写入 " + Path.GetFileName(target.Path) + " " + i + "/" + cells.Count);
                     }
                 }
                 if (failure == null)
                 {
                     try
                     {
-                        copyWatch.Validate(); target.Status = "保存副本";
+                        Check(); copyWatch.Validate(); target.Status = "保存副本";
                         Quiet(delegate
                         {
                             foreach (var merge in merges) using (var bag = new ComBag())
@@ -644,9 +655,21 @@ namespace Excel_Iterate
                     try { cell.Formula2 = target.Formulas[index].Text; }
                     catch (Exception error) { if (!ComFormulaHost.Missing(error)) throw; cell.Formula = target.Formulas[index].Text; }
                 }
+                else if (sourceCell.Value == null)
+                {
+                    // A blank source cell must really clear existing target
+                    // data. WPS can ignore Value2 = null on a filled cell, so
+                    // the old content survived and the reopen check failed.
+                    cell.ClearContents();
+                    if (cell.Value2 != null || ComFormulaHost.Boolean(cell.HasFormula, "HasFormula")) cell.Formula = "";
+                }
                 else
                 {
-                    if (sourceCell.Value is string) cell.NumberFormat = "@";
+                    // The target's existing format must not reinterpret the
+                    // value (a number written into a text cell becomes text).
+                    // Write under a neutral format; WriteStyle then restores
+                    // the source format.
+                    cell.NumberFormat = sourceCell.Value is string ? "@" : "General";
                     cell.Value2 = sourceCell.Value;
                 }
                 WriteStyle(cell, sourceCell.Style);

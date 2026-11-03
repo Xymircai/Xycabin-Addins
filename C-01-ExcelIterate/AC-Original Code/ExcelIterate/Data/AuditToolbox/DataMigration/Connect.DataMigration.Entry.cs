@@ -35,11 +35,18 @@ namespace Excel_Iterate
                         var ready = _migrationRequest.Targets.Where(t => t.Ready).ToList(); int overwrite = ready.Sum(t => t.Overwritten);
                         if (ready.Count == 0) throw new InvalidOperationException("没有通过预检的目标。");
                         if (_migrationRequest.NonEmptyCells == 0 && UiDialog.Show("源区域 " + _migrationRequest.SourceSheet + "!" + _migrationRequest.SourceRange + " 全部为空。继续会清空 " + ready.Count + " 个目标的对应区域。确定继续？", "全空白源区域", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-                        if (_migrationRequest.ReplaceTargets)
+                        // Existing data in the target area is overwritten only after
+                        // an explicit yes; once confirmed it is replaced, not reported
+                        // as a failure.
+                        string saving = _migrationRequest.ReplaceTargets
+                            ? "将更新 " + ready.Count + " 个目标原文件；原版本自动备份到同目录的“迁移备份”文件夹，可用“还原操作”恢复。源文件不修改。"
+                            : "将另存 " + ready.Count + " 个“迁移结果”副本，目标原文件不修改。";
+                        if (overwrite > 0)
                         {
-                            if (UiDialog.Show("将更新 " + ready.Count + " 个目标原文件，覆盖 " + overwrite + " 个已有内容的单元格（源空白也会清空目标）。每个文件校验通过后才替换，原版本保存在同目录的“迁移备份”子文件夹。源文件不修改。是否执行？", "确认更新目标原文件", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+                            int filled = ready.Count(t => t.Overwritten > 0);
+                            if (UiDialog.Show("目标区域已有数据：" + filled + " 个目标中共有 " + overwrite + " 个单元格已有内容，执行后将被源数据覆盖（源中为空的单元格会清空目标）。" + Environment.NewLine + Environment.NewLine + saving + Environment.NewLine + Environment.NewLine + "是否覆盖原数据？", "确认覆盖原数据", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
                         }
-                        else if (overwrite > 0 && UiDialog.Show("将在 " + ready.Count + " 个结果副本中覆盖 " + overwrite + " 个已有内容的单元格。源空白也会覆盖目标；原文件不修改。是否继续？", "批量迁移数据", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+                        else if (_migrationRequest.ReplaceTargets && UiDialog.Show(saving + "每个文件校验通过后才替换。是否执行？", "确认更新目标原文件", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
                         form.Run(_migrationHost.Execute(), delegate { form.RefreshResults(); ResetMigration(); }, delegate(Exception error) { form.Message(error.Message); ResetMigration(); });
                     });
                 };
@@ -85,9 +92,39 @@ namespace Excel_Iterate
                 };
                 form.TargetSelectionRequested += delegate { MigrationAction(form, delegate { MigrationSelection(form, true); }); };
                 form.FormClosed += delegate { ResetMigration(); _migrationForm = null; form.Dispose(); };
+                DefaultMigrationSource(form);
                 IntPtr owner = GetHostWindowHandle(); if (owner == IntPtr.Zero) form.Show(); else form.Show(new WindowWrapper(owner));
             }
             catch (Exception error) { Log("批量迁移数据：" + error); UiDialog.Show(error.Message, "批量迁移数据", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+        }
+        // Default the source to the workbook/sheet the user is looking at. Names
+        // come from the open workbook itself, so nothing is opened or read from
+        // disk; anything unusual (new unsaved book, chart sheet, unsupported
+        // format) silently leaves the fields empty as before.
+        private static void DefaultMigrationSource(DataMigrationForm form)
+        {
+            try
+            {
+                using (var bag = new ComBag())
+                {
+                    dynamic book = bag.Own(((dynamic)_app).ActiveWorkbook);
+                    if (book == null) return;
+                    string path = Convert.ToString(book.FullName);
+                    if (!Path.IsPathRooted(path) || !File.Exists(path) || !DataMigrationEngine.SupportedFile(path)) return;
+                    var names = new List<string>();
+                    dynamic sheets = bag.Own(book.Worksheets);
+                    for (int i = 1; i <= Convert.ToInt32(sheets.Count); i++) using (var item = new ComBag())
+                    { dynamic sheet = item.Own(sheets.Item(i)); names.Add(Convert.ToString(sheet.Name)); }
+                    if (names.Count == 0) return;
+                    string active = "";
+                    try { dynamic sheet = bag.Own(((dynamic)_app).ActiveSheet); if (sheet != null) active = Convert.ToString(sheet.Name); } catch { }
+                    if (!names.Contains(active)) active = names[0];
+                    form.SetSource(Path.GetFullPath(path), active, "", names);
+                    form.Message("已默认使用当前工作簿“" + Path.GetFileName(path) + "”的工作表“" + active + "”作为源；请填写源区域，或点击“读取当前选区”。"
+                        + (ComFormulaHost.Boolean(book.Saved, "Saved") ? "" : "当前工作簿有未保存修改，预检前请先保存。"));
+                }
+            }
+            catch (Exception error) { Log("批量迁移数据默认源：" + error); }
         }
         private static void MigrationAction(DataMigrationForm form, Action action)
         { try { action(); } catch (Exception error) { Log("批量迁移数据：" + error); form.Message(error.Message); } }

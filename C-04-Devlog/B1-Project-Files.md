@@ -1,4 +1,4 @@
-﻿**三项目档案与版本**
+**三项目档案与版本**
 
 最后更新：2026-10-30 ｜ 当前版本：**0.9.9.3** ｜ 交付物：`Excel_Iterate_Setup.exe`、`WordUpdater_Setup.exe`、`XyCabin.html`
 
@@ -135,6 +135,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+本轮解决上游 PR #11 合并冲突：保留批量生成过程表功能，合入上游六个数据迁移文件更新，合并双方交付记录，生成文件保留功能分支内容。迁移检查替身补齐 ClearContents，以匹配上游新增的清空单元格调用。编译、单体汇总 99 项、公司工作簿 71 项、数据迁移 168 项及共享源码分类检查通过；见[合并编译日志](../C-01-ExcelIterate/build/pr11-merge-build-2.log)与[迁移检查日志](../C-01-ExcelIterate/build/pr11-migration-tests-2.log)。检查使用受管替身，未进行 Excel/WPS 实机验收；固定签名证书缺失，未更新安装包。
+
 本轮将“2025年度”等年度表头单元格显式设为水平、垂直居中，仅修改年度表头的两项对齐属性，其他模板及数据区域格式保留。编译与既有 SingleSummaryProbe 99 项回归通过，见[编译日志](../C-01-ExcelIterate/build/summary-year-alignment-build.log)及[回归结果](../C-01-ExcelIterate/build/summary-year-alignment-tests.json)。实际 Excel/WPS 显示未验收；固定签名证书仍缺失，未生成新安装包。
 
 本轮实现单体汇总表多年度展开：每家公司按年度占多列，每列重复公司表头，下方指定行显示年度，默认倒序；年度路径只按完整目录规则换年，含来源预检、逐列计划、整批还原范围及实际公司行勾选回写。编译通过，SingleSummaryProbe 99 项、CompanyWorkbookProbe 71 项、DisciplineProbe 31 项、DialogSizesProbe core 111 项及 RibbonProbe 通过，弹窗目录和模态隔离检查通过。见[多年度测试结果](../C-01-ExcelIterate/build/summary-annual-tests.json)、[详细日志](../C-01-ExcelIterate/build/summary-annual-tests.log)和[编译日志](../C-01-ExcelIterate/build/summary-annual-build.log)。检查使用模型、托管宿主及自建空文件，不代表真实 Excel/WPS/VSTO 写入及还原已验收；固定证书仍缺失，未生成新安装包。
@@ -149,6 +151,24 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 本轮新增审计工具箱「批量生成过程表 → 单体汇总表生成」：配置器登记 menuBatchProcessSheets 与 btnSingleSummary，源码按功能目录 BatchProcessSheets/SingleSummary 落地；Lead 表按表头文字动态定位「编码&简称」「全称」与「选用」三列，候选行默认全勾、执行时回写选用，模板列铺列固定覆盖并逐列换链，生成日志表与隐藏备份表，全程不自动保存工作簿。离线探针 SingleSummaryProbe 37 项通过（换链边界、路径与 ]BS 不动产、其他公司文件名、本簿引用、字符串常量、含（合并）公司、列字母、表头归一化、N=0／全称重复／列越界阻断、弹窗默认值）；R-30 分类门禁、弹窗登记与 Feature099 网格表头检查沿用通过。真实 WPS 表格自建样本回归 41 项通过：Lead 定位、跨列合并阻断、备份与日志、表头写编码&简称、逐列换链、本簿引用原样带出、区间外不读写、重跑追加且不重复建表、两批备份分别还原。实测发现 WPS 拒写「未加单引号且文件名含括号」的外链公式（0x8FE3000B），已按「只补引号、不改文件名与地址」处理并锁进探针。本机缺少 lib 依赖目录与网站快照，未执行正式重建、签名、安装包与安装，版本号沿用；真实按钮点击与安装后界面验收另行记录。
 
+
+
+
+
+
+
+
+本轮按最新本地工作区重新生成 Excel_Iterate_Setup_20261101_2.exe，包含更新后的迁移入口；编译、清单与安装器本机测试签名完成，25 项包级载荷、身份及卸载入口核对通过，638 个输入文件在打包期间未变。原版本和源码固定发布者配置保留，沿用既有本机测试证书且未修改信任根，证书链仍不受系统信任。本轮未做完整回归、WPS 实机验收、安装或推送。证据见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261101-2/delivery-state.json)。
+
+本轮按最新本地工作区生成 Excel_Iterate_Setup_20261101.exe，包含迁移入口、窗口、宿主、输出事务及窗口恢复改动。独立 staging 编译、清单重签及安装器签名完成，25 项包级载荷、CLR 身份及卸载入口核对通过；638 个输入文件在打包期间未变。版本及原源码固定发布者配置保持不变；沿用既有本机测试证书，根未受系统信任且未修改信任根。本轮未做完整回归或 WPS 实机验收，未安装或推送。证据见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261101/delivery-state.json)。
+
+本轮按用户更新的“还原操作”按钮及相关本地实现重新打包，包含 DataMigrationForm 和 MigrationOutputTransaction.Restore；编译、清单与安装器本机测试签名完成，25 项包级载荷、身份及卸载入口核对通过。638 个输入在打包期间未变，原版本和源码固定发布者配置保持不变；既有开发证书链不受系统信任，未修改信任根。本轮未做完整回归、WPS 实机或实际还原操作测试，未安装或推送。输出 Excel_Iterate_Setup_20261031_4.exe，见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261031-4/delivery-state.json)。
+
+本轮再次按最新工作区重新打包，修复新下拉菜单缺失 RadioButtonState 引用；采用该类型的完整命名空间别名，避免与 Drawing.ContentAlignment 重名。成功编译后重签清单及安装器，25 项包级载荷、身份与卸载入口核对通过，原版本及源码固定发布者配置保留。沿用既有本机开发证书，证书链不受系统信任且未修改信任根；未执行完整回归、WPS 实机验收、安装或推送。输出 Excel_Iterate_Setup_20261031_3.exe，证据见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261031-3/delivery-state.json)；前两次编译失败日志保留于同目录。
+
+用户再次修改迁移窗口、宿主与窗口恢复代码后，已从当前工作区重新生成独立测试包 Excel_Iterate_Setup_20261031_2.exe；编译、清单与安装器本机测试签名、25 项包级五载荷及卸载入口核对通过，638 个源码输入在打包期间未变。正式版本及原作者固定证书配置保留，既有测试签名根未受系统信任且未修改信任根。本轮未进行完整回归、WPS 实机测试、安装或推送。证据见 [本轮重新打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261031-2/delivery-state.json)。
+
+本轮按用户更新后的本地工作区生成测试安装包，包含 MigrationWindowScope 的所有者窗口及迁移弹窗恢复改动；独立 staging 编译、清单重签、安装器签名完成，包级五载荷、CLR 身份、签名结构与卸载入口 25 项核对通过。使用既有本机开发证书 60E01297DE2278451E865FF88B7124C984A9901C，自签名根未受系统信任且未修改信任根；原源码固定发布者及版本保持不变。638 个输入文件在打包期间未变。本轮未执行完整回归或 WPS 实机验收，未安装、关闭 WPS、提交或推送。证据见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/package-20261031/delivery-state.json) 与 [包级核对](../C-01-ExcelIterate/build/local-delivery/package-20261031/installer-artifact.log)。
 
 本轮筛选菜单与首行对齐代码已在独立 staging 编译，以已有本机开发证书 60E01297DE2278451E865FF88B7124C984A9901C 重签清单并生成测试安装包；原项目固定发布者及版本保持不变。包级载荷、CLR 身份、签名结构和卸载入口探针 25 项通过；自签名根未受系统信任，未修改信任根。后台验证在文档资源探针访问自建临时目录时因 WinError 5 中止，不代表完整回归通过；随后用户要求无需检查，因此未重跑、未进行本轮界面或 WPS 验收。未安装、未关闭 WPS、未提交或推送。证据见 [打包记录](../C-01-ExcelIterate/build/local-delivery/filter-alignment/delivery-state.json)、[未完成验证日志](../C-01-ExcelIterate/build/local-delivery/filter-alignment/package-validation.log)。
 

@@ -19,10 +19,26 @@ namespace Excel_Iterate
         internal readonly ResultGrid Targets = new ResultGrid { Name = "migrationTargets", Dock = DockStyle.Fill };
         private readonly RichTextBox details = new RichTextBox { Name = "migrationDetails", ReadOnly = true, Dock = DockStyle.Fill, BackColor = Color.White, WordWrap = true };
         private readonly Label status = Ui.Label("请选择源文件，或点击“读取当前选区”；选择目标后先预检。", 9, false);
-        private readonly RoundedButton preview = Ui.Button("预检与预览", 120), execute = Ui.Button("执行迁移", 110), cancel = Ui.Button("取消操作", 110), open = Ui.Button("打开结果文件夹", 150);
+        private readonly RoundedButton preview = Ui.Button("预检与预览", 120), execute = Ui.Button("执行迁移", 110), restore = Ui.Button("还原操作", 110), clearBackups = Ui.Button("清除备份", 110), open = Ui.Button("打开结果文件夹", 150);
         private readonly List<Control> inputs = new List<Control>();
+        // Targets whose original file this window replaced, newest last. A
+        // restore puts the pre-migration backup back, but only while the file
+        // still holds exactly the bytes the migration wrote.
+        private sealed class RestorePoint { internal string Path, Backup, Hash, Displaced; internal bool Restored, Cleared; }
+        // Keeps the dialog on screen while a run is in progress (see MigrationWindowScope).
+        private MigrationWindowScope.HostState hostAtRun;
+        private bool topMostBeforeRun;
+        private readonly Timer guardTail = new Timer { Interval = 100 };
+        private int guardTailTicks;
+        private readonly List<RestorePoint> restorePoints = new List<RestorePoint>();
+        private readonly ToolTip restoreTip = new ToolTip();
         private MigrationTargetSelectionPopup selectionPopup;
+        private MigrationSheetPopup sheetPopup;
         private readonly Timer pump = new Timer { Interval = 15 };
+        // Progress text is throttled: rewriting the status line for every
+        // cell repainted and re-measured the dialog dozens of times a second.
+        private readonly Stopwatch statusClock = new Stopwatch();
+        private const int StatusIntervalMilliseconds = 200;
         private IEnumerator<MigrationProgress> steps;
         private Action finished;
         private Action<Exception> failed;
@@ -64,8 +80,15 @@ namespace Excel_Iterate
             Targets.Columns.Add(new DataGridViewCheckBoxColumn { Name = "include", HeaderText = "选择", Width = 56, SortMode = DataGridViewColumnSortMode.NotSortable, DefaultCellStyle = new DataGridViewCellStyle { Alignment = DataGridViewContentAlignment.MiddleCenter } });
             Targets.Columns["include"].DisplayIndex = 0;
             Targets.Columns["include"].HeaderCell = new MigrationSelectionHeader { Value = "选择", ToolTipText = "点击下拉箭头，搜索目标并批量勾选；确定后生效。" };
+            // The worksheet header gets the same dropdown button: pick a sheet
+            // that every checked target contains and apply it to all of them.
+            Targets.Columns["sheet"].HeaderCell = new MigrationSelectionHeader { Value = "工作表", ToolTipText = "点击下拉箭头，把所有已勾选目标都存在的工作表一次应用到全部。" };
             Targets.ColumnHeaderMouseClick += delegate(object sender, DataGridViewCellMouseEventArgs e)
-            { if (e.Button == MouseButtons.Left && e.ColumnIndex == Targets.Columns["include"].Index) ShowTargetSelection(); };
+            {
+                if (e.Button != MouseButtons.Left) return;
+                if (e.ColumnIndex == Targets.Columns["include"].Index) ShowTargetSelection();
+                else if (e.ColumnIndex == Targets.Columns["sheet"].Index) ShowSheetMenu();
+            };
             // Allocate the viewport, rather than sizing to every path or every
             // choice in a worksheet dropdown.
             Targets.ColumnFitOverride = FitTargetColumns;
@@ -124,16 +147,20 @@ namespace Excel_Iterate
             var actions = Ui.ActionBar(); var close = Ui.Button("关闭", 90);
             preview.Click += delegate { if (PreviewRequested != null) PreviewRequested(); };
             execute.Click += delegate { if (ExecuteRequested != null) ExecuteRequested(); };
-            cancel.Click += delegate { if (CancelRequested != null) CancelRequested(); status.Text = "正在取消，等待当前步骤收尾…"; cancel.Enabled = false; };
+            restore.Name = "migrationRestore"; restore.Click += delegate { RestoreTargets(); };
+            restoreTip.SetToolTip(restore, "把本窗口中以“更新目标原文件”方式迁移过的工作簿，还原为迁移前的备份。");
+            clearBackups.Name = "migrationClearBackups"; clearBackups.Click += delegate { ClearBackups(); };
+            restoreTip.SetToolTip(clearBackups, "永久删除本窗口迁移时生成的备份文件；删除后无法再还原。");
+            guardTail.Tick += delegate { GuardWindow(); if (--guardTailTicks <= 0) guardTail.Stop(); };
             open.Click += delegate { OpenResult(); }; close.Click += delegate { Close(); };
-            actions.Controls.Add(preview); actions.Controls.Add(execute); actions.Controls.Add(cancel); actions.Controls.Add(open); actions.Controls.Add(close); root.Controls.Add(actions, 0, 5); Controls.Add(root);
+            actions.Controls.Add(preview); actions.Controls.Add(execute); actions.Controls.Add(restore); actions.Controls.Add(clearBackups); actions.Controls.Add(open); actions.Controls.Add(close); root.Controls.Add(actions, 0, 5); Controls.Add(root);
             inputs.AddRange(new Control[] { SourcePath, SourceSheet, SourceRange, allowEmpty, replaceTargets, pick, pickRange, selection, add, remove, targetSelection });
             allowEmpty.CheckedChanged += delegate { Changed(); };
             replaceTargets.CheckedChanged += delegate { Changed(); Message(replaceTargets.Checked ? "校验通过后更新目标原文件；原版本保存在目标目录的“迁移备份”子文件夹。请先保存并关闭目标。" : "另存“迁移结果”副本，目标原文件不修改；请重新预检。"); };
             SourcePath.TextChanged += delegate { Changed(); }; SourceSheet.TextChanged += delegate { Changed(); }; SourceRange.TextChanged += delegate { Changed(); };
-            pump.Tick += delegate { Tick(); }; execute.Enabled = false; cancel.Enabled = false; open.Enabled = false;
+            pump.Tick += delegate { Tick(); }; execute.Enabled = false; restore.Enabled = false; clearBackups.Enabled = false; open.Enabled = false;
             FormClosing += delegate(object sender, FormClosingEventArgs e) { if (Running && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; closeWhenDone = true; if (CancelRequested != null) CancelRequested(); } };
-            Disposed += delegate { CloseTargetSelection(); pump.Stop(); if (steps != null) { steps.Dispose(); steps = null; } pump.Dispose(); };
+            Disposed += delegate { CloseTargetSelection(); CloseSheetPopup(); restoreTip.Dispose(); guardTail.Dispose(); pump.Stop(); if (steps != null) { steps.Dispose(); steps = null; } pump.Dispose(); };
             if (!DialogPreviewFactory.IsConstructing) Load += delegate { CompactLegacySourceWidths(); };
         }
         private void CompactLegacySourceWidths()
@@ -224,6 +251,7 @@ namespace Excel_Iterate
             try
             {
                 Targets.Columns["include"].HeaderCell.Style.Padding = new Padding(Ui.Px(Targets, 6), 0, Ui.Px(Targets, 28), 0);
+                Targets.Columns["sheet"].HeaderCell.Style.Padding = new Padding(Ui.Px(Targets, 6), 0, Ui.Px(Targets, 28), 0);
                 Ui.EnsureGridHeaders(Targets);
                 Targets.Columns["sheet"].MinimumWidth = Math.Max(Targets.Columns["sheet"].MinimumWidth, Ui.Px(Targets, 104));
                 // Header minima are pinned first; distribute remaining pixels
@@ -293,11 +321,80 @@ namespace Excel_Iterate
                 bool wasOpen = selectionPopup.Visible; CloseTargetSelection();
                 if (wasOpen) return;
             }
+            CloseSheetPopup();
             selectionPopup = CreateSelectionPopup(); var popup = selectionPopup;
             // Keep a closed popup until the next normal UI action. Disposing in
             // Closed reenters WinForms' activation filter while it still uses it.
             var cell = Targets.GetCellDisplayRectangle(Targets.Columns["include"].Index, -1, true);
             popup.Show(Targets, new Point(cell.Left, cell.Bottom));
+        }
+        // Rows the bulk sheet choice applies to: the checked targets, or every
+        // readable target when none is checked.
+        private List<DataGridViewRow> SheetScope()
+        {
+            var readable = Targets.Rows.Cast<DataGridViewRow>().Where(r => !r.IsNewRow && ((DataGridViewComboBoxCell)r.Cells["sheet"]).Items.Count > 0).ToList();
+            var included = readable.Where(IsIncluded).ToList();
+            return included.Count > 0 ? included : readable;
+        }
+        private static List<string> SheetNames(DataGridViewRow row)
+        { return ((DataGridViewComboBoxCell)row.Cells["sheet"]).Items.Cast<object>().Select(Convert.ToString).ToList(); }
+        internal IList<string> CommonSheets()
+        {
+            var rows = SheetScope(); if (rows.Count == 0) return new List<string>();
+            IEnumerable<string> common = SheetNames(rows[0]);
+            foreach (var row in rows.Skip(1)) { var names = new HashSet<string>(SheetNames(row), StringComparer.OrdinalIgnoreCase); common = common.Where(names.Contains).ToList(); }
+            return common.ToList();
+        }
+        internal MigrationSheetPopup CreateSheetPopup()
+        {
+            if (Running) throw new InvalidOperationException("迁移运行期间不能更改工作表。");
+            Targets.EndEdit();
+            var rows = SheetScope(); var common = CommonSheets();
+            var commonSet = new HashSet<string>(common, StringComparer.OrdinalIgnoreCase);
+            var partial = rows.SelectMany(r => SheetNames(r).Distinct(StringComparer.OrdinalIgnoreCase)).Where(n => !commonSet.Contains(n))
+                .GroupBy(n => n, StringComparer.OrdinalIgnoreCase).Select(g => new KeyValuePair<string, int>(g.Key, g.Count())).OrderByDescending(g => g.Value).ToList();
+            var values = rows.Select(r => Convert.ToString(r.Cells["sheet"].Value)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            string current = values.Count == 1 ? values[0] : null;
+            return new MigrationSheetPopup(Targets, common, partial, rows.Count, rows.Any(IsIncluded), current, delegate(string sheet) { ApplySheetToTargets(sheet); });
+        }
+        private void ShowSheetMenu()
+        {
+            if (Running || Targets.ReadOnly || Targets.Rows.Count == 0) return;
+            if (sheetPopup != null)
+            {
+                bool wasOpen = sheetPopup.Visible; CloseSheetPopup();
+                if (wasOpen) return;
+            }
+            CloseTargetSelection();
+            sheetPopup = CreateSheetPopup();
+            var cell = Targets.GetCellDisplayRectangle(Targets.Columns["sheet"].Index, -1, true);
+            sheetPopup.Show(Targets, new Point(cell.Left, cell.Bottom));
+        }
+        private void CloseSheetPopup()
+        {
+            var popup = sheetPopup; sheetPopup = null;
+            if (popup != null) { popup.Close(); popup.Dispose(); }
+        }
+        internal int ApplySheetToTargets(string sheet)
+        {
+            if (Running) return 0;
+            Targets.EndEdit(); var rows = SheetScope(); int changed = 0;
+            if (rows.Any(r => !SheetNames(r).Contains(sheet, StringComparer.OrdinalIgnoreCase))) { Message("“" + sheet + "”不是所有目标都存在的工作表，未修改。"); return 0; }
+            syncing = true;
+            try
+            {
+                foreach (var row in rows)
+                {
+                    // Use the target's own spelling of the name.
+                    string actual = SheetNames(row).First(n => string.Equals(n, sheet, StringComparison.OrdinalIgnoreCase));
+                    if (!string.Equals(Convert.ToString(row.Cells["sheet"].Value), actual, StringComparison.Ordinal)) { row.Cells["sheet"].Value = actual; changed++; }
+                    row.Cells["sheet"].ToolTipText = "点击表名选择工作表：" + actual;
+                }
+            }
+            finally { syncing = false; }
+            if (changed > 0) { Changed(); RefreshResults(); }
+            Message("已将 " + rows.Count + " 个目标的工作表设为“" + sheet + "”" + (changed > 0 ? "，请重新预检。" : "（原本已是该表）。"));
+            return changed;
         }
         private void CloseTargetSelection()
         {
@@ -400,9 +497,13 @@ namespace Excel_Iterate
         internal void Run(IEnumerable<MigrationProgress> sequence, Action complete, Action<Exception> error)
         {
             if (Running) throw new InvalidOperationException("当前任务尚未结束。");
-            CloseTargetSelection();
+            CloseTargetSelection(); CloseSheetPopup();
             finished = complete; failed = error; steps = sequence.GetEnumerator();
-            foreach (Control input in inputs) input.Enabled = false; Targets.ReadOnly = true; preview.Enabled = execute.Enabled = open.Enabled = false; cancel.Enabled = true;
+            foreach (Control input in inputs) input.Enabled = false; Targets.ReadOnly = true; preview.Enabled = execute.Enabled = open.Enabled = restore.Enabled = clearBackups.Enabled = false;
+            guardTail.Stop(); hostAtRun = MigrationWindowScope.Capture(IsHandleCreated ? Handle : IntPtr.Zero); topMostBeforeRun = TopMost;
+            // Freeze the status line's size while running so changing progress
+            // text never re-lays out the grid and details above it.
+            status.AutoSize = false; status.AutoEllipsis = true; statusClock.Reset();
             pump.Start();
         }
         private void Tick()
@@ -414,19 +515,112 @@ namespace Excel_Iterate
             try
             {
                 var clock = Stopwatch.StartNew();
-                do { if (!steps.MoveNext()) { Finish(null); return; } status.Text = steps.Current.Message; } while (clock.ElapsedMilliseconds < 12);
+                string message = null;
+                do { if (!steps.MoveNext()) { Finish(null); return; } message = steps.Current.Message; } while (clock.ElapsedMilliseconds < 12);
+                if (message != null && (!statusClock.IsRunning || statusClock.ElapsedMilliseconds >= StatusIntervalMilliseconds) && status.Text != message)
+                { status.Text = message; statusClock.Restart(); }
+                GuardWindow();
             }
             catch (Exception error) { Finish(error); }
             finally { ticking = false; if (!IsDisposed && !Disposing && steps != null) pump.Start(); }
         }
         private void Finish(Exception error)
         {
-            pump.Stop(); var current = steps; steps = null;
+            pump.Stop(); var current = steps; steps = null; statusClock.Reset();
+            status.AutoEllipsis = false; status.AutoSize = true;
             try { if (current != null) current.Dispose(); } catch (Exception cleanup) { error = error ?? cleanup; }
-            foreach (Control input in inputs) input.Enabled = true; Targets.ReadOnly = false; preview.Enabled = true; cancel.Enabled = false;
+            foreach (Control input in inputs) input.Enabled = true; Targets.ReadOnly = false; preview.Enabled = true;
             if (error == null) { status.Text = lastRequest == null ? "请查看各目标结果。" : Summary(lastRequest); if (finished != null) finished(); }
             else { status.Text = error.Message; if (failed != null) failed(error); }
-            RefreshResults(); if (error != null) status.Text = error.Message; if (closeWhenDone) Close();
+            RefreshResults(); CaptureRestorePoints(); if (error != null) status.Text = error.Message;
+            // WPS may still minimize/cover its frame shortly after the last
+            // Close; keep watching for about a second, then release TopMost.
+            GuardWindow(); TopMost = topMostBeforeRun; guardTailTicks = 10; guardTail.Start();
+            if (closeWhenDone) Close();
+        }
+        private void GuardWindow()
+        {
+            if (IsDisposed || !IsHandleCreated || !Visible || closeWhenDone) return;
+            MigrationWindowScope.KeepShown(Handle, hostAtRun);
+            // While running and the user is in WPS, stay above a maximized
+            // frame that WPS re-activated; never cover other programs.
+            bool top = topMostBeforeRun || (Running && MigrationWindowScope.HostInForeground());
+            if (TopMost != top) TopMost = top;
+        }
+        private void CaptureRestorePoints()
+        {
+            foreach (DataGridViewRow row in Targets.Rows)
+            {
+                var target = row.Tag as MigrationTarget;
+                if (target == null || target.Status != "成功" || string.IsNullOrEmpty(target.Backup) || !File.Exists(target.Backup)) continue;
+                if (restorePoints.Any(p => string.Equals(p.Backup, target.Backup, StringComparison.OrdinalIgnoreCase))) continue;
+                try { restorePoints.Add(new RestorePoint { Path = target.Path, Backup = target.Backup, Hash = DataMigrationHost.Digest(target.Path) }); }
+                catch (Exception error) { UiDiagnostics.Record("migration-restore-point", error); }
+            }
+            UpdateRestore();
+        }
+        private void UpdateRestore()
+        {
+            restore.Enabled = !Running && restorePoints.Any(p => !p.Restored && !p.Cleared);
+            clearBackups.Enabled = !Running && restorePoints.Any(p => !p.Cleared);
+        }
+        // Files this window created in "迁移备份": the pre-migration backup
+        // and, after a restore, the displaced migrated version.
+        private static IEnumerable<string> BackupFiles(RestorePoint point)
+        {
+            if (!string.IsNullOrEmpty(point.Backup)) yield return point.Backup;
+            if (!string.IsNullOrEmpty(point.Displaced)) yield return point.Displaced;
+        }
+        internal void ClearBackups(bool confirm = true)
+        {
+            if (Running) return;
+            var pending = restorePoints.Where(p => !p.Cleared).ToList();
+            if (pending.Count == 0) { UpdateRestore(); return; }
+            int files = pending.Sum(p => BackupFiles(p).Count(File.Exists));
+            int restorable = pending.Count(p => !p.Restored);
+            string question = "将永久删除本窗口迁移时生成的 " + files + " 个备份文件（涉及 " + pending.Count + " 个目标工作簿）。" + Environment.NewLine + Environment.NewLine
+                + (restorable > 0 ? "删除后，这 " + restorable + " 个已更新的工作簿将无法再还原为迁移前的版本。" : "删除后无法恢复这些备份。") + Environment.NewLine
+                + "此操作无法撤销。" + Environment.NewLine + Environment.NewLine + "是否清除备份？";
+            if (confirm && UiDialog.Show(this, question, "清除备份", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            int cleared = 0; var failures = new List<string>();
+            foreach (var point in pending)
+            {
+                try { MigrationOutputTransaction.DeleteBackups(BackupFiles(point).ToList()); point.Cleared = true; cleared++; }
+                catch (Exception error) { failures.Add(Path.GetFileName(point.Path) + "：" + error.Message); }
+            }
+            UpdateRestore();
+            Message((cleared > 0 ? "已清除 " + cleared + " 个目标的备份，这些工作簿不能再还原。" : "未清除任何备份。")
+                + (failures.Count == 0 ? "" : " 未清除：" + string.Join("；", failures.ToArray())));
+        }
+        internal int RestorableCount { get { return restorePoints.Count(p => !p.Restored); } }
+        internal void RestoreTargets(bool confirm = true)
+        {
+            if (Running) return;
+            // Newest first: a file migrated twice steps back one batch at a time.
+            var pending = restorePoints.Where(p => !p.Restored && !p.Cleared).Reverse().ToList();
+            if (pending.Count == 0) { UpdateRestore(); return; }
+            string question = "将把 " + pending.Count + " 个已更新的目标工作簿还原为迁移前的备份。" + Environment.NewLine + Environment.NewLine
+                + "· 请先在 WPS 中关闭这些工作簿。" + Environment.NewLine
+                + "· 迁移后的版本会另存到对应目录的“迁移备份”文件夹，不会丢失。" + Environment.NewLine
+                + "· 迁移后又被修改过的文件不会还原，以免覆盖这些修改。" + Environment.NewLine + Environment.NewLine + "是否继续？";
+            if (confirm && UiDialog.Show(this, question, "还原操作", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            int restored = 0; var failures = new List<string>();
+            foreach (var point in pending)
+            {
+                string failure = null;
+                try { point.Displaced = MigrationOutputTransaction.Restore(point.Path, point.Backup, point.Hash); point.Restored = true; restored++; }
+                catch (Exception error) { failure = error.Message; failures.Add(Path.GetFileName(point.Path) + "：" + error.Message); }
+                foreach (DataGridViewRow row in Targets.Rows)
+                {
+                    var target = row.Tag as MigrationTarget;
+                    if (target == null || !string.Equals(target.Path, point.Path, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (failure == null) { target.Status = "已还原"; target.Error = ""; target.Ready = false; }
+                    else target.Error = "还原失败：" + failure;
+                }
+            }
+            RefreshResults(); UpdateRestore();
+            Message((restored > 0 ? "已还原 " + restored + " 个工作簿为迁移前的备份；如需再次迁移请重新预检。" : "未还原任何工作簿。")
+                + (failures.Count == 0 ? "" : " 未还原：" + string.Join("；", failures.ToArray())));
         }
         internal void Message(string text) { status.Text = text; }
         private void OpenResult()

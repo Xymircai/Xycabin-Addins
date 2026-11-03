@@ -2,6 +2,7 @@
 from pathlib import Path
 import argparse
 import sys
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 sys.dont_write_bytecode = True
@@ -34,7 +35,17 @@ def verify(project_root):
     site = repository / 'C-03-Website·Xycabin'
     sys.path.insert(0, str(site / 'src'))
     import build_cache
-    snapshot = site / 'AA-Program/XyCabin.html'
+    from site_core import build
+    # A source-only checkout has no published HTML yet. Probe fresh inputs
+    # without reading or replacing the previous official delivery.
+    with TemporaryDirectory(prefix='xy-source-layout-') as temporary:
+        snapshot = build(site, target=Path(temporary) / 'snapshot.html')
+        verify_cache_dependencies(root, build_cache, snapshot, check)
+    print('SourceLayoutProbe: %d PASS, 0 FAIL' % checks)
+
+
+def verify_cache_dependencies(root, build_cache, snapshot, check):
+    repository = root.parent
     products = [repository / name for name in ('C-01-ExcelIterate', 'C-02-WordUpdater')]
     existing = [product for product in products if product.is_dir()]
     before = [build_cache.inputs(product, snapshot) for product in existing]
@@ -61,7 +72,6 @@ def verify(project_root):
         check(all((old != new) == (product == selected)
                   for product, old, new in zip(existing, before, modified)),
               'a product feature edit invalidates only that product cache')
-    print('SourceLayoutProbe: %d PASS, 0 FAIL' % checks)
 
 
 if __name__ == '__main__':

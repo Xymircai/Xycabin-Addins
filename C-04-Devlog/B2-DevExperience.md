@@ -55,6 +55,8 @@ ThisAddIn使用 `[StartupObject(0)]`、FullTrust，继承 `Microsoft.Office.Tool
 
 公共实现只在C-00-Shared维护，产品project.json通过@shared/引用。source_layout.resolve_source限制访问产品目录或公共目录，拒绝缺失及越界引用；共享Python通过产品薄入口显式取得PROJECT_ROOT，不能按共享文件位置推导产品。产品身份、生成文件、库依赖和输出保持产品隔离；不新增运行时公共DLL。源码探针读取与编译相同的物理实现；缓存和构建期指纹包含公共输入。SourceLayoutProbe用摘要注入验证公共改动使两产品缓存同时失效，不在构建中修改真实源文件。
 
+SourceLayoutProbe 从保留源码在独立临时目录生成网页快照，不读取或覆盖正式 HTML；全新检出和隔离重建因此不依赖上一轮发布产物。清理验证必须排除全部旧 build 和生成网页，不能用复制旧 HTML 的方式掩盖构建输入缺失。
+
 ### (5). 功能目录与代码索引
 
 两个加载项的功能实现位于 AC-Original Code，层级为选项卡→分组→菜单→末级功能。末级 Connect 分部文件保存真实按钮回调，算法和弹窗按专属归叶子、共用归就近 _Shared 的原则维护；跨产品业务仍只在 C-00-Shared。加载框架、生成文件、配置器、安装器及校验保留原工程目录。

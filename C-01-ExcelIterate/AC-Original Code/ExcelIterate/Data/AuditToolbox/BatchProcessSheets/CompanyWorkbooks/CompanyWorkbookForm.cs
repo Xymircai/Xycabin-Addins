@@ -44,8 +44,8 @@ namespace Excel_Iterate
         {
             Text = "按公司生成工作簿"; DialogSizing.Prepare(this, "company.workbooks", "table", Ui.Blue);
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 4 };
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 62)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 38)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 68)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 32)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             var browse = Ui.Button("选择模板…", 115); browse.Click += delegate { PickTemplate(); };
             AddRow("模板文件", template, browse);
             AddRow("来源工作表", source, Label("表头行"), header);

@@ -69,6 +69,8 @@ namespace Excel_Iterate
                     case "file.ocrfields":form=new OcrFieldsForm(new List<OcrFieldResult>{new OcrFieldResult {Prefix="磅单号：",Chosen="00123",Candidates=new List<string>{"00123","00456"}},new OcrFieldResult {Prefix="毛重：",Chosen="10kg",Candidates=new List<string>{"10kg"}}});break;
                     case "file.rename":form=new RenameFilesForm(null);break;
                     case "merge.headers":form=new MergeHeadersForm();break;
+                    case "company.workbooks":form=new CompanyWorkbookForm();break;
+                    case "summary.single":form=new SingleSummaryForm();break;
                     case "migration.data":form=new DataMigrationForm();break;
                     case "elimination.receivable":form=new EliminationForm(EliminationKind.Receivable);break;
                     case "elimination.revenuecost":form=new EliminationForm(EliminationKind.RevenueCost);break;

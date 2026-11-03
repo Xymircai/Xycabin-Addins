@@ -16,6 +16,9 @@ namespace Excel_Iterate
         public string GetLabel_menuElimination(object control) { return RibbonCustomization.Label("menuElimination"); }
         public string GetLabel_btnEliminationReceivable(object control) { return RibbonCustomization.Label("btnEliminationReceivable"); }
         public string GetLabel_btnEliminationRevenueCost(object control) { return RibbonCustomization.Label("btnEliminationRevenueCost"); }
+        public string GetLabel_menuBatchProcessSheets(object control) { return RibbonCustomization.Label("menuBatchProcessSheets"); }
+        public string GetLabel_btnCompanyWorkbooks(object control) { return RibbonCustomization.Label("btnCompanyWorkbooks"); }
+        public string GetLabel_btnSingleSummary(object control) { return RibbonCustomization.Label("btnSingleSummary"); }
         public string GetLabel_menuOneClickFormula(object control) { return RibbonCustomization.Label("menuOneClickFormula"); }
         public string GetContent_menuOneClickFormula(object control) { return RibbonCustomization.Content("menuOneClickFormula"); }
         public string GetLabel_menuWrapFormula(object control) { return RibbonCustomization.Label("menuWrapFormula"); }

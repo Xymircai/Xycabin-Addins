@@ -591,6 +591,7 @@ namespace Excel_Iterate.TestHarness
         }
         public string Formula2 { get { return Formula; } set { Formula = value; } }
         public object Value2 { get { return value; } set { this.value = value; formula = null; sheet.Book.Saved = false; } }
+        public void ClearContents() { value = null; formula = null; sheet.Book.Saved = false; }
         public string NumberFormat { get; set; } public int HorizontalAlignment { get; set; } public int VerticalAlignment { get; set; } public bool WrapText { get; set; }
         public int Orientation { get; set; } public int IndentLevel { get; set; } public bool ShrinkToFit { get; set; } public bool Locked { get; set; } public bool FormulaHidden { get; set; }
         public double RowHeight { get; set; } public double ColumnWidth { get; set; }

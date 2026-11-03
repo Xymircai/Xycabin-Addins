@@ -93,6 +93,16 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (1). 当前实现与待验收
 
+新增“数据 → 审计工具箱 → 批量生成过程表 → 按公司生成工作簿”：读取 xlsx/xls 磁盘模板快照，按用户选择的来源字段及显式数据范围逐公司完整复制，可选更新 Lead 指定行的两个字段。命名、来源与目标字段联动加载，异常预检阻断；逐文件取消、保存重开核验和不覆盖发布独立实现。原单体汇总表铺列逻辑不变。实现入口与文件见 B4；使用步骤见 A-UserGuide 对应菜单说明。实际 Excel/VSTO 保存保真、按钮交互及真实业务模板尚待本地验收。
+
+单体汇总表现改为先明确选择工作簿：支持已打开文件下拉、浏览文件及主动使用当前工作簿，初始无选择；汇总工作表独立选择。预检、执行与还原绑定同一工作簿对象及选择版本，不随活动窗口切换；关闭重开或另存为后要求重选，待还原批次锁定选择。浏览打开的目标文件保持打开且不自动保存，供用户核对；实际宿主交互待验收。
+
+单体汇总表新增可选年度跨度：每家公司展开为开始至结束年度的多列，每列重复公司表头，下方独立行写年度，默认倒序。预检显示逐列公司年度及来源路径，识别或配置年度目录段，默认检查年度文件；只改指定目录年份及模板公司文件名，其他引用保持原样。列上限、备份还原范围、日志和读回校验均按公司×年度计划处理，旧单列模式保留；实际 Excel/WPS 写入和整批还原待验收。
+
+按公司生成工作簿的进度区显示已处理任务数、总数、百分比、成功、失败和剩余项数，同时展示当前文件、累计耗时、平均每项耗时与预计剩余。任务收尾后才计数，取消保留真实比例，首项完成前不估计速度；新批次及预检失败清除旧状态。真实宿主中的绘制效果与大文件耗时待验收。
+
+公司工作簿增加独立文件名预览及末尾去除字符数配置。默认自动清理来源名称末尾的 Excel 后缀，再统一使用模板扩展名，避免 `.xlsx.xlsx`；手动裁剪先作用于来源原文。预览展示原名和最终文件名，处理后重名、空名称及已有文件阻断，不改来源数据或 Lead 字段。命名预览与运行日志分标签页展示，生成前仍完整预检。
+
 批量迁移源文件按钮位于源工作簿文本框右侧、源工作表左侧，标签与复选框按行高垂直居中。主窗批量勾选入口整合到“选择”表头的带框箭头，存在未勾选目标时显示蓝色漏斗；弹窗提供搜索及清空、全选搜索结果、反选、选择计数、空态、确定/取消和尺寸拖动，草稿确认后才回写，不隐藏主表目标。
 
 批量迁移默认改为校验后更新目标原文件并保留原版本备份，也可取消勾选另存副本。新增 MigrationOutputTransaction 与 MigrationWindowScope，目标读取器逐项释放、临时窗口按所有权隐藏，修复预检累积工作簿及读写激活压低迁移窗口的问题；更新模式要求目标先保存并关闭。后续段落中的“仅输出副本”描述属于前版实现或当前另存模式。实际 WPS 标签页、焦点及二进制保存行为另列实机证据。
@@ -124,6 +134,22 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 本轮沿用版本与发布身份，公共源码迁至C-00-Shared，项目清单直接引用，生成文件与产品入口保留原位置。抵消窗口在首次可见前应用最大化，来源事件先订阅再回填；局部缓冲覆盖布局、网格和拖柄，尺寸预览保持普通窗口。默认布局按窗口及DPI延迟测量；从属扫描和抵消预检通过原宿主线程分块读取、后台纯数据运算，来源变化时中止。宿主不支持变化监听时回退同步读取并记录兼容路径。EliminationSession统一持有目标、快照和任务，大结果预览按需取值，仍完整测宽、支持复制；取消与失败重试保留尚未还原的目标。实际WPS黑影、键入、菜单、跨屏DPI与写入还原由用户验收，离线检查不能代替。
 
 ### (2). 本轮交付证据
+
+本轮解决上游 PR #11 合并冲突：保留批量生成过程表功能，合入上游六个数据迁移文件更新，合并双方交付记录，生成文件保留功能分支内容。迁移检查替身补齐 ClearContents，以匹配上游新增的清空单元格调用。编译、单体汇总 99 项、公司工作簿 71 项、数据迁移 168 项及共享源码分类检查通过；见[合并编译日志](../C-01-ExcelIterate/build/pr11-merge-build-2.log)与[迁移检查日志](../C-01-ExcelIterate/build/pr11-migration-tests-2.log)。检查使用受管替身，未进行 Excel/WPS 实机验收；固定签名证书缺失，未更新安装包。
+
+本轮将“2025年度”等年度表头单元格显式设为水平、垂直居中，仅修改年度表头的两项对齐属性，其他模板及数据区域格式保留。编译与既有 SingleSummaryProbe 99 项回归通过，见[编译日志](../C-01-ExcelIterate/build/summary-year-alignment-build.log)及[回归结果](../C-01-ExcelIterate/build/summary-year-alignment-tests.json)。实际 Excel/WPS 显示未验收；固定签名证书仍缺失，未生成新安装包。
+
+本轮实现单体汇总表多年度展开：每家公司按年度占多列，每列重复公司表头，下方指定行显示年度，默认倒序；年度路径只按完整目录规则换年，含来源预检、逐列计划、整批还原范围及实际公司行勾选回写。编译通过，SingleSummaryProbe 99 项、CompanyWorkbookProbe 71 项、DisciplineProbe 31 项、DialogSizesProbe core 111 项及 RibbonProbe 通过，弹窗目录和模态隔离检查通过。见[多年度测试结果](../C-01-ExcelIterate/build/summary-annual-tests.json)、[详细日志](../C-01-ExcelIterate/build/summary-annual-tests.log)和[编译日志](../C-01-ExcelIterate/build/summary-annual-build.log)。检查使用模型、托管宿主及自建空文件，不代表真实 Excel/WPS/VSTO 写入及还原已验收；固定证书仍缺失，未生成新安装包。
+
+本轮修复公司工作簿重复扩展名，加入默认 Excel 后缀清理、末尾去除字符数及独立文件名预览；生成前按处理后的名称校验碰撞，保持来源记录和 Lead 字段原值。编译通过，CompanyWorkbookProbe 71 项（含后缀大小写/重复、字符裁剪、处理后重名及既有文件保护）、SingleSummaryProbe 70 项、DisciplineProbe 31 项及 DialogSizesProbe core 111 项通过，弹窗目录与模态隔离检查通过。见[命名测试结果](../C-01-ExcelIterate/build/company-filenames-tests.json)、[详细日志](../C-01-ExcelIterate/build/company-filenames-tests.log)和[编译日志](../C-01-ExcelIterate/build/company-filenames-build.log)。未验证真实 Excel/WPS/VSTO；固定签名证书仍缺失，未生成新安装包。
+
+本轮按完成任务数优化公司工作簿生成进度，增加数量、百分比、成功/失败、剩余、当前文件、平均耗时及预计剩余时间；取消保留真实比例，新任务和预检失败重置。编译通过，CompanyWorkbookProbe 55 项、SingleSummaryProbe 70 项及 DialogSizesProbe core 111 项通过，弹窗目录与模态隔离检查通过，见[进度测试结果](../C-01-ExcelIterate/build/company-progress-tests.json)及[编译日志](../C-01-ExcelIterate/build/company-progress-build.log)。未运行真实 Excel/WPS/VSTO；固定证书仍缺失，签名及新安装包未完成。
+
+本轮将单体汇总表改为显式选择工作簿和汇总工作表，预检、执行及还原使用同一绑定对象。编译通过；SingleSummaryProbe 共 70 项（含原有换链回归与工作簿选择夹具）、CompanyWorkbookProbe 45 项、DisciplineProbe 31 项及 DialogSizesProbe core 111 项通过，源码分类、文档、弹窗目录与模态隔离检查通过。证据见[编译日志](../C-01-ExcelIterate/build/summary-workbook-selection-build.log)与[选择及绑定测试](../C-01-ExcelIterate/build/summary-workbook-selection-probe.log)。未执行真实 Excel/WPS/VSTO 测试；固定签名证书仍缺失，签名未完成，未生成新安装包。
+
+本轮新增“按公司生成工作簿”的源码、菜单及弹窗登记已编译通过；CompanyWorkbookProbe 的 45 项规则/托管宿主检查、SingleSummaryProbe 的 46 项既有回归、DisciplineProbe 的 31 项检查、RibbonProbe 和 DialogSizesProbe core 的 111 项检查均通过，见[本轮针对性测试结果](../C-01-ExcelIterate/build/company-workbooks-final-tests.json)及[详细日志](../C-01-ExcelIterate/build/company-workbooks-final-tests.log)。源码分类、文档、弹窗目录及模态隔离检查通过。扩大回归中 TrackerProbe、ErrorSourceProbe、FormulaProbe core 通过，WorkbookToolsProbe 超时后中止后续扩大回归，不能认作完整后台验证通过。固定签名证书在当前环境缺失，重新签名失败，完整 validate 另被新 DLL 与旧清单摘要不匹配阻止；未生成新安装包，原正式安装包保持原状。未进行真实 Excel/VSTO/WPS 测试、安装或发布。编译、签名失败和完整验证受阻分别见 build/company-workbooks-build.log、build/company-workbooks-sign.log 和 build/company-workbooks-validation.log。
+
+本轮新增审计工具箱「批量生成过程表 → 单体汇总表生成」：配置器登记 menuBatchProcessSheets 与 btnSingleSummary，源码按功能目录 BatchProcessSheets/SingleSummary 落地；Lead 表按表头文字动态定位「编码&简称」「全称」与「选用」三列，候选行默认全勾、执行时回写选用，模板列铺列固定覆盖并逐列换链，生成日志表与隐藏备份表，全程不自动保存工作簿。离线探针 SingleSummaryProbe 37 项通过（换链边界、路径与 ]BS 不动产、其他公司文件名、本簿引用、字符串常量、含（合并）公司、列字母、表头归一化、N=0／全称重复／列越界阻断、弹窗默认值）；R-30 分类门禁、弹窗登记与 Feature099 网格表头检查沿用通过。真实 WPS 表格自建样本回归 41 项通过：Lead 定位、跨列合并阻断、备份与日志、表头写编码&简称、逐列换链、本簿引用原样带出、区间外不读写、重跑追加且不重复建表、两批备份分别还原。实测发现 WPS 拒写「未加单引号且文件名含括号」的外链公式（0x8FE3000B），已按「只补引号、不改文件名与地址」处理并锁进探针。本机缺少 lib 依赖目录与网站快照，未执行正式重建、签名、安装包与安装，版本号沿用；真实按钮点击与安装后界面验收另行记录。
 
 
 

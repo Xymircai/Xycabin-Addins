@@ -48,6 +48,8 @@ namespace Excel_Iterate
             new DialogDefinition("file.ocrfields", "核对OCR字段", "操作 / 文件操作 / 批量处理 / 文件提取名称",820,500,640,360),
             new DialogDefinition("file.rename", "文件批量命名", "操作 / 文件操作 / 批量处理",840,480,550,310),
             new DialogDefinition("merge.headers", "跨工作簿表头匹配合并", "数据 / 表头匹配合并",1180,780,900,620),
+            new DialogDefinition("company.workbooks", "按公司生成工作簿", "数据 / 审计工具箱 / 批量生成过程表 / 按公司生成工作簿",1180,820,950,680),
+            new DialogDefinition("summary.single", "单体汇总表生成", "数据 / 审计工具箱 / 批量生成过程表 / 单体汇总表生成",1180,760,900,600),
             new DialogDefinition("migration.data", "批量迁移数据", "数据 / 审计工具箱 / 批量迁移数据",1180,760,900,560),
             new DialogDefinition("elimination.receivable", "往来抵消", "数据 / 合并抵消 / 往来抵消",1180,700,900,580),
             new DialogDefinition("elimination.revenuecost", "收入成本抵消", "数据 / 合并抵消 / 收入成本抵消",1180,700,900,580),

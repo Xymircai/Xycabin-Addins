@@ -82,6 +82,8 @@ python "C-03-Website·Xycabin/rebuild.py" --background --mode full
 
 完整重建依次执行：写入配置 → 编译 → 生成并签名清单 → 封装安装包 → 校验。`--mode incremental` 会复用 `build/incremental-cache/` 中的编译缓存。
 
+`C-03-Website·Xycabin/rebuild.py` 是唯一的联合交付入口：它先构建并验证两个加载项，再把两个安装包内嵌进单文件网页，最后事务发布三件产物。只发布其中一个产品时，仍应走联合入口，否则网页内嵌的安装包会与独立附件不一致。单独运行 `AA-Program/C3-XycabinSite_Configure.py` 只会在同目录生成不含安装包的预览页，不能作为发布附件。
+
 ### 关于代码签名
 
 完整重建的最后阶段会使用 Authenticode 证书为 DLL、应用清单与部署清单签名。签名身份由各项目 `AA-Program` 下的配置器决定：Excel-Iterate 为 `C1-Exceliterate_Configure.py`，WordUpdater 为 `C2-Wordupdater_Configure.py`，其中的 `SIGNING_CERT_THUMBPRINT` 是唯一来源。
@@ -102,6 +104,7 @@ python "C-03-Website·Xycabin/rebuild.py" --background --mode full
 | `**/lib/*.dll` | 微软版权程序集，再分发受许可限制 |
 | `AA-Program/*_Setup.exe` | 发布产物，通过 Releases 分发 |
 | `C-03-Website·Xycabin/AA-Program/XyCabin.html` | 由模板渲染生成的产物 |
+| `C-03-Website·Xycabin/AA-Program/index.html` | 同一产物在本地预览时的文件名 |
 | `*.cer`、`*.pfx`、`*.snk` | 证书与私钥材料 |
 
 ## 新增功能、提交与 Release 发布
@@ -187,11 +190,33 @@ git push origin main
 $SourceCommit = git rev-parse HEAD
 git status --short
 git log --oneline -8
+git ls-remote origin refs/heads/main
+gh api "repos/$RepoName/commits/main" --jq '.sha[0:7] + " " + .commit.message'
 ```
+
+最后两条用于确认远端指针已指向 `$SourceCommit`：`git ls-remote` 比对哈希，`gh api` 读取 GitHub 网页同源的数据，两者一致才说明他人能在网页看到本轮代码。
+
+| 批次 | 典型范围 | 提交信息前缀 |
+|---|---|---|
+| 1 | 共享源码修复（`C-00-Shared`） | `fix(shared): …` |
+| 2 | 单个产品的行为或界面修复 | `fix(excel): …` / `fix(word): …` |
+| 3 | 生成文件时间戳（`*.g.cs`） | `chore(build): …` |
+| 4 | 文档、代码索引与发布证据 | `docs: …` |
+
+一个提交只承载一个语义单元；`*.g.cs` 的时间戳变化与真实修复分开提交，回溯时可排除噪声。每批提交前先 `git diff --cached` 复核范围。
 
 任一步失败均停止，冲突和门禁未解决时不推送。提交信息采用“类型(可选范围): 摘要”，正文说明原因、影响和验证；原有未推送提交随 main 一并推送，不强推或改写历史。长期分支是 main，历史 restructure/20261019 分支不合入。
 
 不用 git add -A / git add . 代替范围审阅。build、stage、两个 EXE、生成 HTML、lib DLL、证书与私钥继续被忽略。git push 上传源码和文档，Release 附件需要单独上传。
+
+### 常见阻塞与处置
+
+| 现象 | 原因 | 处置 |
+|---|---|---|
+| `TrackerProbe.exe` 无任何输出即以 `0xE0434352` 退出，事件日志报 `Exception.ToString()` 失败 | `project.json` 被保存为带 UTF-8 BOM；`DataContractJsonSerializer` 把 BOM 当正文抛 `XmlException` | 已在 `SourcePaths.ReadManifest` 剥离 BOM。新增清单读取点须同样处理，或把 `project.json` 保存为无 BOM |
+| `Feature099Probe` 报 `actual preview button has text N …` | 新增或改动对话框后，控件超出默认尺寸，被 `AutoScroll` 区域裁出可视范围，探针采样到的文字像素为 0 | 调整 `DialogSizes.cs` 的默认尺寸或窗体行比例，使全部控件可见；不要为通过而放宽探针 |
+| 日志出现 `[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED]`，联合重建中断 | 运行环境对批量删除按轮计数（常见阈值 50），清理 `build/stage-*` 时超限 | 改在系统终端直接执行联合重建；或先清理 `build/stage-*` 残留目录再重跑 |
+| `git push` 长时间无响应，`api.github.com` TLS 超时 | 本机代理不可用 | 换用可用网络或修复代理后再推送；未推送前不要更换 Release 附件，避免源码与附件错位 |
 
 ### 备份和更新现有 Release
 

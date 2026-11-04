@@ -53,7 +53,10 @@ namespace Excel_Iterate
     internal sealed class MigrationProgress
     {
         internal string Message;
+        // The next step is a long host call; show this message right away.
+        internal bool Pause;
         internal MigrationProgress(string message) { Message = message; }
+        internal MigrationProgress(string message, bool pause) { Message = message; Pause = pause; }
     }
     // Only this adapter touches COM. The enumerators are pumped on the original
     // host thread, yielding between cells/targets without DoEvents or Task.Run.
@@ -74,6 +77,7 @@ namespace Excel_Iterate
         private readonly List<MigrationArea> merges = new List<MigrationArea>();
         private List<MigrationName> sourceNames;
         private Dictionary<string, string> sourceLinks;
+        private HashSet<string> sourceAmbiguous = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private string sourceHash;
         private MigrationPackagePreservation packagePreservation;
         private object activeBook, activeSheet;
@@ -314,7 +318,7 @@ namespace Excel_Iterate
             source = ResolveOriginal(input.SourcePath, input.SourceSheet); Saved(source); ValidateOriginal(source, sourceHash);
             watch = Watch(source.Book,"迁移来源");
             packagePreservation = MigrationPackagePreservation.Capture(input.SourcePath, input.SourceSheet, area);
-            sourceNames = ReadNames(source.Book); sourceLinks = ExternalFiles(source.Book);
+            sourceNames = ReadNames(source.Book); sourceLinks = ExternalFiles(source.Book, out sourceAmbiguous);
             using (var bag = new ComBag())
             {
                 dynamic rows = bag.Own(((dynamic)source.Sheet).Rows), columns = bag.Own(((dynamic)source.Sheet).Columns);
@@ -343,8 +347,10 @@ namespace Excel_Iterate
                 try
                 {
                     Check(); target.Ready = false; target.Error = ""; target.Backup = ""; target.Fingerprint = ""; target.Overwritten = 0; target.Output = ""; target.Samples.Clear(); target.Heights.Clear(); target.Widths.Clear(); target.Status = "预检中";
-                    Exception failure = null;
+                    yield return new MigrationProgress("正在打开目标 " + Path.GetFileName(target.Path) + " 预检（文件较大时可能需要较长时间）…", true);
+                    Exception failure = null; var opened = System.Diagnostics.Stopwatch.StartNew();
                     try { PrepareTarget(target); } catch (Exception error) { failure = error; }
+                    Connect.Log("迁移耗时：预检打开 " + Path.GetFileName(target.Path) + " " + opened.ElapsedMilliseconds + " ms" + (failure == null ? "" : "（失败）"));
                     if (failure != null) { Fail(target, failure); yield return new MigrationProgress(target.Error); continue; }
                     bool stop = false;
                     for (int r = 0; r < area.Rows && !stop; r++) for (int c = 0; c < area.Columns; c++)
@@ -397,7 +403,7 @@ namespace Excel_Iterate
             if (ComFormulaHost.Boolean(((dynamic)target.Handle.Sheet).ProtectContents, "ProtectContents") || ComFormulaHost.Boolean(((dynamic)target.Handle.Book).ProtectStructure, "ProtectStructure")) throw new InvalidOperationException("目标工作表或工作簿结构受保护。");
             RejectTables(target.Handle.Sheet, target.Area);
             var context = Context(target.Handle.Book, target.Sheet, request.SourcePath);
-            context.SourceSheet = request.SourceSheet; context.RowDelta = start.Row - area.Row; context.ColumnDelta = start.Column - area.Column; context.Names = sourceNames; context.ExternalFiles = sourceLinks;
+            context.SourceSheet = request.SourceSheet; context.RowDelta = start.Row - area.Row; context.ColumnDelta = start.Column - area.Column; context.Names = sourceNames; context.ExternalFiles = sourceLinks; context.AmbiguousFiles = sourceAmbiguous;
             target.Area.Check(context.MaxRow, context.MaxColumn); target.Context = context;
             target.Formulas = new List<MigrationFormula>();
             foreach (var cell in cells)
@@ -425,7 +431,8 @@ namespace Excel_Iterate
         }
         private MigrationFormulaContext Context(object book, string sheetName, string path)
         {
-            var context = new MigrationFormulaContext { SourcePath = path, SourceSheet = sheetName, TargetSheet = sheetName, Names = ReadNames(book), ExternalFiles = ExternalFiles(book) };
+            HashSet<string> ambiguous; var files = ExternalFiles(book, out ambiguous);
+            var context = new MigrationFormulaContext { SourcePath = path, SourceSheet = sheetName, TargetSheet = sheetName, Names = ReadNames(book), ExternalFiles = files, AmbiguousFiles = ambiguous };
             using (var bag = new ComBag())
             {
                 dynamic sheets = bag.Own(((dynamic)book).Worksheets);
@@ -472,6 +479,9 @@ namespace Excel_Iterate
                 Check(); if (!target.Ready) continue;
                 string stage = null; object book = null, sheet = null; ComBag held = new ComBag(); copyReferences = held;
                 Exception failure = null;
+                yield return new MigrationProgress("正在处理 " + Path.GetFileName(target.Path) + "：复核、复制并打开副本（文件较大时可能需要较长时间）…", true);
+                var stepTimer = System.Diagnostics.Stopwatch.StartNew(); long lastMark = 0; string stepFile = Path.GetFileName(target.Path);
+                Action<string> mark = delegate(string step) { Connect.Log("迁移耗时：" + stepFile + " " + step + " " + (stepTimer.ElapsedMilliseconds - lastMark) + " ms"); lastMark = stepTimer.ElapsedMilliseconds; };
                 try
                 {
                     target.Status = "复核源文件";
@@ -479,14 +489,14 @@ namespace Excel_Iterate
                     target.Status = "复核目标文件"; ValidateTarget(target);
                     // Rebuild the preflight immediately before copying to reject
                     // newly introduced name conflicts as well as stale disk data.
-                    target.Status = "重新预检目标"; PrepareTarget(target);
+                    target.Status = "重新预检目标"; PrepareTarget(target); mark("复核并重新预检");
                     ReleaseTarget(target);
                     target.Status = "创建结果副本";
                     stage = Path.Combine(Path.GetDirectoryName(target.Path), ".xy-migration-" + Guid.NewGuid().ToString("N") + Path.GetExtension(target.Path));
                     File.Copy(target.Path, stage, false); diagnosticPaths.Add(stage);
                     if (Digest(stage) != target.Fingerprint || Digest(target.Path) != target.Fingerprint) throw new IOException("复制写入副本期间目标文件已变化，请重新预检。");
                     MigrationPackageCompatibility.NormalizeOwnedCopy(stage);
-                    target.Status = "打开结果副本"; book = ownedCopy = held.Own(OpenCopy(stage));
+                    mark("复制副本"); target.Status = "打开结果副本"; book = ownedCopy = held.Own(OpenCopy(stage)); mark("打开副本");
                     target.Status = "定位目标工作表"; sheet = held.Own(Sheet(book, target.Sheet));
                     copyWatch = Watch(book,"写入副本 "+Path.GetFileName(target.Path)); RestoreActive();
                     target.ActualMerges.Clear();
@@ -554,12 +564,12 @@ namespace Excel_Iterate
                             }
                             finally { MigrationWindowScope.SetOwnedVisible(book, false); RestoreActive(); }
                         });
-                        copyWatch.Dispose(); copyWatch = null;
+                        copyWatch.Dispose(); copyWatch = null; mark("写入并保存");
                         target.Status = "重开核验";
                         Close(book); book = ownedCopy = null; held.Dispose(); held = new ComBag(); copyReferences = held;
                         if (packagePreservation != null) packagePreservation.Apply(stage, target);
                         book = ownedCopy = held.Own(OpenCopy(stage)); sheet = held.Own(Sheet(book, target.Sheet));
-                        copyWatch = Watch(book,"重开副本 "+Path.GetFileName(target.Path)); RestoreActive();
+                        copyWatch = Watch(book,"重开副本 "+Path.GetFileName(target.Path)); RestoreActive(); mark("关闭并重开");
                         VerifyNamesAndLinks(book, target, stage);
                     }
                     catch (Exception error) { failure = error; }
@@ -879,17 +889,23 @@ namespace Excel_Iterate
             }
             return result;
         }
-        private static Dictionary<string, string> ExternalFiles(object book)
+        // File name -> full path of each external link. A name linked under
+        // several paths is left out and listed in ambiguous instead; it only
+        // blocks a migration whose formulas actually refer to it.
+        internal static Dictionary<string, string> MapExternalFiles(IEnumerable<string> links, out HashSet<string> ambiguous)
         {
             var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string path in LinkSet(book))
+            ambiguous = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string path in links)
             {
                 string name = Path.GetFileName(path), old;
-                if (result.TryGetValue(name, out old) && !string.Equals(old, path, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("外链中存在同名不同路径文件，无法可靠判定来源：" + name);
+                if (ambiguous.Contains(name)) continue;
+                if (result.TryGetValue(name, out old) && !string.Equals(old, path, StringComparison.OrdinalIgnoreCase)) { result.Remove(name); ambiguous.Add(name); continue; }
                 result[name] = path;
             }
             return result;
         }
+        private static Dictionary<string, string> ExternalFiles(object book, out HashSet<string> ambiguous) { return MapExternalFiles(LinkSet(book), out ambiguous); }
         private void VerifyNamesAndLinks(object book, MigrationTarget target, string stage)
         {
             var actual = ReadNames(book); var context = Context(book, target.Sheet, stage);

@@ -55,6 +55,12 @@ namespace Excel_Iterate.TestHarness
             Check(DataMigrationEngine.Translate("=XFE1", c, "源表").Dependencies.Count == 1, "legal defined name beyond A1 column limit is not rewritten");
             c.ExternalFiles["源.xlsx"] = @"C:\other\源.xlsx";
             Check(DataMigrationEngine.Translate("='[源.xlsx]明细'!A1", c, "源表").Text == "='C:\\other\\[源.xlsx]明细'!A1", "same filename in another directory stays external");
+            HashSet<string> ambiguous;
+            var map = DataMigrationHost.MapExternalFiles(new[] { @"C:\a\北京", @"C:\b\北京", @"C:\third\第三方.xlsx" }, out ambiguous);
+            Check(!map.ContainsKey("北京") && ambiguous.Contains("北京") && map["第三方.xlsx"] == @"C:\third\第三方.xlsx", "a file name linked under two paths is marked ambiguous instead of failing the workbook");
+            var d = Context(99, 2); d.AmbiguousFiles.Add("北京");
+            Check(DataMigrationEngine.Translate("=A1+'[第三方.xlsx]明细'!A1", d, "源表").Text == "=C100+'C:\\third\\[第三方.xlsx]明细'!A1", "an unused same-name link no longer blocks migration");
+            Reject(delegate { DataMigrationEngine.Translate("='[北京]明细'!A1", d, "源表"); }, "a formula that uses a same-name link is still blocked");
             c.Names.Add(new MigrationName { Name = "Relative", Formula = "=源表!A1" });
             Reject(delegate { DataMigrationEngine.RequiredNames(new[] { DataMigrationEngine.Translate("=Relative", c, "源表") }, c); }, "relative defined name fails closed");
             c.Names.Add(new MigrationName { Name = "Cycle1", Formula = "=Cycle2" }); c.Names.Add(new MigrationName { Name = "Cycle2", Formula = "=Cycle1" });

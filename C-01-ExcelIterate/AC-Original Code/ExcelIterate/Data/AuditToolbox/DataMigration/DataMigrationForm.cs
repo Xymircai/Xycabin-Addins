@@ -1897,7 +1897,7 @@ namespace Excel_Iterate
         }
         private void FitColumns(DataGridView grid, Dictionary<string, int> weights)
         {
-            if (fittingGrid || grid.ClientSize.Width < 1) return;
+            if (fittingGrid || grid.IsDisposed || grid.Disposing || grid.ClientSize.Width < 1) return;
             fittingGrid = true;
             try
             {

@@ -262,7 +262,9 @@ namespace Excel_Iterate
 
         public static void AutoFitColumns(DataGridView grid)
         {
-            if (grid == null || grid.IsDisposed || grid.Columns.Count == 0) return;
+            // Disposal clears the columns one by one and can raise layout and
+            // row events on the way; a grid being torn down is never fitted.
+            if (grid == null || grid.IsDisposed || grid.Disposing || grid.Columns.Count == 0) return;
             var local = grid as IGridColumnFit;
             if (local != null && local.TryFitColumns()) return;
             EnsureGridHeaders(grid);
@@ -274,7 +276,7 @@ namespace Excel_Iterate
             foreach(DataGridViewColumn column in grid.Columns)signature.Append('|').Append(column.HeaderText).Append(':').Append(column.MinimumWidth).Append(':').Append(column.Tag).Append(':').Append(column.AutoSizeMode);
             string stamp=signature.ToString();
             if(measure.Measured==measure.Version&&measure.Signature==stamp)return;
-            foreach (DataGridViewColumn col in grid.Columns)
+            foreach (DataGridViewColumn col in Attached(grid))
             {
                 int need = col.MinimumWidth;
                 col.MinimumWidth = Math.Max((int)(50 * scale), need);
@@ -294,9 +296,17 @@ namespace Excel_Iterate
         // including regular weight; width caps apply to body text, never to a header.
         // This helper has no dependency on an add-in form or ResultGrid, since UiKit
         // is also compiled into the standalone installer.
+        // A snapshot of the columns still attached to the grid: a column being
+        // removed has no DataGridView and its inherited style cannot be read.
+        private static List<DataGridViewColumn> Attached(DataGridView grid)
+        {
+            var result = new List<DataGridViewColumn>();
+            foreach (DataGridViewColumn column in grid.Columns) if (column != null && column.DataGridView == grid) result.Add(column);
+            return result;
+        }
         internal static void EnsureGridHeaders(DataGridView grid)
         {
-            if (grid == null || grid.IsDisposed) return;
+            if (grid == null || grid.IsDisposed || grid.Disposing) return;
             if (updatingGridHeaders == null) updatingGridHeaders = new HashSet<DataGridView>();
             if (!updatingGridHeaders.Add(grid)) return;
             try
@@ -306,7 +316,7 @@ namespace Excel_Iterate
                 int height = Px(grid, 38);
                 using (Graphics graphics = grid.CreateGraphics())
                 {
-                    foreach (DataGridViewColumn column in grid.Columns)
+                    foreach (DataGridViewColumn column in Attached(grid))
                     {
                         column.HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
                         column.HeaderCell.Style.WrapMode = DataGridViewTriState.False;

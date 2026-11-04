@@ -177,7 +177,8 @@ namespace Excel_Iterate.TestHarness
                 Reject(delegate{form.BuildPlan();}, "a disabled row blocks preview rather than falling back to anything else");
                 pair.Enabled=true; pair.Target.Books.Add(second); form.RefreshResults();
                 form.AddBook(true,Path.Combine(root,"unreadable.xlsx"),new string[0],"fixture read failure");
-                Check(invalidated==1 && pair.Target.Books.Count==3, "adding a workbook invalidates the preview once and rows using every target pick it up");
+                Check(invalidated==1 && pair.Target.Books.Count==2, "adding a workbook invalidates the preview once and never changes existing rows");
+                pair.Target.Books.Add(Path.GetFullPath(Path.Combine(root,"unreadable.xlsx"))); form.RefreshResults();
                 plan=form.BuildPlan(); var unreadable=plan.Mappings.Single(m=>m.TargetPath.EndsWith("unreadable.xlsx"));
                 Check(unreadable.Result.Status=="失败" && unreadable.Result.Error.Contains("fixture read failure"), "an unreadable target stays listed and fails with its reason");
                 app.Workbooks.Find(second).Close(false);
@@ -485,7 +486,15 @@ namespace Excel_Iterate.TestHarness
                 var tabs = all.OfType<MigrationTabStrip>().Single(c => c.Name == "migrationTabs");
                 Check(tabs.TabCount == 3 && tabs.Title(0) == "源区域" && tabs.Title(1) == "目标区域" && tabs.Title(2) == "映射", "source, target and mapping are separate pages");
                 Check(!all.OfType<System.Windows.Forms.TabControl>().Any() && !all.OfType<System.Windows.Forms.LinkLabel>().Any(), "pages and add actions use the window's own controls");
-                Check(!all.Any(c => c.Text == "添加源工作簿…" || c.Text == "添加目标工作簿…" || c.Text == "收起区域选择" || c.Text == "新增一行" || c.Text == "复制此行" || c.Text == "删除行"), "the top toolbar is removed");
+                Check(!all.Any(c => c.Text == "收起区域选择" || c.Text == "新增一行" || c.Text == "复制此行" || c.Text == "删除行"), "the old top toolbar actions are removed");
+                // 添加工作簿 now sits at the bottom of each range page, left of 新增区域.
+                foreach (string pair in new[] { "添加源工作簿…|＋ 新增源区域", "添加目标工作簿…|＋ 新增目标区域" })
+                {
+                    var names = pair.Split('|'); var add = all.Single(c => c.Text == names[0]); var range = all.Single(c => c.Text == names[1]);
+                    Check(add.Parent == range.Parent && add.Parent.Controls.GetChildIndex(add) < add.Parent.Controls.GetChildIndex(range) && !(add.Parent.Parent is System.Windows.Forms.FlowLayoutPanel && add.Parent.Parent.Name == "migrationToolbar"),
+                        "“" + names[0] + "” sits next to “" + names[1] + "” at the bottom of its page, not in a top toolbar");
+                }
+                Check(all.Count(c => c.Text == "＋ 新增映射") == 1, "the mapping page has its own 新增映射 button");
                 var split = all.OfType<System.Windows.Forms.SplitContainer>().Single(c => c.Name == "migrationSplit");
                 Check(all.Any(c => c.Name == "migrationSidebarToggle") && all.Any(c => c.Name == "migrationSidebarClose"), "range panel has an edge toggle and a close button");
                 Check(split.Panel2Collapsed, "range panel starts closed");
@@ -667,6 +676,8 @@ namespace Excel_Iterate.TestHarness
         }
         public string Formula2 { get { return Formula; } set { Formula = value; } }
         public object Value2 { get { return value; } set { this.value = value; formula = null; sheet.Book.Saved = false; } }
+        // Model Range.ClearContents used by the host for a genuinely blank
+        // source. Formatting is intentionally retained, as it is in WPS.
         public void ClearContents() { value = null; formula = null; sheet.Book.Saved = false; }
         public string NumberFormat { get; set; } public int HorizontalAlignment { get; set; } public int VerticalAlignment { get; set; } public bool WrapText { get; set; }
         public int Orientation { get; set; } public int IndentLevel { get; set; } public bool ShrinkToFit { get; set; } public bool Locked { get; set; } public bool FormulaHidden { get; set; }

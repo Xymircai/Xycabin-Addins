@@ -132,6 +132,33 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 
 
+
+
+
+
+
+
+
+
+
+本轮已读到用户提供的约 159 KB 新版窗口；项目原件与 _claude_新版窗口 备份摘要一致，包含 MigrationMappingBoard、MigrationTabStrip 和 ShowPage。按该版本生成 Excel_Iterate_Setup_20261104_5_MappingBoard.exe，主程序及新版探针一次编译通过，无需修改业务代码；清单及安装器本机测试签名完成，31 项包级检查直接验证新类型、实际 Mappings 字段类型、ShowPage 和 Glyphs。640 个输入文件在打包期间未变，编译响应文件引用对应快照。已检查打包入口，未发现 Git checkout/restore/stash/reset 命令；不能由此判定此前文件修改者。本轮未提交或回滚 Git、未修改信任根，开发证书链仍不受系统信任；未运行回归或 WPS 实机测试，未安装或推送。见 [新版区域条来源及包内核对记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261104-5/mapping-board-proof.json)。
+
+本轮核对用户反馈：此前两个包保存的 DataMigrationForm.cs 均为固定 Height=120 且无 Glyphs 的同一版本；当前原件含 Glyphs，源码摘要不同，现有记录不能确定此前修改者。已从当前原件生成 Excel_Iterate_Setup_20261104_3_Glyphs.exe；绑定源码、编译副本及保留备份摘要，构建前后均核对一致，编译响应文件确实引用该副本，并从安装包内 DLL 直接验证 Glyphs 字段、五行文字和框内点击/悬停方法。编译、清单及安装器签名完成，28 项包级核对通过；本轮未改写业务源码，未修改信任根，开发证书链仍不受系统信任。未进行实际界面、WPS 实机或完整回归，未安装或推送。见 [Glyphs 来源及包内核对记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261104-3/glyphs-proof.json)。
+
+本轮按用户要求再次从最新本地工作区生成 Excel_Iterate_Setup_20261104_2.exe，独立 staging 编译、清单重签及安装器本机测试签名完成，无需修改业务代码。25 项包级载荷、身份及卸载入口核对通过，638 个输入在打包期间未变。原版本及源码固定发布者配置保留，既有开发证书链不受系统信任且未修改信任根；未做功能回归、WPS 实机验收、安装或推送。见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261104-2/delivery-state.json)。
+
+本轮按最新本地工作区重新生成 Excel_Iterate_Setup_20261104.exe，独立 staging 编译、清单重签及安装器本机测试签名完成，无需修改业务代码。25 项包级载荷、身份及卸载入口核对通过，638 个输入在打包期间未变；原版本及源码固定发布者配置保留，沿用既有本机开发证书，证书链不受系统信任且未修改信任根。未运行功能回归、预览交互或 WPS 实机验收，未安装或推送。见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261104/delivery-state.json)。
+
+本轮将用户写回的六文件对照表结构改写生成 Excel_Iterate_Setup_20261103_4.exe，包含工作簿多选、两侧交换、区域预览及只写数值代码。独立 staging 一次编译通过，无需修改业务代码；新版回归探针已编译但未运行。清单与安装器本机测试签名完成，25 项包级载荷、身份及卸载核对通过；仅将包级检查中被移除的 MigrationTargetSelectionPopup 类型更新为实际新版 MigrationBookPopup。638 个输入在打包期间未变；原版本及源码固定发布者配置保留，既有开发证书链不受系统信任且未修改信任根。未做功能回归、交换/区域预览/数值写入或 WPS 实机验收，未安装或推送；内置用户指南仍为旧版界面描述。见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261103-4/delivery-state.json)。
+
+本轮将最新源区域预览框选及目标完整区域独立选择代码生成 Excel_Iterate_Setup_20261103_3.exe。独立 staging 一次编译通过，无需修改业务代码；清单重签、安装器本机测试签名及 25 项包级载荷、身份、卸载入口核对完成，638 个输入在打包期间未变。原版本和源码固定发布者配置保留，沿用既有本机开发证书且未修改信任根，证书链不受系统信任。未做完整回归、鼠标框选/自动同步交互或 WPS 实机验收，未安装或推送。见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261103-3/delivery-state.json)。
+
+本轮将编译修复后的工作表预览、列宽自适应和固定明细面板代码生成测试包 Excel_Iterate_Setup_20261103_2.exe，包含 sheetPreview 字段重名修复。独立 staging 编译、清单重签及安装器本机测试签名完成，25 项包级载荷、身份及卸载入口核对通过；638 个输入在打包期间未变。原版本和源码固定发布者配置保留，沿用既有本机开发证书，证书链不受系统信任且未修改信任根。未做完整回归、XLSX 快照实测、预览交互或 WPS 实机验收，未安装或推送。见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261103-2/delivery-state.json)。
+
+本轮按用户要求仅编译新版工作表预览及网格布局代码。首次编译发现新增 MigrationSheetPreview 字段与既有预检按钮均名为 preview，报 CS0102；已将新增控件及其调用改名 sheetPreview，保留旧按钮名称和调用。修正已写回 DataMigrationForm.cs，独立 staging 再编译成功，源码输入在成功编译期间未变。未运行功能回归、XLSX 解析实测或 WPS 实机验收，未重签、打包、安装或推送。证据见 [本轮编译记录](../C-01-ExcelIterate/build/local-delivery/compile-20261103-preview/compile-result.json)。
+
+本轮按用户写回的第一阶段多源迁移代码生成 Excel_Iterate_Setup_20261103.exe，包含迁移窗口、入口编排和选择弹窗改动。独立 staging 一次编译通过、清单及安装器本机测试签名完成，25 项包级载荷、身份及卸载入口核对通过；638 个源码输入在打包期间未变，本轮无需修改业务代码。原版本及正式证书配置保留，沿用既有本机开发证书且未修改信任根，证书链未受系统信任。未执行完整回归或 WPS 实机验收；多源映射、部分提交、还原链和另存汇总行为不能据编译通过认定验收通过。未安装、关闭 WPS 或推送。证据见 [第一阶段测试包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261103/delivery-state.json)。
+
 本轮按最新本地工作区重新生成 Excel_Iterate_Setup_20261101_2.exe，包含更新后的迁移入口；编译、清单与安装器本机测试签名完成，25 项包级载荷、身份及卸载入口核对通过，638 个输入文件在打包期间未变。原版本和源码固定发布者配置保留，沿用既有本机测试证书且未修改信任根，证书链仍不受系统信任。本轮未做完整回归、WPS 实机验收、安装或推送。证据见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261101-2/delivery-state.json)。
 
 本轮按最新本地工作区生成 Excel_Iterate_Setup_20261101.exe，包含迁移入口、窗口、宿主、输出事务及窗口恢复改动。独立 staging 编译、清单重签及安装器签名完成，25 项包级载荷、CLR 身份及卸载入口核对通过；638 个输入文件在打包期间未变。版本及原源码固定发布者配置保持不变；沿用既有本机测试证书，根未受系统信任且未修改信任根。本轮未做完整回归或 WPS 实机验收，未安装或推送。证据见 [本轮打包记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261101/delivery-state.json)。

@@ -1,6 +1,6 @@
 **三项目档案与版本**
 
-最后更新：2026-10-30 ｜ 当前版本：**0.9.9.3** ｜ 交付物：`Excel_Iterate_Setup.exe`、`WordUpdater_Setup.exe`、`XyCabin.html`
+最后更新：2026-11-04 ｜ 当前版本：**0.9.9.3** ｜ 交付物：`Excel_Iterate_Setup.exe`、`WordUpdater_Setup.exe`、`XyCabin.html`
 
 # 一. Agent及开发者接手概览
 
@@ -143,6 +143,12 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 
 
+
+
+
+本轮针对本机缺少 WordUpdater 固定证书的签名中断，独立生成表格加载项本机测试包 Excel_Iterate_Setup_20261104_9_RegressionFix.exe，未修改两产品正式发布者配置。包已包含当前共享网格释放保护及迁移断言/假宿主修订；638 个输入在构建期间未变，三个修订文件与此前通过两产品共享回归的源码摘要一致。编译、清单签名、安装器签名和 37 项包级检查通过；新构建的离线迁移回归 191 项通过。首轮受限环境 File.Replace 访问拒绝后，同一二进制正常权限重跑通过。开发证书为现有本机证书，链不受系统信任且未修改信任根。未生成 Word 安装包、未执行完整 validate 全链或 WPS 实机验收、未安装或提交/推送。见 [本轮打包状态](../C-01-ExcelIterate/build/local-delivery/local-installer-20261104-9/delivery-state.json)。
+
+本轮检查 PR #12（已合并为 826460d，末提交 63e982a），复现原布局断言失败及表头释放空引用。保留本地已有 UiKit/迁移窗口释放保护与两条需求一致的断言修订，新增 FakeCell.ClearContents 以补齐实际空白写入使用的假宿主接口，未改变 AddBook 的候选池语义或删除业务断言。独立重编两产品后，迁移回归 191 项、Excel 共享界面 11306 项、Word 共享界面 2450 项、Excel/Word 核心弹窗 107/67 项及 Excel 纪律 29 项全部通过。受限环境中的 File.Replace 权限拒绝经同二进制正常权限重跑排除；未作为代码缺陷修复。测试不连接 WPS、不操作用户工作簿；本轮未执行完整 validate 全链、未出新包、未安装或提交/推送。此前第 8 包没有当前释放保护修订，包级检查不能替代功能回归。详见 [本轮检查报告](../C-01-ExcelIterate/build/local-delivery/project-audit-20261104/检查结果.md)。
 
 本轮按与备份一致的最新窗口和测试源码生成 Excel_Iterate_Setup_20261104_8_SharedMappings.exe，确认新版已将 AddSourceRows 调整为 AddSideRows，并增加共享源映射及页面侧栏接口，因此包级检查同步核对当前接口。主程序与探针一次编译通过，无需修改业务代码；清单和安装器本机测试签名完成，37 项包级核对直接确认 AddSideRows、AddMappingRow、SidebarAvailable 及现有框选接口。643 个输入在打包期间未变，编译响应文件引用正确快照；原版本与源码正式证书配置保留，开发证书链不受系统信任且未修改信任根。未运行回归、共享源映射/侧栏交互或 WPS 实机验收，未安装或提交/推送。见 [本轮源码及包内核对记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261104-8/shared-mappings-proof.json)。
 

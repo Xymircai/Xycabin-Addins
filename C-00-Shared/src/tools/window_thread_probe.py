@@ -7,7 +7,7 @@ ROOT = Path(PROJECT_ROOT).resolve()
 
 
 def verify():
-    project = json.loads((ROOT / 'project.json').read_text(encoding='utf-8'))
+    project = json.loads((ROOT / 'project.json').read_text(encoding='utf-8-sig'))
     allowed = {'UiKit.cs', 'HostDialogService.cs', 'DialogFormatting.cs',
                'FormatEditorThread.cs', 'FormulaWindowThread.cs'}
     calls = []

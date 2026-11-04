@@ -93,6 +93,16 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (1). 当前实现与待验收
 
+新增“数据 → 审计工具箱 → 批量生成过程表 → 按公司生成工作簿”：读取 xlsx/xls 磁盘模板快照，按用户选择的来源字段及显式数据范围逐公司完整复制，可选更新 Lead 指定行的两个字段。命名、来源与目标字段联动加载，异常预检阻断；逐文件取消、保存重开核验和不覆盖发布独立实现。原单体汇总表铺列逻辑不变。实现入口与文件见 B4；使用步骤见 A-UserGuide 对应菜单说明。实际 Excel/VSTO 保存保真、按钮交互及真实业务模板尚待本地验收。
+
+单体汇总表现改为先明确选择工作簿：支持已打开文件下拉、浏览文件及主动使用当前工作簿，初始无选择；汇总工作表独立选择。预检、执行与还原绑定同一工作簿对象及选择版本，不随活动窗口切换；关闭重开或另存为后要求重选，待还原批次锁定选择。浏览打开的目标文件保持打开且不自动保存，供用户核对；实际宿主交互待验收。
+
+单体汇总表新增可选年度跨度：每家公司展开为开始至结束年度的多列，每列重复公司表头，下方独立行写年度，默认倒序。预检显示逐列公司年度及来源路径，识别或配置年度目录段，默认检查年度文件；只改指定目录年份及模板公司文件名，其他引用保持原样。列上限、备份还原范围、日志和读回校验均按公司×年度计划处理，旧单列模式保留；实际 Excel/WPS 写入和整批还原待验收。
+
+按公司生成工作簿的进度区显示已处理任务数、总数、百分比、成功、失败和剩余项数，同时展示当前文件、累计耗时、平均每项耗时与预计剩余。任务收尾后才计数，取消保留真实比例，首项完成前不估计速度；新批次及预检失败清除旧状态。真实宿主中的绘制效果与大文件耗时待验收。
+
+公司工作簿增加独立文件名预览及末尾去除字符数配置。默认自动清理来源名称末尾的 Excel 后缀，再统一使用模板扩展名，避免 `.xlsx.xlsx`；手动裁剪先作用于来源原文。预览展示原名和最终文件名，处理后重名、空名称及已有文件阻断，不改来源数据或 Lead 字段。命名预览与运行日志分标签页展示，生成前仍完整预检。
+
 批量迁移源文件按钮位于源工作簿文本框右侧、源工作表左侧，标签与复选框按行高垂直居中。主窗批量勾选入口整合到“选择”表头的带框箭头，存在未勾选目标时显示蓝色漏斗；弹窗提供搜索及清空、全选搜索结果、反选、选择计数、空态、确定/取消和尺寸拖动，草稿确认后才回写，不隐藏主表目标。
 
 批量迁移默认改为校验后更新目标原文件并保留原版本备份，也可取消勾选另存副本。新增 MigrationOutputTransaction 与 MigrationWindowScope，目标读取器逐项释放、临时窗口按所有权隐藏，修复预检累积工作簿及读写激活压低迁移窗口的问题；更新模式要求目标先保存并关闭。后续段落中的“仅输出副本”描述属于前版实现或当前另存模式。实际 WPS 标签页、焦点及二进制保存行为另列实机证据。
@@ -124,6 +134,38 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 本轮沿用版本与发布身份，公共源码迁至C-00-Shared，项目清单直接引用，生成文件与产品入口保留原位置。抵消窗口在首次可见前应用最大化，来源事件先订阅再回填；局部缓冲覆盖布局、网格和拖柄，尺寸预览保持普通窗口。默认布局按窗口及DPI延迟测量；从属扫描和抵消预检通过原宿主线程分块读取、后台纯数据运算，来源变化时中止。宿主不支持变化监听时回退同步读取并记录兼容路径。EliminationSession统一持有目标、快照和任务，大结果预览按需取值，仍完整测宽、支持复制；取消与失败重试保留尚未还原的目标。实际WPS黑影、键入、菜单、跨屏DPI与写入还原由用户验收，离线检查不能代替。
 
 ### (2). 本轮交付证据
+
+
+本轮合入主仓库至 826460d，八个冲突文件均已处理：五份生成代码保留主仓库新增菜单，假宿主 ClearContents 保留一份，两份日志保留双方记录且日期统一。相对主仓库保留 UiKit、迁移窗口、迁移探针及两份日志共五个文件的修订。独立副本中两产品编译通过；迁移回归 191 项、按公司生成工作簿 71 项、单体汇总 99 项、Excel/Word 共享界面 11342/2450 项及核心弹窗 111/67 项均通过。初轮沙箱临时目录访问失败经正常权限构建排除；年度夹具因测试目录包含日期产生额外目录候选，同一二进制改用无日期夹具路径后通过，未更改业务规则。未执行完整 validate 全链或 WPS 实机验收、未生成新包或安装，合并尚未提交或推送。见 [合并检查结果](../C-01-ExcelIterate/build/local-delivery/merge-upstream-20261104/merge-check.json)。
+
+**最新交付：门禁冗余清理与当前 main 完整重建。** 隔离副本不携带旧 build、生成 EXE/HTML 或字节码缓存；原批处理选择 2 完成联合完整重建及收尾独立验证。清理后在原目录再次运行同一批处理，返回 0；原证书、0.9.9.3 与稳定 ID 沿用。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 清理 | 7 个目标、18 个文件，实际删除 20,148,605 字节（19.22 MiB）；涉及 `build/stage-feature-layout`、`build/stage-optimization`、两个 `build/manifest-fixture-*` 及三处 build 内字节码缓存 |
+| 当前安装包 | [Excel_Iterate_Setup.exe](../C-01-ExcelIterate/AA-Program/Excel_Iterate_Setup.exe)，5,265,408 字节；SHA-256：25568089d8b4a98853530ad7b2c122809e66ea1bf98e88b0adcefeb6b8d0fffb |
+| 验证 | 30 项后台任务全通过，缓存复用 0；R-30=pass、cached=false；原证书清单双签名、五载荷、文档/图形及网页快照通过 |
+| 本地审计 | [清理实绩](../C-03-Website·Xycabin/build/cleanup-report.json)、[隔离证明](../C-03-Website·Xycabin/build/cleanup-isolated-proof.json)、[原目录批处理日志](../C-03-Website·Xycabin/build/cleanup-official-build.log)；build 证据不入 Git |
+| GitHub 与 Release | 构建源码 [938470e](https://github.com/Xymircai/Xycabin-Addins/tree/938470efe79810f3fcd95e9275d561a3ee5693cc) 已普通推送至 main；[现有 Release](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3) 三附件已同批替换并回下载，大小与 SHA-256 均匹配本表；[远端核验记录](../C-03-Website·Xycabin/build/cleanup-publication-state.json)；原标签未移动 |
+| 边界 | 仅源码布局探针修复无旧 HTML 时的构建依赖；功能源码、配置、必要 lib、证书、文档资源与真实验收资料保留；真实 WPS 点击与安装效果仍待实机验收 |
+
+以下为历史交付记录，旧安装包摘要不再代表本轮产物。
+
+本轮解决上游 PR #11 合并冲突：保留批量生成过程表功能，合入上游六个数据迁移文件更新，合并双方交付记录，生成文件保留功能分支内容。迁移检查替身补齐 ClearContents，以匹配上游新增的清空单元格调用。编译、单体汇总 99 项、公司工作簿 71 项、数据迁移 168 项及共享源码分类检查通过；见[合并编译日志](../C-01-ExcelIterate/build/pr11-merge-build-2.log)与[迁移检查日志](../C-01-ExcelIterate/build/pr11-migration-tests-2.log)。检查使用受管替身，未进行 Excel/WPS 实机验收；固定签名证书缺失，未更新安装包。
+
+本轮将“2025年度”等年度表头单元格显式设为水平、垂直居中，仅修改年度表头的两项对齐属性，其他模板及数据区域格式保留。编译与既有 SingleSummaryProbe 99 项回归通过，见[编译日志](../C-01-ExcelIterate/build/summary-year-alignment-build.log)及[回归结果](../C-01-ExcelIterate/build/summary-year-alignment-tests.json)。实际 Excel/WPS 显示未验收；固定签名证书仍缺失，未生成新安装包。
+
+本轮实现单体汇总表多年度展开：每家公司按年度占多列，每列重复公司表头，下方指定行显示年度，默认倒序；年度路径只按完整目录规则换年，含来源预检、逐列计划、整批还原范围及实际公司行勾选回写。编译通过，SingleSummaryProbe 99 项、CompanyWorkbookProbe 71 项、DisciplineProbe 31 项、DialogSizesProbe core 111 项及 RibbonProbe 通过，弹窗目录和模态隔离检查通过。见[多年度测试结果](../C-01-ExcelIterate/build/summary-annual-tests.json)、[详细日志](../C-01-ExcelIterate/build/summary-annual-tests.log)和[编译日志](../C-01-ExcelIterate/build/summary-annual-build.log)。检查使用模型、托管宿主及自建空文件，不代表真实 Excel/WPS/VSTO 写入及还原已验收；固定证书仍缺失，未生成新安装包。
+
+本轮修复公司工作簿重复扩展名，加入默认 Excel 后缀清理、末尾去除字符数及独立文件名预览；生成前按处理后的名称校验碰撞，保持来源记录和 Lead 字段原值。编译通过，CompanyWorkbookProbe 71 项（含后缀大小写/重复、字符裁剪、处理后重名及既有文件保护）、SingleSummaryProbe 70 项、DisciplineProbe 31 项及 DialogSizesProbe core 111 项通过，弹窗目录与模态隔离检查通过。见[命名测试结果](../C-01-ExcelIterate/build/company-filenames-tests.json)、[详细日志](../C-01-ExcelIterate/build/company-filenames-tests.log)和[编译日志](../C-01-ExcelIterate/build/company-filenames-build.log)。未验证真实 Excel/WPS/VSTO；固定签名证书仍缺失，未生成新安装包。
+
+本轮按完成任务数优化公司工作簿生成进度，增加数量、百分比、成功/失败、剩余、当前文件、平均耗时及预计剩余时间；取消保留真实比例，新任务和预检失败重置。编译通过，CompanyWorkbookProbe 55 项、SingleSummaryProbe 70 项及 DialogSizesProbe core 111 项通过，弹窗目录与模态隔离检查通过，见[进度测试结果](../C-01-ExcelIterate/build/company-progress-tests.json)及[编译日志](../C-01-ExcelIterate/build/company-progress-build.log)。未运行真实 Excel/WPS/VSTO；固定证书仍缺失，签名及新安装包未完成。
+
+本轮将单体汇总表改为显式选择工作簿和汇总工作表，预检、执行及还原使用同一绑定对象。编译通过；SingleSummaryProbe 共 70 项（含原有换链回归与工作簿选择夹具）、CompanyWorkbookProbe 45 项、DisciplineProbe 31 项及 DialogSizesProbe core 111 项通过，源码分类、文档、弹窗目录与模态隔离检查通过。证据见[编译日志](../C-01-ExcelIterate/build/summary-workbook-selection-build.log)与[选择及绑定测试](../C-01-ExcelIterate/build/summary-workbook-selection-probe.log)。未执行真实 Excel/WPS/VSTO 测试；固定签名证书仍缺失，签名未完成，未生成新安装包。
+
+本轮新增“按公司生成工作簿”的源码、菜单及弹窗登记已编译通过；CompanyWorkbookProbe 的 45 项规则/托管宿主检查、SingleSummaryProbe 的 46 项既有回归、DisciplineProbe 的 31 项检查、RibbonProbe 和 DialogSizesProbe core 的 111 项检查均通过，见[本轮针对性测试结果](../C-01-ExcelIterate/build/company-workbooks-final-tests.json)及[详细日志](../C-01-ExcelIterate/build/company-workbooks-final-tests.log)。源码分类、文档、弹窗目录及模态隔离检查通过。扩大回归中 TrackerProbe、ErrorSourceProbe、FormulaProbe core 通过，WorkbookToolsProbe 超时后中止后续扩大回归，不能认作完整后台验证通过。固定签名证书在当前环境缺失，重新签名失败，完整 validate 另被新 DLL 与旧清单摘要不匹配阻止；未生成新安装包，原正式安装包保持原状。未进行真实 Excel/VSTO/WPS 测试、安装或发布。编译、签名失败和完整验证受阻分别见 build/company-workbooks-build.log、build/company-workbooks-sign.log 和 build/company-workbooks-validation.log。
+
+本轮新增审计工具箱「批量生成过程表 → 单体汇总表生成」：配置器登记 menuBatchProcessSheets 与 btnSingleSummary，源码按功能目录 BatchProcessSheets/SingleSummary 落地；Lead 表按表头文字动态定位「编码&简称」「全称」与「选用」三列，候选行默认全勾、执行时回写选用，模板列铺列固定覆盖并逐列换链，生成日志表与隐藏备份表，全程不自动保存工作簿。离线探针 SingleSummaryProbe 37 项通过（换链边界、路径与 ]BS 不动产、其他公司文件名、本簿引用、字符串常量、含（合并）公司、列字母、表头归一化、N=0／全称重复／列越界阻断、弹窗默认值）；R-30 分类门禁、弹窗登记与 Feature099 网格表头检查沿用通过。真实 WPS 表格自建样本回归 41 项通过：Lead 定位、跨列合并阻断、备份与日志、表头写编码&简称、逐列换链、本簿引用原样带出、区间外不读写、重跑追加且不重复建表、两批备份分别还原。实测发现 WPS 拒写「未加单引号且文件名含括号」的外链公式（0x8FE3000B），已按「只补引号、不改文件名与地址」处理并锁进探针。本机缺少 lib 依赖目录与网站快照，未执行正式重建、签名、安装包与安装，版本号沿用；真实按钮点击与安装后界面验收另行记录。
 
 
 
@@ -308,6 +350,19 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+**最新交付：门禁冗余清理与当前 main 完整重建。** 隔离副本不携带旧 build、生成 EXE/HTML 或字节码缓存；原批处理选择 2 完成联合完整重建及收尾独立验证。清理后在原目录再次运行同一批处理，返回 0；原证书、0.9.9.3 与稳定 ID 沿用。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 清理 | 2 个目标、2 个文件，实际删除 8,494,080 字节（8.10 MiB）；涉及 `build/stage-feature-layout`、`build/stage-optimization` |
+| 当前安装包 | [WordUpdater_Setup.exe](../C-02-WordUpdater/AA-Program/WordUpdater_Setup.exe)，4,296,704 字节；SHA-256：85cd8d8077b21cdb7ca37f08472ad00d10d29bd4ea30700f8a4de94acdc3257b |
+| 验证 | 25 项后台任务全通过，缓存复用 0；R-30=pass、cached=false；原证书清单双签名、五载荷、文档/图形及网页快照通过 |
+| 本地审计 | [清理实绩](../C-03-Website·Xycabin/build/cleanup-report.json)、[隔离证明](../C-03-Website·Xycabin/build/cleanup-isolated-proof.json)、[原目录批处理日志](../C-03-Website·Xycabin/build/cleanup-official-build.log)；build 证据不入 Git |
+| GitHub 与 Release | 构建源码 [938470e](https://github.com/Xymircai/Xycabin-Addins/tree/938470efe79810f3fcd95e9275d561a3ee5693cc) 已普通推送至 main；[现有 Release](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3) 三附件已同批替换并回下载，大小与 SHA-256 均匹配本表；[远端核验记录](../C-03-Website·Xycabin/build/cleanup-publication-state.json)；原标签未移动 |
+| 边界 | 仅源码布局探针修复无旧 HTML 时的构建依赖；功能源码、配置、必要 lib、证书、文档资源与真实验收资料保留；真实 WPS 点击与安装效果仍待实机验收 |
+
+以下为历史交付记录，旧安装包摘要不再代表本轮产物。
+
 本轮随迁移文档及内嵌资源重新编译 WordUpdater，22 项后台安全探针全部通过，含 Feature099 2450 项、内嵌文档核心 113 项和弹窗核心 67 项。业务代码及正式身份未改，本轮未签名打包、安装或发布。见[两产品验证状态](../C-01-ExcelIterate/build/local-delivery/quiet-replace/delivery-state.json)。
 
 本轮随本地迁移源码合并重新编译 WordUpdater；共享登记、清单程序集身份与卸载流程改动一并覆盖。后台探针全部通过，含 Feature099 2450 项、弹窗核心 67 项、内嵌文档 113 项、程序集身份 12 项及卸载流程 54 项。见[本轮结果](../C-02-WordUpdater/build/local-delivery/upstream-integration/regressions.json)及[合并摘要](../C-02-WordUpdater/build/local-delivery/upstream-integration/integration-summary.json)。本轮未签名打包、安装、推送、发布或操作真实 WPS 文字文档。
@@ -367,6 +422,27 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 源码与正式产物内容指纹控制增量；两包、独立页和交付记录统一事务发布。后台前端/下载/音频替身不发声、不真实下载，不能代替file页面、听感、浏览器许可或安装效果。当前交付摘要在审计区，方法不重复历史流水。
 
 ### (2). 本轮交付证据
+
+**最新交付：按 R-21 完成三项目冗余清理并重建。** 隔离副本不携带旧 build、生成 EXE/HTML 或字节码缓存；原批处理选择 2 完成联合完整重建及收尾独立验证。清理后在原目录再次运行同一批处理，返回 0；原证书、0.9.9.3 与稳定 ID 沿用。
+
+| 项目 | 删除文件数 | 实际删除字节 |
+| --- | --- | --- |
+| C-01-ExcelIterate | 18 | 20,148,605（19.22 MiB） |
+| C-02-WordUpdater | 2 | 8,494,080（8.10 MiB） |
+| C-03-Website·Xycabin | 1009 | 187,838,793（179.14 MiB） |
+| 合计 | 1029 | 216,481,478（206.45 MiB） |
+
+清理共 55 个目标，失败 0；类别为构建暂存、清单测试夹具、历史生成 HTML 与有对应源码的 build 内 Python 字节码缓存。网站删除 12 个 stage 目录、3 份历史/探针 HTML 和 31 处字节码缓存。完整路径与逐文件摘要见[应用后的 schema 3 清单](../C-03-Website·Xycabin/build/cleanup-report.json)，[隔离成功证明](../C-03-Website·Xycabin/build/cleanup-isolated-proof.json)绑定真实批处理日志及输入指纹；未伪造 fixture-state。
+
+保留网站 `build/site-downloads.html`，因现行 rebuild.py 存在引用且门禁拒绝删除；保留 `document-refactor-20261012`、`grid-output-format-20261014`、`file-names-layout-filter-20261014`、`output-rename` 中的源码 ZIP、独有历史与验收资料，以及 `github-release-*` 的发布恢复证据。Excel 的 `optimization-audit`、实机日志/截图、两个 `.cer` 证书、两产品全部 lib 及锁定 PDF 包保留；源码区域缓存按专项入口的保守边界保留，未确认恢复资料不删除。上述历史目录仅删除单独核准的字节码缓存。
+
+三目录包含新产物和证据后的总字节由 656,350,848 降至 443,201,825，净减少 213,149,023 字节；这是本地重建完成时的快照，后续审计日志会略有增长。根 build 另保留旧 Release 备份。两个本轮自建临时隔离目录约 95.1 MiB，自动审批拒绝删除（blocked by policy），因此保留，不计入项目内释放量。
+
+当前 [XyCabin.html](../C-03-Website·Xycabin/AA-Program/XyCabin.html) 为 13,973,932 字节，SHA-256：8808ae597e62357feeccbfd6b74193550c7c3d3cdd9418479119cde076dde165；HTML 两包与独立 EXE 逐字节一致，两 DLL 内嵌同一无安装包网页。联合重建 14 个阶段与收尾验证 11 个阶段均返回 0，[重建摘要](../C-03-Website·Xycabin/build/last-run-summary.json)及[验证摘要](../C-03-Website·Xycabin/build/validate-run-summary.json)均 success；Excel/Word 分别 30/25 项完整后台任务、0 缓存复用。
+
+本轮源输入复核：除五份配置生成文件的时间戳外，隔离输入副本对应的源码、配置、依赖和资源字节均保持一致。新发现的 SourceLayoutProbe 无旧网页构建问题已修复并归并 B2。构建源码 [938470e](https://github.com/Xymircai/Xycabin-Addins/tree/938470efe79810f3fcd95e9275d561a3ee5693cc) 已普通推送至 main，README 可在 GitHub 网页查看；[现有 Release](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3) 的标题、说明和三个附件已更新，回下载 SHA-256 与本地一致，HTML 内嵌两包及网页正文核验通过，原标签未移动。见[发布状态](../C-03-Website·Xycabin/build/cleanup-publication-state.json)。首次发布因说明文本的 Windows 换行比对失败，已精确恢复旧附件与原说明后修正并重发，失败与回滚记录保留在根 build 审计目录。本轮没有进行真实 WPS 安装或操作用户文档。
+
+以下为历史交付记录，旧网页及附件摘要不再代表本轮产物。
 
 本轮本地源码合并保留上游构建与发布流程，网站仅保留字体注册表非路径值的缓存兼容改动；CacheProbe 10 项与 WorkflowProbe 77 项通过。未重建发布网站或更新远端附件，既有远端发布记录如下。
 

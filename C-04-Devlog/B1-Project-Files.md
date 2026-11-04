@@ -141,6 +141,15 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 
 
+
+
+
+本轮按与备份一致的最新窗口和测试源码生成 Excel_Iterate_Setup_20261104_8_SharedMappings.exe，确认新版已将 AddSourceRows 调整为 AddSideRows，并增加共享源映射及页面侧栏接口，因此包级检查同步核对当前接口。主程序与探针一次编译通过，无需修改业务代码；清单和安装器本机测试签名完成，37 项包级核对直接确认 AddSideRows、AddMappingRow、SidebarAvailable 及现有框选接口。643 个输入在打包期间未变，编译响应文件引用正确快照；原版本与源码正式证书配置保留，开发证书链不受系统信任且未修改信任根。未运行回归、共享源映射/侧栏交互或 WPS 实机验收，未安装或提交/推送。见 [本轮源码及包内核对记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261104-8/shared-mappings-proof.json)。
+
+本轮核对四个更新文件与 _claude_新版窗口 备份一致，按含 AddSourceRows 的新版窗口生成 Excel_Iterate_Setup_20261104_7_WorkbookPicker.exe，包含源工作簿逐行加入、真实工作簿框选及本机选择方式设置代码。主程序及探针一次编译通过，无需修改业务代码；清单和安装器本机测试签名完成，35 项包级检查直接确认 AddSourceRows、齿轮控件、框选事件及新版宿主接口。643 个输入在打包期间未变，编译响应文件引用正确快照；原版本和源码固定发布者配置保留，开发证书链不受系统信任且未修改信任根。未运行回归、真实只读框选/取消/设置持久化或 WPS 实机验收，未安装、提交或推送。见 [本轮源码及包内核对记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261104-7/workbook-picker-proof.json)。
+
+本轮已核对四个更新文件与 _claude_新版窗口 备份一致，按含 OpenRangePicker 的最新窗口生成 Excel_Iterate_Setup_20261104_6_RangePicker.exe。主程序与新版探针一次编译通过，无需修改业务代码；清单及安装器本机测试签名完成，32 项包级核对直接验证逐行框选入口、纯三角边栏、区域条、ShowPage 及框外关闭监测器。旧 Glyphs 字段按本轮产品设计移除，核对已改为新接口，不以旧版本特征阻止新包。642 个输入在打包期间未变，编译响应文件引用正确副本。原版本及源码固定发布者配置保留；开发证书链不受系统信任，未修改信任根。未运行回归、拆行/框选/框外关闭交互或 WPS 实机验收，未安装、提交或推送。见 [本轮源码及包内核对记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261104-6/range-picker-proof.json)。
+
 本轮已读到用户提供的约 159 KB 新版窗口；项目原件与 _claude_新版窗口 备份摘要一致，包含 MigrationMappingBoard、MigrationTabStrip 和 ShowPage。按该版本生成 Excel_Iterate_Setup_20261104_5_MappingBoard.exe，主程序及新版探针一次编译通过，无需修改业务代码；清单及安装器本机测试签名完成，31 项包级检查直接验证新类型、实际 Mappings 字段类型、ShowPage 和 Glyphs。640 个输入文件在打包期间未变，编译响应文件引用对应快照。已检查打包入口，未发现 Git checkout/restore/stash/reset 命令；不能由此判定此前文件修改者。本轮未提交或回滚 Git、未修改信任根，开发证书链仍不受系统信任；未运行回归或 WPS 实机测试，未安装或推送。见 [新版区域条来源及包内核对记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261104-5/mapping-board-proof.json)。
 
 本轮核对用户反馈：此前两个包保存的 DataMigrationForm.cs 均为固定 Height=120 且无 Glyphs 的同一版本；当前原件含 Glyphs，源码摘要不同，现有记录不能确定此前修改者。已从当前原件生成 Excel_Iterate_Setup_20261104_3_Glyphs.exe；绑定源码、编译副本及保留备份摘要，构建前后均核对一致，编译响应文件确实引用该副本，并从安装包内 DLL 直接验证 Glyphs 字段、五行文字和框内点击/悬停方法。编译、清单及安装器签名完成，28 项包级核对通过；本轮未改写业务源码，未修改信任根，开发证书链仍不受系统信任。未进行实际界面、WPS 实机或完整回归，未安装或推送。见 [Glyphs 来源及包内核对记录](../C-01-ExcelIterate/build/local-delivery/local-installer-20261104-3/glyphs-proof.json)。

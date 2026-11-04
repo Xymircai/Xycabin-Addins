@@ -115,7 +115,7 @@ namespace Excel_Iterate.TestHarness
                 Reject(delegate { form.BuildPlan(); }, "source and target ranges must be explicitly chosen before preflight");
                 var pair = form.AddPair(new MigrationPair());
                 form.AddBook(false, path, new[] { "迁移源", "辅助 & 明细" });
-                Check(pair.Source.Books.Count == 1 && pair.Source.Sheet.Length == 0 && pair.Source.Range.Length == 0, "a row picks up the only source workbook but never guesses its sheet or an A1 range");
+                Check(pair.Source.Books.Count == 0 && pair.Source.Sheet.Length == 0 && pair.Source.Range.Length == 0, "adding a workbook never fills existing ranges or guesses a sheet or an A1 range");
                 Reject(delegate { form.BuildPlan(); }, "a row without sheets and ranges cannot be prechecked");
             }
             string sample = Path.Combine(root, "mouse-source.xls");
@@ -466,7 +466,7 @@ namespace Excel_Iterate.TestHarness
             {
                 if(args.Length==1 && args[0]=="--target-picker-ui") { Console.WriteLine("PICKER_BEGIN"); HostDialogService.Register(); var picked=MigrationTargetPicker.Show(null); foreach(string path in picked)Console.WriteLine("PICKED: "+path); Console.WriteLine("PICKER_END count="+picked.Length+"\n"+UiDiagnostics.Text); Directory.Delete(root,true); return 0; }
                 FormulaChecks(); PackageChecks(root); FidelityChecks(root); WatchChecks(); PickerChecks(root); TargetSelectionChecks(root); SelectionPopupChecks(root); PumpChecks(); HostChecks(root); TransactionChecks(root); QuietReplaceChecks(root); SnapshotRaceChecks(root);
-                using (var form = new DataMigrationForm()) Check(!form.Visible && form.Mappings.Count == 0 && form.Sources.Columns.Count == 5 && form.Targets.Columns.Count == 5, "production form constructs without host access");
+                using (var form = new DataMigrationForm()) Check(!form.Visible && form.Mappings.Count == 0 && form.Sources.Columns.Count == 6 && form.Targets.Columns.Count == 6 && form.Sources.Columns.Contains("pick"), "production form constructs without host access");
                 LayoutChecks();
                 if (args.Length == 2 && args[0] == "--render") Render(Path.GetFullPath(args[1]));
                 Console.WriteLine("PASS: DataMigrationProbe " + count + " assertions; managed fixtures only, no WPS connection");
@@ -488,7 +488,8 @@ namespace Excel_Iterate.TestHarness
                 Check(!all.Any(c => c.Text == "添加源工作簿…" || c.Text == "添加目标工作簿…" || c.Text == "收起区域选择" || c.Text == "新增一行" || c.Text == "复制此行" || c.Text == "删除行"), "the top toolbar is removed");
                 var split = all.OfType<System.Windows.Forms.SplitContainer>().Single(c => c.Name == "migrationSplit");
                 Check(all.Any(c => c.Name == "migrationSidebarToggle") && all.Any(c => c.Name == "migrationSidebarClose"), "range panel has an edge toggle and a close button");
-                form.ShowSidebar(false); Check(split.Panel2Collapsed, "range panel collapses so the pages fill the width");
+                Check(split.Panel2Collapsed, "range panel starts closed");
+                form.ShowSidebar(true); form.ShowSidebar(false); Check(split.Panel2Collapsed, "range panel collapses so the pages fill the width");
                 form.ShowSidebar(true); Check(!split.Panel2Collapsed, "range panel reopens from the edge toggle");
                 var s1 = new MigrationSide { Sheet = "表", Range = "A1:B2" }; s1.Books.Add(@"D:\a.xlsx");
                 var s2 = new MigrationSide { Sheet = "表", Range = "C1:D2" }; s2.Books.Add(@"D:\a.xlsx");
@@ -500,6 +501,42 @@ namespace Excel_Iterate.TestHarness
                 Check(!form.Mappings[0].TargetUsed && form.Mappings[1].TargetUsed && form.Mappings.Current == 1 && form.Mappings.CurrentTarget, "a row without a target shows as unpaired and the moved card stays selected");
                 form.ShowPage(2); form.SwapSides(1, 0, false);
                 Check(p1.Source == s2 && p2.Source == s1 && p2.Target == t1, "source cards swap independently of targets");
+            }
+            using (var form = new DataMigrationForm())
+            {
+                form.AddBook(false, @"D:\x1.xlsx", new[] { "A", "B" }); form.AddBook(false, @"D:\x2.xlsx", new[] { "A" }); form.AddBook(false, @"D:\x3.xlsx", new[] { "B" });
+                var side = new MigrationSide { Sheet = "B", Range = "A1:B2" }; side.Books.AddRange(new[] { @"D:\x1.xlsx", @"D:\x2.xlsx", @"D:\x3.xlsx" });
+                var pair = form.AddSide(false, side);
+                Check(form.ApplySheet(pair, false, "A") == 1, "a sheet only some workbooks have applies to those that have it");
+                var rows = form.PairItems();
+                Check(rows.Count == 2 && rows[0] == pair && pair.Source.Sheet == "A" && pair.Source.Books.Count == 2
+                    && rows[1].Source.Books.Count == 1 && rows[1].Source.Books[0].EndsWith("x3.xlsx") && rows[1].Source.Sheet == "B" && rows[1].Source.Range == "A1:B2" && !rows[1].Target.Used,
+                    "workbooks lacking the sheet are split into the next row and keep their old sheet");
+            }
+            using (var form = new DataMigrationForm())
+            {
+                form.AddBook(false, @"D:\s1.xlsx", new[] { "甲", "乙" }); form.AddBook(false, @"D:\s2.xlsx", new[] { "乙" }); form.AddBook(false, @"D:\s3.xlsx", new[] { "丙" });
+                Check(form.AddSideRows(false, new[] { @"D:\s1.xlsx", @"D:\s2.xlsx", @"D:\s3.xlsx" }) == 3 && form.Sources.Rows.Count == 3, "each added source workbook gets its own source range");
+                var rows = form.PairItems();
+                Check(rows.All(p => p.Source.Books.Count == 1 && p.Source.Range.Length == 0) && rows[0].Source.Sheet == "甲" && rows[2].Source.Sheet == "丙", "a new per-workbook range starts on that workbook's first sheet without guessing an area");
+                Check(form.AddSideRows(false, new[] { @"D:\s2.xlsx" }) == 0, "adding a workbook again reuses its empty range");
+                form.AddBook(true, @"D:\t1.xlsx", new[] { "目标" }); form.AddBook(true, @"D:\t2.xlsx", new[] { "目标" });
+                Check(form.AddSideRows(true, new[] { @"D:\t1.xlsx", @"D:\t2.xlsx" }) == 2 && form.Targets.Rows.Count == 2 && rows[0].Target.Used && rows[1].Target.Used && !rows[2].Target.Used
+                    && rows[0].Target.Books[0].EndsWith("t1.xlsx") && rows[0].Target.Sheet == "目标", "target workbooks also get one range each, filling mapping rows in order");
+            }
+            using (var form = new DataMigrationForm())
+            {
+                var source = new MigrationSide { Sheet = "表", Range = "A1:B2" }; source.Books.Add(@"D:\one.xlsx");
+                var first = form.AddSide(false, source);
+                var second = form.AddMappingRow();
+                Check(second != null && second.Source == first.Source && form.PairItems().Count == 2 && form.Sources.Rows.Count == 1, "新增映射 shares the selected source range instead of copying it");
+                var t1 = new MigrationSide { Sheet = "表", Range = "C1" }; t1.Books.Add(@"D:\t1.xlsx");
+                var t2 = new MigrationSide { Sheet = "表", Range = "E1" }; t2.Books.Add(@"D:\t2.xlsx");
+                form.AddSide(true, t1); form.AddSide(true, t2);
+                Check(first.Target == t1 && second.Target == t2 && form.Targets.Rows.Count == 2, "new target ranges fill the shared rows, so one source maps to several targets");
+                source.Range = "A1:B3"; Check(second.Source.Range == "A1:B3", "editing a shared source range changes every mapping that uses it");
+                form.ShowPage(2); Check(!form.SidebarAvailable, "the range panel cannot be opened from 映射");
+                form.ShowPage(0); Check(form.SidebarAvailable, "the range panel toggle returns on the range pages");
             }
         }
         private static void Render(string path)

@@ -73,6 +73,39 @@ namespace Excel_Iterate
     }
     // Narrow vertical tab on the window's right edge: "◂ 区域选择" opens the
     // range panel, "▸" closes it.
+    // Settings button: a gear, highlighted on hover.
+    internal sealed class MigrationGearButton : Control
+    {
+        private bool hover;
+        internal MigrationGearButton()
+        {
+            Cursor = Cursors.Hand; TabStop = false; Height = 28;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+        protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); Height = Ui.Px(this, 28); }
+        protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics; g.Clear(Parent == null ? Ui.Canvas : Parent.BackColor); g.SmoothingMode = SmoothingMode.AntiAlias;
+            float u = g.DpiX / 96f, size = Math.Min(Width, Height);
+            float cx = Width / 2f, cy = Height / 2f;
+            if (hover) using (var path = Ui.RoundRect(new RectangleF(cx - size / 2 + 1, cy - size / 2 + 1, size - 2, size - 2), 6 * u)) using (var fill = new SolidBrush(Ui.Btn2Hover)) g.FillPath(fill, path);
+            Color ink = hover ? Ui.Blue : Color.FromArgb(120, 132, 152);
+            float outer = 7.5f * u, inner = 5.6f * u, tooth = 2.6f * u;
+            var state = g.Save();
+            g.TranslateTransform(cx, cy);
+            using (var brush = new SolidBrush(ink))
+            {
+                for (int i = 0; i < 8; i++) { g.FillRectangle(brush, -tooth / 2, -outer, tooth, outer - inner + 1.5f * u); g.RotateTransform(45); }
+                g.FillEllipse(brush, -inner, -inner, inner * 2, inner * 2);
+            }
+            float hole = 2.4f * u;
+            using (var back = new SolidBrush(hover ? Ui.Btn2Hover : (Parent == null ? Ui.Canvas : Parent.BackColor))) g.FillEllipse(back, -hole, -hole, hole * 2, hole * 2);
+            g.Restore(state);
+        }
+    }
+
     internal sealed class MigrationEdgeToggle : Control
     {
         private bool open, hover;
@@ -83,17 +116,9 @@ namespace Excel_Iterate
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         }
         protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
-        // The control fills its column (no self-sizing, so layout/DPI scaling
-        // cannot clip it); only the rounded tab at the top is drawn and clickable.
-        private static readonly string[] Glyphs = { "", "区", "域", "选", "择" };
-        private Rectangle Tab
-        {
-            get
-            {
-                int step = Font.Height, pad = Math.Max(6, Font.Height / 2);
-                return new Rectangle(1, 1, Math.Max(1, Width - 3), Math.Min(Math.Max(1, Height - 3), step * Glyphs.Length + pad * 2));
-            }
-        }
+        // Only a triangle at the top of its column: ◂ opens the range panel,
+        // ▸ closes it. The control fills the column so layout cannot clip it.
+        private Rectangle Tab { get { int size = Math.Max(Font.Height * 2, 24); return new Rectangle(0, 0, Width, Math.Min(Height, size)); } }
         protected override void OnMouseMove(MouseEventArgs e)
         {
             bool inside = Tab.Contains(e.Location);
@@ -105,17 +130,42 @@ namespace Excel_Iterate
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; g.Clear(Parent == null ? Ui.Canvas : Parent.BackColor); g.SmoothingMode = SmoothingMode.AntiAlias;
-            var rect = Tab;
-            using (var path = Ui.RoundRect(rect, 6f * g.DpiX / 96f))
-            using (var fill = new SolidBrush(hover ? Ui.Btn2Hover : Color.White))
-            using (var pen = new Pen(Ui.Btn2Border)) { g.FillPath(fill, path); g.DrawPath(pen, path); }
-            int step = Font.Height, top = rect.Top + (rect.Height - step * Glyphs.Length) / 2;
-            for (int i = 0; i < Glyphs.Length; i++)
+            var rect = Tab; float u = g.DpiX / 96f;
+            if (hover) using (var path = Ui.RoundRect(new RectangleF(rect.Left + 1, rect.Top + 1, rect.Width - 2, rect.Height - 2), 6 * u)) using (var fill = new SolidBrush(Ui.Btn2Hover)) g.FillPath(fill, path);
+            float cx = rect.Left + rect.Width / 2f, cy = rect.Top + rect.Height / 2f, w = 6f * u, h = 9f * u;
+            var points = open
+                ? new[] { new PointF(cx - w / 2, cy - h), new PointF(cx + w, cy), new PointF(cx - w / 2, cy + h) }
+                : new[] { new PointF(cx + w / 2, cy - h), new PointF(cx - w, cy), new PointF(cx + w / 2, cy + h) };
+            using (var brush = new SolidBrush(hover ? Ui.Blue : Color.FromArgb(120, 132, 152))) g.FillPolygon(brush, points);
+        }
+    }
+
+    // Closes a dropdown or menu when the mouse is pressed anywhere outside it.
+    // Inside WPS the add-in's windows get no WinForms message filter, so a
+    // ToolStripDropDown would otherwise stay open after an outside click.
+    internal static class MigrationDropDownWatch
+    {
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern short GetAsyncKeyState(int key);
+        private static bool Down() { return (GetAsyncKeyState(0x01) & 0x8000) != 0 || (GetAsyncKeyState(0x02) & 0x8000) != 0 || (GetAsyncKeyState(0x04) & 0x8000) != 0; }
+        internal static void Attach(ToolStripDropDown dropDown)
+        {
+            if (dropDown == null || dropDown.Tag is Timer) return;
+            var timer = new Timer { Interval = 30 }; bool wasDown = true;
+            dropDown.Tag = timer;
+            timer.Tick += delegate
             {
-                string glyph = i == 0 ? (open ? "▸" : "◂") : Glyphs[i];
-                TextRenderer.DrawText(g, glyph, Font, new Rectangle(rect.Left, top + i * step, rect.Width, step), i == 0 || hover ? Ui.Blue : Ui.Ink,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix);
-            }
+                if (dropDown.IsDisposed || !dropDown.Visible) { timer.Stop(); return; }
+                bool down = Down();
+                // Only a new press counts, so the click that opened it, or a
+                // drag that started inside (resizing), never closes it.
+                if (down && !wasDown && !dropDown.Bounds.Contains(Cursor.Position)) dropDown.Close(ToolStripDropDownCloseReason.AppClicked);
+                wasDown = down;
+            };
+            dropDown.Opened += delegate { wasDown = true; timer.Start(); };
+            dropDown.Closed += delegate { timer.Stop(); };
+            dropDown.Disposed += delegate { timer.Stop(); timer.Dispose(); };
+            if (dropDown.Visible) timer.Start();
         }
     }
 
@@ -194,7 +244,7 @@ namespace Excel_Iterate
         private int RowTop(int index) { return HeaderHeight + index * RowHeight - Offset; }
         private Cols Columns()
         {
-            int pad = P(10), check = P(30), number = P(30), arrow = P(30), mode = P(86), gap = P(10);
+            int pad = P(10), check = Math.Max(P(30), TextRenderer.MeasureText("启用", head).Width + P(14)), number = Math.Max(P(30), TextRenderer.MeasureText("行", head).Width + P(14)), arrow = P(30), mode = P(86), gap = P(10);
             int width = Math.Max(P(480), ViewWidth - pad * 2);
             int rest = width - check - number - arrow - mode - gap * 2;
             int status = Math.Max(P(110), rest * 26 / 100), card = Math.Max(P(130), (rest - status) / 2);
@@ -671,6 +721,34 @@ namespace Excel_Iterate
         private readonly Timer guardTail = new Timer { Interval = 100 };
         private int guardTailTicks;
         private MigrationBookPopup bookPopup;
+        private bool sidebarAvailable = true;
+        internal bool SidebarAvailable { get { return sidebarAvailable; } }
+        private readonly MigrationGearButton gear = new MigrationGearButton { Name = "migrationSettings", Dock = DockStyle.Top };
+        private static bool? pickInWorkbook;
+        private static string SettingsPath
+        { get { return Path.Combine(DialogSizeStore.RootOverride ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), typeof(Connect).Assembly.GetName().Name, "DataMigration.settings"); } }
+        // What a row's pick button does: true = open the workbook itself
+        // (read-only) and select there; false = select in the right-hand panel.
+        internal static bool PickInWorkbook
+        {
+            get
+            {
+                if (pickInWorkbook == null)
+                {
+                    bool value = true;
+                    try { if (File.Exists(SettingsPath)) foreach (string line in File.ReadAllLines(SettingsPath)) if (line.Trim() == "pick=panel") value = false; }
+                    catch (Exception error) { UiDiagnostics.Record("migration-settings", error); }
+                    pickInWorkbook = value;
+                }
+                return pickInWorkbook.Value;
+            }
+            set
+            {
+                pickInWorkbook = value;
+                try { Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)); File.WriteAllText(SettingsPath, "pick=" + (value ? "workbook" : "panel") + Environment.NewLine, Encoding.UTF8); }
+                catch (Exception error) { UiDiagnostics.Record("migration-settings", error); }
+            }
+        }
         private MigrationSheetPopup sheetPopup;
         private readonly Timer pump = new Timer { Interval = 15 };
         // Progress text is throttled: rewriting the status line for every
@@ -685,6 +763,10 @@ namespace Excel_Iterate
         internal event Action PreviewRequested, ExecuteRequested, CancelRequested, InputsChanged;
         // true = target workbooks, false = source workbooks.
         internal event Action<bool, string[]> BooksPicked;
+        // Pick a range in the real workbook (opened read-only by the host):
+        // target side?, workbook path, sheet, current range, callback with the
+        // chosen address (not called when cancelled).
+        internal event Action<bool, string, string, string, Action<string>> RangePickRequested;
 
         internal DataMigrationForm()
         {
@@ -693,9 +775,9 @@ namespace Excel_Iterate
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 74)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 26)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             SetupSideGrid(Sources, false); SetupSideGrid(Targets, true); SetupMappingBoard();
-            sourcesPage = Page(Sources, "＋ 新增源区域", delegate { AddSideFromUi(false); });
-            targetsPage = Page(Targets, "＋ 新增目标区域", delegate { AddSideFromUi(true); });
-            mappingsPage = Page(Mappings, null, null);
+            sourcesPage = Page(Sources, "＋ 新增源区域", delegate { AddSideFromUi(false); }, "添加源工作簿…", delegate { PickBooks(false, null); });
+            targetsPage = Page(Targets, "＋ 新增目标区域", delegate { AddSideFromUi(true); }, "添加目标工作簿…", delegate { PickBooks(true, null); });
+            mappingsPage = Page(Mappings, "＋ 新增映射", delegate { AddMappingRow(); }, null, null);
             tabs.Add("源区域"); tabs.Add("目标区域"); tabs.Add("映射");
             foreach (var page in new Control[] { mappingsPage, targetsPage, sourcesPage }) pageHost.Controls.Add(page);
             tabs.SelectedIndexChanged += delegate { ShowPage(tabs.SelectedIndex); };
@@ -710,8 +792,14 @@ namespace Excel_Iterate
             var main = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, BackColor = Ui.Canvas };
             main.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); main.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 30));
             main.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            edge.Margin = new Padding(6, 30, 0, 0); edge.Click += delegate { ShowSidebar(split.Panel2Collapsed); };
-            main.Controls.Add(split, 0, 0); main.Controls.Add(edge, 1, 0);
+            edge.Margin = Padding.Empty; edge.Click += delegate { ShowSidebar(split.Panel2Collapsed); };
+            var rail = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = new Padding(2, 0, 0, 0), Padding = Padding.Empty, BackColor = Ui.Canvas };
+            rail.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            rail.RowStyles.Add(new RowStyle(SizeType.Absolute, 40)); rail.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            rail.HandleCreated += delegate { rail.RowStyles[0].Height = Ui.Px(rail, 40); };
+            gear.Margin = new Padding(0, 4, 0, 0); gear.Click += delegate { ShowSettings(); };
+            rail.Controls.Add(gear, 0, 0); rail.Controls.Add(edge, 0, 1);
+            main.Controls.Add(split, 0, 0); main.Controls.Add(rail, 1, 0);
             main.HandleCreated += delegate { main.ColumnStyles[1].Width = Ui.Px(main, 30); };
             root.Controls.Add(main, 0, 0); root.Controls.Add(details, 0, 1);
             status.AutoSize = true; status.MaximumSize = new Size(1100, 0); root.Controls.Add(status, 0, 2);
@@ -722,7 +810,7 @@ namespace Excel_Iterate
             restoreTip.SetToolTip(restore, "把本窗口中以“更新目标原文件”方式迁移过的工作簿，还原为迁移前的备份。");
             clearBackups.Name = "migrationClearBackups"; clearBackups.Click += delegate { ClearBackups(); };
             restoreTip.SetToolTip(clearBackups, "永久删除本窗口迁移时生成的备份文件；删除后无法再还原。");
-            restoreTip.SetToolTip(edge, "打开或收起右侧区域选择");
+            restoreTip.SetToolTip(edge, "打开或收起右侧区域选择"); restoreTip.SetToolTip(gear, "设置");
             guardTail.Tick += delegate { GuardWindow(); if (--guardTailTicks <= 0) guardTail.Stop(); };
             open.Click += delegate { OpenResult(); }; close.Click += delegate { Close(); };
             actions.Controls.Add(preview); actions.Controls.Add(execute); actions.Controls.Add(restore); actions.Controls.Add(clearBackups); actions.Controls.Add(open); actions.Controls.Add(close);
@@ -735,9 +823,9 @@ namespace Excel_Iterate
             pump.Tick += delegate { Tick(); }; execute.Enabled = false; restore.Enabled = false; clearBackups.Enabled = false; open.Enabled = false;
             FormClosing += delegate(object sender, FormClosingEventArgs e) { if (Running && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; closeWhenDone = true; if (CancelRequested != null) CancelRequested(); } };
             Disposed += delegate { ClosePopups(); restoreTip.Dispose(); guardTail.Dispose(); pump.Stop(); if (steps != null) { steps.Dispose(); steps = null; } pump.Dispose(); };
-            edge.Open = true; ShowPage(0); UpdateTabTitles();
+            split.Panel2Collapsed = true; edge.Open = false; ShowPage(0); UpdateTabTitles();
         }
-        private static Panel Page(Control content, string addText, Action add)
+        private static Panel Page(Control content, string addText, Action add, string booksText, Action books)
         {
             var page = new Panel { Dock = DockStyle.Fill, BackColor = Ui.Canvas, Padding = new Padding(0, 8, 0, 0), Visible = false };
             var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty, BackColor = Ui.Canvas };
@@ -746,9 +834,15 @@ namespace Excel_Iterate
             content.Margin = Padding.Empty; layout.Controls.Add(content, 0, 0);
             if (addText != null)
             {
-                var button = Ui.Button(addText, 150); Ui.StyleSecondary(button);
-                button.Margin = new Padding(0, 8, 0, 0); button.Click += delegate { add(); };
-                layout.Controls.Add(button, 0, 1);
+                var bar = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 8, 0, 0), Padding = Padding.Empty, BackColor = Ui.Canvas };
+                if (booksText != null)
+                {
+                    var pick = Ui.Button(booksText, 150); Ui.StyleSecondary(pick); pick.Margin = new Padding(0, 0, 8, 0); pick.Click += delegate { books(); };
+                    bar.Controls.Add(pick);
+                }
+                var button = Ui.Button(addText, 150); Ui.StyleSecondary(button); button.Margin = Padding.Empty; button.Click += delegate { add(); };
+                bar.Controls.Add(button);
+                layout.Controls.Add(bar, 0, 1);
             }
             page.Controls.Add(layout); return page;
         }
@@ -759,12 +853,16 @@ namespace Excel_Iterate
             if (tabs.SelectedIndex != index) { tabs.SelectedIndex = index; return; }
             var current = CurrentPage;
             foreach (var page in new Control[] { sourcesPage, targetsPage, mappingsPage }) page.Visible = page == current;
+            // 映射 only pairs ranges; picking happens on the range pages.
+            bool mapping = current == mappingsPage;
+            if (mapping && split != null && !split.Panel2Collapsed) ShowSidebar(false);
+            edge.Visible = !mapping; sidebarAvailable = !mapping;
             current.BringToFront(); ClosePopups(); UpdatePreview(); ShowPairDetails();
         }
         private void UpdateTabTitles()
         {
-            tabs.SetCount(0, pairs.Count(p => p.Source.Used));
-            tabs.SetCount(1, pairs.Count(p => p.Target.Used));
+            tabs.SetCount(0, DistinctSides(false).Count);
+            tabs.SetCount(1, DistinctSides(true).Count);
             tabs.SetCount(2, pairs.Count);
         }
 
@@ -796,6 +894,26 @@ namespace Excel_Iterate
             sheetPreview.Sync.Checked = false;
             return panel;
         }
+        private void ShowSettings()
+        {
+            var drop = new ToolStripDropDown { Padding = Padding.Empty, DropShadowEnabled = true, BackColor = Color.White, Renderer = new MigrationMenuRenderer() };
+            var font = Ui.MakeFont(10f, FontStyle.Regular, Font);
+            int p4 = Ui.Px(this, 4), p8 = Ui.Px(this, 8);
+            var panel = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, RowCount = 4, BackColor = Color.White, Font = font, Padding = new Padding(Ui.Px(this, 16), Ui.Px(this, 14), Ui.Px(this, 16), Ui.Px(this, 14)) };
+            var title = new Label { Text = "行末框选按钮", AutoSize = true, ForeColor = Ui.Ink, Font = Ui.MakeFont(10f, FontStyle.Bold, Font), Margin = new Padding(0, 0, 0, p8) };
+            var inBook = new RadioButton { Name = "migrationPickInBook", Text = "打开工作簿，在工作表里框选（只读）", AutoSize = true, Checked = PickInWorkbook, ForeColor = Ui.Ink, Margin = new Padding(0, p4, 0, p4) };
+            var inPanel = new RadioButton { Name = "migrationPickInPanel", Text = "打开右侧区域选择栏框选", AutoSize = true, Checked = !PickInWorkbook, ForeColor = Ui.Ink, Margin = new Padding(0, p4, 0, p4) };
+            var note = new Label { Text = "多个工作簿时打开第一个，定位到它们共有的工作表。设置保存在本机。", AutoSize = true, MaximumSize = new Size(Ui.Px(this, 300), 0), ForeColor = Ui.InkDim, Margin = new Padding(0, p8, 0, 0) };
+            inBook.CheckedChanged += delegate { if (inBook.Checked) { PickInWorkbook = true; Message("框选按钮：打开工作簿框选。"); } };
+            inPanel.CheckedChanged += delegate { if (inPanel.Checked) { PickInWorkbook = false; Message("框选按钮：在右侧区域选择栏框选。"); } };
+            panel.Controls.Add(title, 0, 0); panel.Controls.Add(inBook, 0, 1); panel.Controls.Add(inPanel, 0, 2); panel.Controls.Add(note, 0, 3);
+            panel.PerformLayout();
+            var host = new ToolStripControlHost(panel) { AutoSize = false, Margin = Padding.Empty, Padding = Padding.Empty, Size = panel.PreferredSize };
+            drop.Items.Add(host);
+            drop.Closed += delegate { BeginInvoke(new Action(delegate { drop.Dispose(); font.Dispose(); })); };
+            drop.Show(gear.PointToScreen(new Point(gear.Width, gear.Height)), ToolStripDropDownDirection.BelowLeft);
+            MigrationDropDownWatch.Attach(drop);
+        }
         internal void ShowSidebar(bool show)
         {
             split.Panel2Collapsed = !show; edge.Open = show;
@@ -811,7 +929,9 @@ namespace Excel_Iterate
             AddGridColumn(g, "book", role + "工作簿", 180, true);
             AddGridColumn(g, "sheet", role + "工作表", 140, true);
             AddGridColumn(g, "range", role + "区域", 120, false);
+            AddGridColumn(g, "pick", "", 40, true);
             AddGridColumn(g, "size", "尺寸", 100, true);
+            g.Columns["pick"].Resizable = DataGridViewTriState.False; g.Columns["pick"].ToolTipText = "框选区域（打开方式可在右上角设置中切换）";
             g.Columns["no"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
             g.Columns["sheet"].HeaderCell = new MigrationSelectionHeader { Value = role + "工作表", ToolTipText = "点击下拉箭头，把各行都存在的工作表一次应用到全部。" };
             g.ColumnHeaderMouseClick += delegate(object sender, DataGridViewCellMouseEventArgs e)
@@ -830,18 +950,24 @@ namespace Excel_Iterate
                 string name = g.Columns[e.ColumnIndex].Name;
                 if (name == "book") ShowBookPopup(g, g.Rows[e.RowIndex], target);
                 else if (name == "sheet") ShowRowSheetPopup(g, g.Rows[e.RowIndex], target);
+                else if (name == "pick") OpenRangePicker(g, g.Rows[e.RowIndex], target);
             };
             g.CellMouseEnter += delegate(object sender, DataGridViewCellEventArgs e)
             {
                 string name = e.ColumnIndex < 0 ? "" : g.Columns[e.ColumnIndex].Name;
-                g.Cursor = e.RowIndex >= 0 && !g.ReadOnly && (name == "book" || name == "sheet") ? Cursors.Hand : Cursors.Default;
+                g.Cursor = e.RowIndex >= 0 && !g.ReadOnly && (name == "book" || name == "sheet" || name == "pick") ? Cursors.Hand : Cursors.Default;
+                int hot = e.RowIndex >= 0 && name == "pick" ? e.RowIndex : -1;
+                if (!object.Equals(g.Tag, hot)) { g.Tag = hot; g.InvalidateColumn(g.Columns["pick"].Index); }
             };
-            g.CellMouseLeave += delegate { g.Cursor = Cursors.Default; };
+            g.CellMouseLeave += delegate { g.Cursor = Cursors.Default; if (!object.Equals(g.Tag, -1)) { g.Tag = -1; g.InvalidateColumn(g.Columns["pick"].Index); } };
             g.CellPainting += PaintChoiceCell;
             g.CurrentCellChanged += delegate { UpdatePreview(); ShowPairDetails(); };
             AttachRowMenu(g, target);
             Ui.StyleGrid(g);
-            g.HandleCreated += delegate { g.Columns["sheet"].HeaderCell.Style.Padding = new Padding(Ui.Px(g, 6), 0, Ui.Px(g, 28), 0); };
+            // Vertical rules so each value reads under its own column.
+            g.CellBorderStyle = DataGridViewCellBorderStyle.Single;
+            g.CellPainting += PaintHeaderRule;
+            g.HandleCreated += delegate { g.Columns["sheet"].HeaderCell.Style.Padding = new Padding(Ui.Px(g, 6), 0, Ui.Px(g, 28), 0); g.Columns["pick"].HeaderCell.Style.Padding = new Padding(1); };
             FitLikeTargets(g, new Dictionary<string, int> { { "book", 34 }, { "sheet", 24 }, { "range", 22 }, { "size", 20 } });
         }
         // Workbook and sheet cells: plain text with a small chevron, like the
@@ -850,9 +976,10 @@ namespace Excel_Iterate
         {
             var grid = (DataGridView)sender;
             if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
-            string name = grid.Columns[e.ColumnIndex].Name; if (name != "book" && name != "sheet") return;
+            string name = grid.Columns[e.ColumnIndex].Name; if (name != "book" && name != "sheet" && name != "pick") return;
             e.Paint(e.ClipBounds, DataGridViewPaintParts.All & ~DataGridViewPaintParts.ContentForeground);
             float u = e.Graphics.DpiX / 96f; var cell = e.CellBounds;
+            if (name == "pick") { PaintPickIcon(e.Graphics, cell, u, grid.Tag is int && (int)grid.Tag == e.RowIndex, !grid.ReadOnly); e.Handled = true; return; }
             int arrow = (int)(24 * u), gap = (int)(8 * u);
             string text = Convert.ToString(e.FormattedValue);
             bool placeholder = text.StartsWith("（", StringComparison.Ordinal), selected = (e.State & DataGridViewElementStates.Selected) != 0;
@@ -864,6 +991,38 @@ namespace Excel_Iterate
             using (var pen = new Pen(Color.FromArgb(140, 150, 168), 1.4f * u) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round })
                 e.Graphics.DrawLines(pen, new[] { new PointF(cx - 3.5f * u, cy - 1.5f * u), new PointF(cx, cy + 2f * u), new PointF(cx + 3.5f * u, cy - 1.5f * u) });
             e.Graphics.SmoothingMode = smoothing; e.Handled = true;
+        }
+        private static void PaintHeaderRule(object sender, DataGridViewCellPaintingEventArgs e)
+        {
+            var grid = (DataGridView)sender;
+            if (e.RowIndex != -1 || e.ColumnIndex < 0 || e.ColumnIndex >= grid.Columns.Count - 1) return;
+            e.Paint(e.ClipBounds, DataGridViewPaintParts.All);
+            int inset = Math.Max(1, e.CellBounds.Height / 4);
+            using (var pen = new Pen(Ui.GridFrame)) e.Graphics.DrawLine(pen, e.CellBounds.Right - 1, e.CellBounds.Top + inset, e.CellBounds.Right - 1, e.CellBounds.Bottom - inset);
+            e.Handled = true;
+        }
+        // A small sheet with a selected block in blue: "pick the range here".
+        private static void PaintPickIcon(Graphics g, Rectangle cell, float u, bool hot, bool enabled)
+        {
+            var smoothing = g.SmoothingMode; g.SmoothingMode = SmoothingMode.AntiAlias;
+            float size = 26 * u, x = cell.Left + (cell.Width - size) / 2f, y = cell.Top + (cell.Height - size) / 2f;
+            if (hot && enabled)
+                using (var path = Ui.RoundRect(new RectangleF(x, y, size, size), 6 * u)) using (var brush = new SolidBrush(Color.FromArgb(232, 240, 254))) g.FillPath(brush, path);
+            float s = 16 * u, ix = x + (size - s) / 2f, iy = y + (size - s) / 2f, step = s / 3f;
+            Color ink = !enabled ? Color.FromArgb(200, 206, 216) : hot ? Ui.Blue : Color.FromArgb(120, 132, 152);
+            Color accent = !enabled ? Color.FromArgb(200, 206, 216) : Ui.Blue;
+            using (var pen = new Pen(ink, 1.2f * u))
+            {
+                using (var frame = Ui.RoundRect(new RectangleF(ix, iy, s, s), 2.5f * u)) g.DrawPath(pen, frame);
+                for (int i = 1; i < 3; i++) { g.DrawLine(pen, ix + i * step, iy, ix + i * step, iy + s); g.DrawLine(pen, ix, iy + i * step, ix + s, iy + i * step); }
+            }
+            var block = new RectangleF(ix + step, iy + step, step * 2, step * 2);
+            using (var fill = new SolidBrush(Color.FromArgb(enabled ? 70 : 40, accent))) g.FillRectangle(fill, block);
+            using (var pen = new Pen(accent, 1.6f * u)) g.DrawRectangle(pen, block.X, block.Y, block.Width, block.Height);
+            // Fill handle, like a selection in a worksheet.
+            float handle = 3.2f * u;
+            using (var brush = new SolidBrush(accent)) g.FillRectangle(brush, block.Right - handle / 2, block.Bottom - handle / 2, handle, handle);
+            g.SmoothingMode = smoothing;
         }
         // The sheet of one range: same searchable popup as 统一设置.
         private void ShowRowSheetPopup(DataGridView grid, DataGridViewRow row, bool target)
@@ -881,10 +1040,46 @@ namespace Excel_Iterate
                 if (Running || !pairs.Contains(pair)) return;
                 var now = target ? pair.Target : pair.Source;
                 if (string.Equals(now.Sheet, sheet, StringComparison.Ordinal)) return;
-                now.Sheet = sheet; pair.Instances.Clear(); RefreshRows(); Changed(); UpdatePreview(); ShowPairDetails();
-            }, "工作簿");
+                int moved = ApplySheet(pair, target, sheet);
+                RebuildViews(); Changed();
+                if (moved > 0) Message("已应用工作表“" + sheet + "”；其中 " + moved + " 个工作簿没有这张工作表，已拆到映射第 " + (pairs.IndexOf(pair) + 2) + " 行，保持原工作表。");
+            }, "工作簿") { AllowPartial = true };
             var cell = grid.GetCellDisplayRectangle(grid.Columns["sheet"].Index, row.Index, true);
             sheetPopup.Show(grid, new Point(cell.Left, cell.Bottom));
+            MigrationDropDownWatch.Attach(sheetPopup);
+        }
+        // The pick button of a row: open its (first) workbook read-only in
+        // the right-hand panel on a sheet all its workbooks share.
+        private void OpenRangePicker(DataGridView grid, DataGridViewRow row, bool target)
+        {
+            if (Running) return;
+            var pair = (MigrationPair)row.Tag; var side = target ? pair.Target : pair.Source;
+            if (side.Books.Count == 0) { Message("请先为这一行选择" + (target ? "目标" : "源") + "工作簿。"); ShowBookPopup(grid, row, target); return; }
+            if (side.Sheet.Length == 0)
+            {
+                var first = FindBook(target, side.Books[0]);
+                string sheet = CommonSheets(side, target).FirstOrDefault() ?? (first == null ? null : first.Sheets.FirstOrDefault());
+                if (sheet == null) { Message("读取不到这一行工作簿的工作表：" + (first == null || first.Error.Length == 0 ? "没有工作表" : first.Error)); return; }
+                int moved = ApplySheet(pair, target, sheet);
+                RebuildViews(); Changed();
+                if (moved > 0) Message("这些工作簿没有共同的工作表：已用第一个工作簿的“" + sheet + "”，其余 " + moved + " 个拆到下一行。");
+            }
+            SelectRow(grid, pair);
+            if (PickInWorkbook && RangePickRequested != null)
+            {
+                string path = side.Books[0], sheetName = side.Sheet;
+                Message("请在打开的“" + Path.GetFileName(path) + "”中框选" + (target ? "目标" : "源") + "区域，然后点确定。");
+                RangePickRequested(target, path, sheetName, side.Range, delegate(string address)
+                {
+                    MigrationArea area;
+                    try { area = MigrationArea.Parse(address); } catch (Exception error) { Message("框选的区域无效：" + error.Message); return; }
+                    ApplyPicked(pair, target, area, false); SelectRow(grid, pair);
+                });
+                return;
+            }
+            syncingPreview = true; try { previewBook.Items.Clear(); } finally { syncingPreview = false; }
+            if (split.Panel2Collapsed) ShowSidebar(true); else UpdatePreview();
+            ShowPairDetails();
         }
         private void SetupMappingBoard()
         {
@@ -915,8 +1110,9 @@ namespace Excel_Iterate
                 ShowPage(target ? 1 : 0); SelectRow(target ? Targets : Sources, pair);
             };
             b.DeleteRequested += delegate { RemoveMappingRows(); };
-            b.ContextMenuStrip = Menu(b, new[] { "编辑源区域", "编辑目标区域", "删除这一行映射" }, new string[] { null, null, "Delete" }, new Action[]
+            b.ContextMenuStrip = Menu(b, new[] { "同一源区域再加一个映射", "编辑源区域", "编辑目标区域", "删除这一行映射" }, new string[] { null, null, null, "Delete" }, new Action[]
             {
+                delegate { AddMappingRow(); },
                 delegate { if (b.Current >= 0 && pairs[b.Current].Source.Used) { ShowPage(0); SelectRow(Sources, pairs[b.Current]); } },
                 delegate { if (b.Current >= 0 && pairs[b.Current].Target.Used) { ShowPage(1); SelectRow(Targets, pairs[b.Current]); } },
                 RemoveMappingRows
@@ -944,6 +1140,7 @@ namespace Excel_Iterate
                 menu.MinimumSize = new Size(Ui.Px(owner, 180), 0);
                 foreach (ToolStripItem item in menu.Items) if (item is ToolStripMenuItem) item.Padding = new Padding(h, v, h, v);
             };
+            MigrationDropDownWatch.Attach(menu);
             owner.Disposed += delegate { menu.Dispose(); };
             return menu;
         }
@@ -966,11 +1163,27 @@ namespace Excel_Iterate
             };
         }
         internal List<MigrationPair> PairItems() { return pairs.ToList(); }
+        // A source range can feed several mapping rows (one source, many
+        // targets): those rows share the same MigrationSide object. The
+        // 源区域/目标区域 lists show each range once.
+        private static MigrationSide SideOf(MigrationPair pair, bool target) { return target ? pair.Target : pair.Source; }
+        private List<MigrationSide> DistinctSides(bool target)
+        {
+            var result = new List<MigrationSide>();
+            foreach (var pair in pairs) { var side = SideOf(pair, target); if (side.Used && !result.Contains(side)) result.Add(side); }
+            return result;
+        }
+        private List<int> RowsUsing(MigrationSide side, bool target)
+        { var result = new List<int>(); for (int i = 0; i < pairs.Count; i++) if (SideOf(pairs[i], target) == side) result.Add(i); return result; }
         private IEnumerable<MigrationMapping> AllInstances() { return pairs.SelectMany(p => p.Instances); }
         private void EndEdits() { Sources.EndEdit(); Targets.EndEdit(); }
         private List<MigrationBook> Pool(bool target) { return target ? TargetBooks : SourceBooks; }
         private MigrationBook FindBook(bool target, string path) { return Pool(target).FirstOrDefault(b => string.Equals(b.Path, path, StringComparison.OrdinalIgnoreCase)); }
-        private static DataGridViewRow RowOf(DataGridView grid, MigrationPair pair) { return grid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag == pair); }
+        private DataGridViewRow RowOf(DataGridView grid, MigrationPair pair)
+        {
+            bool target = grid == Targets; var side = SideOf(pair, target);
+            return grid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => r.Tag == pair || (r.Tag is MigrationPair && SideOf((MigrationPair)r.Tag, target) == side));
+        }
         private void SelectRow(DataGridView grid, MigrationPair pair)
         {
             var row = RowOf(grid, pair); if (row == null) return;
@@ -1008,7 +1221,7 @@ namespace Excel_Iterate
             var pair = (MigrationPair)row.Tag; var side = target ? pair.Target : pair.Source; bool was = syncing; syncing = true;
             try
             {
-                row.Cells["no"].Value = pairs.IndexOf(pair) + 1;
+                row.Cells["no"].Value = string.Join("、", RowsUsing(side, target).Select(i => (i + 1).ToString(CultureInfo.InvariantCulture)).ToArray());
                 row.Cells["book"].Value = BooksText(side.Books);
                 row.Cells["book"].ToolTipText = side.Books.Count == 0 ? "点击选择" + (target ? "目标" : "源") + "工作簿（可多选）" : string.Join(Environment.NewLine, side.Books.ToArray());
                 row.Cells["sheet"].Value = side.Sheet.Length == 0 ? "（选择工作表）" : side.Sheet;
@@ -1026,7 +1239,7 @@ namespace Excel_Iterate
             var entry = new MigrationMappingBoard.Entry
             {
                 SourceUsed = pair.Source.Used, TargetUsed = pair.Target.Used, Enabled = pair.Enabled, ValuesOnly = pair.ValuesOnly,
-                SourceTitle = CardTitle(pair.Source, source), SourceDetail = CardDetail(pair.Source, source),
+                SourceTitle = CardTitle(pair.Source, source), SourceDetail = CardDetail(pair.Source, source) + Shared(pair.Source, false),
                 TargetTitle = CardTitle(pair.Target, target), TargetDetail = CardDetail(pair.Target, target),
                 SourceTip = string.Join(Environment.NewLine, pair.Source.Books.ToArray()),
                 TargetTip = string.Join(Environment.NewLine, pair.Target.Books.ToArray()),
@@ -1039,11 +1252,24 @@ namespace Excel_Iterate
                 : s.StartsWith("未配对", StringComparison.Ordinal) || s.StartsWith("已还原", StringComparison.Ordinal) || s.StartsWith("待", StringComparison.Ordinal) ? 0 : 3;
             return entry;
         }
+        private string Shared(MigrationSide side, bool target)
+        {
+            if (!side.Used) return "";
+            var rows = RowsUsing(side, target);
+            return rows.Count < 2 ? "" : " · 同源 " + string.Join("、", rows.Select(i => (i + 1).ToString(CultureInfo.InvariantCulture)).ToArray()) + " 行";
+        }
         private static string CardTitle(MigrationSide side, MigrationArea area)
         { return (side.Sheet.Length == 0 ? "未选工作表" : side.Sheet) + "!" + (area != null ? area.Address : side.Range.Length == 0 ? "未设区域" : side.Range); }
         private static string CardDetail(MigrationSide side, MigrationArea area)
         { return (side.Books.Count == 0 ? "未选工作簿" : BooksText(side.Books)) + (area == null ? "" : " · " + area.Rows + "×" + area.Columns); }
-        private void UpdateMappingRow(MigrationPair pair) { int index = pairs.IndexOf(pair); if (index >= 0) Mappings.UpdateItem(index, EntryOf(pair)); }
+        private void UpdateMappingRow(MigrationPair pair)
+        {
+            for (int i = 0; i < pairs.Count && i < Mappings.Count; i++)
+            {
+                var other = pairs[i];
+                if (other == pair || (pair.Source.Used && other.Source == pair.Source) || (pair.Target.Used && other.Target == pair.Target)) Mappings.UpdateItem(i, EntryOf(other));
+            }
+        }
         // Rows of the lists in pair order; keeps the current row if it can.
         private void RebuildViews()
         {
@@ -1056,10 +1282,11 @@ namespace Excel_Iterate
                 foreach (var grid in new DataGridView[] { Sources, Targets })
                 {
                     grid.Rows.Clear();
+                    bool target = grid == Targets; var seen = new List<MigrationSide>();
                     foreach (var pair in pairs)
                     {
-                        if ((grid == Sources && !pair.Source.Used) || (grid == Targets && !pair.Target.Used)) continue;
-                        int index = grid.Rows.Add(); grid.Rows[index].Tag = pair;
+                        var side = SideOf(pair, target); if (!side.Used || seen.Contains(side)) continue;
+                        seen.Add(side); int index = grid.Rows.Add(); grid.Rows[index].Tag = pair;
                     }
                 }
             }
@@ -1148,13 +1375,10 @@ namespace Excel_Iterate
         {
             if (Running) return;
             var grid = target ? Targets : Sources;
-            var previous = grid.CurrentRow != null ? (MigrationPair)grid.CurrentRow.Tag : pairs.LastOrDefault(p => (target ? p.Target : p.Source).Used);
             var side = new MigrationSide();
-            if (previous != null) { var from = target ? previous.Target : previous.Source; side.Books.AddRange(from.Books); side.Sheet = from.Sheet; }
-            else side.Books.AddRange(target ? TargetBooks.Select(b => b.Path) : SourceBooks.Count == 1 ? new[] { SourceBooks[0].Path } : new string[0]);
             var pair = AddSide(target, side);
             SelectRow(grid, pair);
-            Message("已新增" + (target ? "目标" : "源") + "区域（映射第 " + (pairs.IndexOf(pair) + 1) + " 行）；在右侧框选区域。");
+            Message("已新增" + (target ? "目标" : "源") + "区域（映射第 " + (pairs.IndexOf(pair) + 1) + " 行）；点“" + (target ? "目标" : "源") + "工作簿”一格选择工作簿。");
         }
         private void CopySide(bool target)
         {
@@ -1172,17 +1396,36 @@ namespace Excel_Iterate
         {
             if (Running) return;
             var grid = target ? Targets : Sources;
-            var chosen = grid.SelectedRows.Cast<DataGridViewRow>().Select(r => r.Tag as MigrationPair).Where(p => p != null).ToList();
-            if (chosen.Count == 0 && grid.CurrentRow != null) chosen.Add((MigrationPair)grid.CurrentRow.Tag);
+            var chosen = grid.SelectedRows.Cast<DataGridViewRow>().Select(r => r.Tag as MigrationPair).Where(p => p != null).Select(p => SideOf(p, target)).Distinct().ToList();
+            if (chosen.Count == 0 && grid.CurrentRow != null) chosen.Add(SideOf((MigrationPair)grid.CurrentRow.Tag, target));
             if (chosen.Count == 0) { Message("请先选择要删除的行。"); return; }
-            foreach (var pair in chosen)
+            foreach (var pair in pairs.ToList())
             {
+                if (!chosen.Contains(SideOf(pair, target))) continue;
                 if (target) pair.Target = new MigrationSide(); else pair.Source = new MigrationSide();
                 pair.Instances.Clear();
                 if (!pair.Source.Used && !pair.Target.Used) pairs.Remove(pair);
             }
             RebuildViews(); Changed();
             Message("已删除 " + chosen.Count + " 个" + (target ? "目标" : "源") + "区域；对应映射行显示为“未配对”，可在“映射”页拖动重新对应。");
+        }
+        // A new mapping row for the selected row's source range (the same
+        // range, shared), so one source can be written to several targets.
+        // The next target range added fills this row.
+        internal MigrationPair AddMappingRow()
+        {
+            if (Running) return null;
+            var current = Mappings.Current >= 0 && Mappings.Current < pairs.Count ? pairs[Mappings.Current] : pairs.LastOrDefault(p => p.Source.Used);
+            var pair = new MigrationPair();
+            if (current != null && current.Source.Used) { pair.Source = current.Source; pair.Enabled = current.Enabled; pair.ValuesOnly = current.ValuesOnly; }
+            int at = current == null ? pairs.Count : (current.Source.Used ? pairs.FindLastIndex(p => p.Source == current.Source) : pairs.IndexOf(current)) + 1;
+            pairs.Insert(at, pair);
+            mappingFocus = pair;
+            RebuildViews(); Changed(); Mappings.SetCurrent(pairs.IndexOf(pair), true);
+            Message(pair.Source.Used
+                ? "已新增映射第 " + (pairs.IndexOf(pair) + 1) + " 行，与第 " + (pairs.IndexOf(current) + 1) + " 行使用同一源区域；到“目标区域”页新增目标，或把其他行的目标拖到这一行。"
+                : "已新增映射第 " + (pairs.IndexOf(pair) + 1) + " 行；新增的源区域和目标区域会依次补进这一行。");
+            return pair;
         }
         private void RemoveMappingRows()
         {
@@ -1207,33 +1450,61 @@ namespace Excel_Iterate
         }
 
         // ---------------- workbooks ----------------
-        private void PickBooks(bool target)
+        // forPair: the row whose workbook popup asked for more workbooks; the
+        // added workbooks are selected for that row.
+        private void PickBooks(bool target, MigrationPair forPair)
         {
             try
             {
                 string[] selections = MigrationTargetPicker.Show(this); if (selections.Length == 0) return;
                 var scan = MigrationTargetScan.Expand(selections, "");
                 if (scan.Files.Count > 0 && BooksPicked != null) BooksPicked(target, scan.Files.ToArray());
-                Message("已添加 " + scan.Files.Count + " 个" + (target ? "目标" : "源") + "工作簿。文件夹只扫描当前层。" + string.Join("；", scan.Errors.ToArray()));
+                if (forPair == null)
+                {
+                    int added = AddSideRows(target, scan.Files); string role = target ? "目标" : "源";
+                    Message("已添加 " + scan.Files.Count + " 个" + role + "工作簿，新增 " + added + " 个" + role + "区域（每个工作簿一行）；点每行末的框选按钮选择区域。" + string.Join("；", scan.Errors.ToArray()));
+                    return;
+                }
+                if (forPair != null && pairs.Contains(forPair))
+                {
+                    var side = target ? forPair.Target : forPair.Source;
+                    foreach (string file in scan.Files) { string path = Path.GetFullPath(file); if (!side.Books.Contains(path, StringComparer.OrdinalIgnoreCase)) side.Books.Add(path); }
+                    forPair.Instances.Clear(); RefreshRows(); Changed(); UpdatePreview();
+                }
+                Message("已添加 " + scan.Files.Count + " 个" + (target ? "目标" : "源") + "工作簿" + (forPair != null ? "并选入当前行" : "；新增区域后在“工作簿”一格选择") + "。文件夹只扫描当前层。" + string.Join("；", scan.Errors.ToArray()));
             }
             catch (Exception error) { Message("添加工作簿失败：" + error.Message); }
         }
-        // Add or refresh a workbook. Ranges with no workbook yet take it; on
-        // the target side, ranges that used every target workbook also do.
+        // One range per workbook, on the source and the target side alike:
+        // each workbook usually has its own area. A workbook that already has
+        // a single-workbook range without an area reuses that row. New ranges
+        // fill the first mapping rows lacking that side, so pairs line up.
+        // Returns how many rows were added.
+        internal int AddSideRows(bool target, IEnumerable<string> files)
+        {
+            int added = 0;
+            foreach (string file in files)
+            {
+                string path = Path.GetFullPath(file);
+                if (pairs.Any(p => { var s = target ? p.Target : p.Source; return s.Used && s.Range.Length == 0 && s.Books.Count == 1 && string.Equals(s.Books[0], path, StringComparison.OrdinalIgnoreCase); })) continue;
+                var book = FindBook(target, path);
+                var side = new MigrationSide { Used = true, Sheet = book != null && book.Sheets.Count > 0 ? book.Sheets[0] : "" }; side.Books.Add(path);
+                var pair = pairs.FirstOrDefault(p => !(target ? p.Target : p.Source).Used);
+                if (pair == null) { pair = new MigrationPair(); pairs.Add(pair); }
+                if (target) pair.Target = side; else pair.Source = side;
+                pair.Instances.Clear(); added++;
+            }
+            if (added > 0) { RebuildViews(); Changed(); ShowPage(target ? 1 : 0); }
+            return added;
+        }
+        // Add or refresh a workbook in the list. Ranges are not changed: each
+        // range picks its own workbooks.
         internal MigrationBook AddBook(bool target, string path, IEnumerable<string> sheets, string error = "")
         {
             path = Path.GetFullPath(path); var pool = Pool(target);
-            var before = pool.Select(b => b.Path).ToList();
             var book = FindBook(target, path);
             if (book == null) { book = new MigrationBook { Path = path }; pool.Add(book); }
             book.Sheets.Clear(); book.Sheets.AddRange(sheets ?? new string[0]); book.Error = error ?? "";
-            if (!before.Contains(path, StringComparer.OrdinalIgnoreCase))
-                foreach (var pair in pairs)
-                {
-                    var side = target ? pair.Target : pair.Source; if (!side.Used) continue;
-                    bool all = target && before.Count > 0 && side.Books.Count == before.Count && before.All(p => side.Books.Contains(p, StringComparer.OrdinalIgnoreCase));
-                    if (side.Books.Count == 0 || all) side.Books.Add(path);
-                }
             RefreshRows(); Changed(); UpdatePreview();
             return book;
         }
@@ -1257,16 +1528,17 @@ namespace Excel_Iterate
                 if (now.Books.SequenceEqual(chosen, StringComparer.OrdinalIgnoreCase)) return;
                 now.Books.Clear(); now.Books.AddRange(chosen);
                 pair.Instances.Clear(); RefreshRows(); Changed(); UpdatePreview();
-            }, delegate { BeginInvoke(new Action(delegate { PickBooks(target); })); });
+            }, delegate { BeginInvoke(new Action(delegate { PickBooks(target, pair); })); });
         }
         private void ShowBookPopup(DataGridView grid, DataGridViewRow row, bool target)
         {
             if (Running || grid.ReadOnly) return;
-            if (Pool(target).Count == 0) { PickBooks(target); return; }
+            if (Pool(target).Count == 0) { PickBooks(target, (MigrationPair)row.Tag); return; }
             bool wasOpen = bookPopup != null && bookPopup.Visible; ClosePopups(); if (wasOpen) return;
             bookPopup = CreateBookPopup((MigrationPair)row.Tag, target);
             var cell = grid.GetCellDisplayRectangle(grid.Columns["book"].Index, row.Index, true);
             bookPopup.Show(grid, new Point(cell.Left, cell.Bottom));
+            MigrationDropDownWatch.Attach(bookPopup);
         }
         private void ClosePopups()
         {
@@ -1282,21 +1554,45 @@ namespace Excel_Iterate
             EndEdits();
             var rows = pairs.Where(p => (target ? p.Target : p.Source).Used && (target ? p.Target : p.Source).Books.Count > 0).ToList();
             if (rows.Count == 0) { Message("请先为各行选择" + (target ? "目标" : "源") + "工作簿。"); return; }
-            List<string> common = null;
-            foreach (var pair in rows) { var names = CommonSheets(target ? pair.Target : pair.Source, target); common = common == null ? names : common.Where(n => names.Contains(n, StringComparer.OrdinalIgnoreCase)).ToList(); }
-            common = common ?? new List<string>();
-            var commonSet = new HashSet<string>(common, StringComparer.OrdinalIgnoreCase);
-            var partial = rows.SelectMany(p => SheetChoices(target ? p.Target : p.Source, target).Distinct(StringComparer.OrdinalIgnoreCase)).Where(n => !commonSet.Contains(n))
+            // Counted per workbook: a sheet only some workbooks have is still
+            // offered; those lacking it are split off into their own rows.
+            var books = rows.SelectMany(p => (target ? p.Target : p.Source).Books).ToList();
+            var all = new MigrationSide(); all.Books.AddRange(books);
+            var common = CommonSheets(all, target); var commonSet = new HashSet<string>(common, StringComparer.OrdinalIgnoreCase);
+            var partial = books.Select(path => FindBook(target, path)).Where(b => b != null).SelectMany(b => b.Sheets.Distinct(StringComparer.OrdinalIgnoreCase)).Where(n => !commonSet.Contains(n))
                 .GroupBy(n => n, StringComparer.OrdinalIgnoreCase).Select(g => new KeyValuePair<string, int>(g.Key, g.Count())).OrderByDescending(g => g.Value).ToList();
             var values = rows.Select(p => (target ? p.Target : p.Source).Sheet).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            sheetPopup = new MigrationSheetPopup(grid, common, partial, rows.Count, false, values.Count == 1 ? values[0] : null, delegate(string sheet)
+            sheetPopup = new MigrationSheetPopup(grid, common, partial, books.Count, false, values.Count == 1 ? values[0] : null, delegate(string sheet)
             {
-                foreach (var pair in rows) { (target ? pair.Target : pair.Source).Sheet = sheet; pair.Instances.Clear(); }
-                RefreshRows(); Changed(); UpdatePreview();
-                Message("已将 " + rows.Count + " 个" + (target ? "目标" : "源") + "区域的工作表设为“" + sheet + "”。");
-            }, target ? "目标区域" : "源区域");
+                if (Running) return;
+                int movedBooks = 0, splitRows = 0;
+                foreach (var pair in rows) { if (!pairs.Contains(pair)) continue; int moved = ApplySheet(pair, target, sheet); if (moved > 0) { movedBooks += moved; splitRows++; } }
+                RebuildViews(); Changed();
+                Message("已将 " + rows.Count + " 个" + (target ? "目标" : "源") + "区域的工作表设为“" + sheet + "”。"
+                    + (movedBooks > 0 ? "其中 " + movedBooks + " 个工作簿没有这张工作表，已拆成 " + splitRows + " 行单独保留原工作表。" : ""));
+            }, "工作簿") { AllowPartial = true };
             var cell = grid.GetCellDisplayRectangle(grid.Columns["sheet"].Index, -1, true);
             sheetPopup.Show(grid, new Point(cell.Left, cell.Bottom));
+            MigrationDropDownWatch.Attach(sheetPopup);
+        }
+        // Set the sheet of one range. Workbooks that lack the sheet are split
+        // off into a new row right below (same range, old sheet, other side
+        // unpaired), so the rest of the rows keep their pairing.
+        // Returns how many workbooks were split off.
+        internal int ApplySheet(MigrationPair pair, bool target, string sheet)
+        {
+            var side = target ? pair.Target : pair.Source; string old = side.Sheet;
+            var lacking = side.Books.Where(path => { var book = FindBook(target, path); return book != null && book.Sheets.Count > 0 && !book.Sheets.Contains(sheet, StringComparer.OrdinalIgnoreCase); }).ToList();
+            pair.Instances.Clear();
+            if (lacking.Count == side.Books.Count) return 0;
+            side.Sheet = sheet;
+            if (lacking.Count == 0) return 0;
+            side.Books.RemoveAll(path => lacking.Contains(path, StringComparer.OrdinalIgnoreCase));
+            var rest = side.Copy(); rest.Books.Clear(); rest.Books.AddRange(lacking); rest.Sheet = old;
+            var below = new MigrationPair { Enabled = pair.Enabled, ValuesOnly = pair.ValuesOnly };
+            if (target) below.Target = rest; else below.Source = rest;
+            pairs.Insert(pairs.IndexOf(pair) + 1, below);
+            return lacking.Count;
         }
         private void SetGridsReadOnly(bool value)
         {
@@ -1310,7 +1606,7 @@ namespace Excel_Iterate
             lastPlan = null; execute.Enabled = false;
             foreach (var pair in pairs) if (pair.Instances.Any(m => m.Result != null && m.Result.Status != "成功")) { pair.Instances.Clear(); UpdateMappingRow(pair); }
             UpdateTabTitles();
-            status.Text = "源区域 " + pairs.Count(p => p.Source.Used) + " 个，目标区域 " + pairs.Count(p => p.Target.Used) + " 个，映射 " + pairs.Count + " 行。设置好后点“预检与预览”。";
+            status.Text = "源区域 " + DistinctSides(false).Count + " 个，目标区域 " + DistinctSides(true).Count + " 个，映射 " + pairs.Count + " 行。设置好后点“预检与预览”。";
             if (InputsChanged != null) InputsChanged();
         }
 
@@ -1376,14 +1672,18 @@ namespace Excel_Iterate
         // A pick in the panel sets the range of the row/side the panel shows.
         private void PickArea(MigrationArea picked)
         {
-            if (Running) return;
-            bool target; var pair = PanelPair(out target); if (pair == null) return;
+            bool target; var pair = PanelPair(out target); if (pair != null) ApplyPicked(pair, target, picked, true);
+        }
+        // A range chosen in the panel (fromPanel) or in the workbook itself.
+        private void ApplyPicked(MigrationPair pair, bool target, MigrationArea picked, bool fromPanel)
+        {
+            if (Running || !pairs.Contains(pair)) return;
             var side = target ? pair.Target : pair.Source; if (!side.Used) return;
             bool single = picked.Rows == 1 && picked.Columns == 1;
             if (!target)
             {
                 string range = single ? MigrationArea.Cell(picked.Row, picked.Column) : picked.Address;
-                if (sheetPreview.Sync.Checked && side.Range.Length > 0 && side.Range != range)
+                if (fromPanel && sheetPreview.Sync.Checked && side.Range.Length > 0 && side.Range != range)
                 {
                     var copy = side.Copy(); copy.Range = range;
                     var added = AddSide(false, copy); if (CurrentPage == sourcesPage) SelectRow(Sources, added);
@@ -1602,7 +1902,7 @@ namespace Excel_Iterate
             try
             {
                 Ui.EnsureGridHeaders(grid);
-                foreach (string narrow in new[] { "sgrip", "tgrip" }) if (grid.Columns.Contains(narrow)) grid.Columns[narrow].MinimumWidth = Ui.Px(grid, 24);
+                if (grid.Columns.Contains("pick")) grid.Columns["pick"].MinimumWidth = Ui.Px(grid, 40);
                 if (grid.Columns.Contains("sheet") && grid.Columns["sheet"].HeaderCell is MigrationSelectionHeader)
                     grid.Columns["sheet"].MinimumWidth = Math.Max(grid.Columns["sheet"].MinimumWidth, Ui.Px(grid, 104));
                 for (int pass = 0; pass < 3; pass++)

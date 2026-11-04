@@ -394,9 +394,19 @@ namespace Excel_Iterate
         private readonly ListBox list = new ListBox { Name = "migrationSheetList", IntegralHeight = false, BorderStyle = BorderStyle.None, DrawMode = DrawMode.OwnerDrawFixed, SelectionMode = SelectionMode.None };
         private readonly Label scope = new Label { Name = "migrationSheetScope", AutoSize = false, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Ui.InkDim, BackColor = Color.White };
         private readonly Action<string> apply;
+        private readonly string noun;
         private readonly int total;
         private string chosen;
         private int hover = -1;
+        private bool allowPartial;
+        // When set, a sheet only some workbooks have can be chosen too; the
+        // caller then splits the workbooks lacking it into their own row.
+        internal bool AllowPartial
+        {
+            get { return allowPartial; }
+            set { if (allowPartial == value) return; allowPartial = value; Populate(); }
+        }
+        private bool Selectable(SheetChoice choice) { return !choice.Header && (choice.Common || allowPartial); }
         internal ListBox List { get { return list; } }
         internal string Chosen { get { return chosen; } }
         internal int MatchCount { get { return matching.Count(c => c.Common); } }
@@ -405,7 +415,7 @@ namespace Excel_Iterate
             : base(grid, "migrationSheet", "搜索工作表名称", "没有匹配的工作表",
                 grid.Columns.Contains("sheet") ? grid.Columns["sheet"].Width : 0, new Size(300, 340))
         {
-            apply = onApply; total = scopeCount;
+            apply = onApply; total = scopeCount; this.noun = noun;
             foreach (string name in common) choices.Add(new SheetChoice { Name = name, Count = scopeCount, Common = true });
             foreach (var pair in partial) choices.Add(new SheetChoice { Name = pair.Key, Count = pair.Value });
             chosen = common.FirstOrDefault(n => string.Equals(n, current, StringComparison.OrdinalIgnoreCase));
@@ -423,13 +433,15 @@ namespace Excel_Iterate
                 int index = list.IndexFromPoint(e.Location);
                 if (index >= matching.Count) index = -1;
                 if (index != hover) { hover = index; list.Invalidate(); }
-                string tip = index < 0 || matching[index].Common || matching[index].Header ? "" : "只有 " + matching[index].Count + "/" + total + " 个目标有这张工作表，不能统一应用";
+                string tip = index < 0 || matching[index].Common || matching[index].Header ? "" : allowPartial
+                    ? "只有 " + matching[index].Count + "/" + total + " 个" + noun + "有这张工作表；应用后其余的拆成单独一行，保持原工作表"
+                    : "只有 " + matching[index].Count + "/" + total + " 个目标有这张工作表，不能统一应用";
                 if (Tips.GetToolTip(list) != tip) Tips.SetToolTip(list, tip);
             };
             list.MouseLeave += delegate { if (hover != -1) { hover = -1; list.Invalidate(); } };
             list.MouseClick += delegate(object sender, MouseEventArgs e) { Choose(list.IndexFromPoint(e.Location)); };
             list.MouseDoubleClick += delegate(object sender, MouseEventArgs e)
-            { int index = list.IndexFromPoint(e.Location); if (index >= 0 && index < matching.Count && matching[index].Common) { Choose(index); Commit(); } };
+            { int index = list.IndexFromPoint(e.Location); if (index >= 0 && index < matching.Count && Selectable(matching[index])) { Choose(index); Commit(); } };
             list.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Commit(); }
@@ -452,7 +464,7 @@ namespace Excel_Iterate
                     if (!choice.Common && !header)
                     {
                         // A non-selectable caption separates the partial names.
-                        var caption = new SheetChoice { Name = "仅部分目标存在（不能统一应用）", Header = true };
+                        var caption = new SheetChoice { Name = allowPartial ? "仅部分" + noun + "有（应用后拆分为两行）" : "仅部分目标存在（不能统一应用）", Header = true };
                         matching.Add(caption); list.Items.Add(caption); header = true;
                     }
                     matching.Add(choice); list.Items.Add(choice);
@@ -465,14 +477,14 @@ namespace Excel_Iterate
         }
         private void Choose(int index)
         {
-            if (index < 0 || index >= matching.Count || !matching[index].Common) return;
+            if (index < 0 || index >= matching.Count || !Selectable(matching[index])) return;
             chosen = matching[index].Name; list.Invalidate(); UpdateCount();
         }
         private void Step(int direction)
         {
-            var commons = matching.Select((c, i) => new { c, i }).Where(x => x.c.Common).Select(x => x.i).ToList();
+            var commons = matching.Select((c, i) => new { c, i }).Where(x => Selectable(x.c)).Select(x => x.i).ToList();
             if (commons.Count == 0) return;
-            int current = chosen == null ? -1 : matching.FindIndex(c => c.Common && c.Name == chosen);
+            int current = chosen == null ? -1 : matching.FindIndex(c => Selectable(c) && c.Name == chosen);
             int position = commons.IndexOf(current);
             position = position < 0 ? (direction > 0 ? 0 : commons.Count - 1) : Math.Max(0, Math.Min(commons.Count - 1, position + direction));
             Choose(commons[position]);
@@ -489,7 +501,7 @@ namespace Excel_Iterate
         {
             if (e.Index < 0 || e.Index >= matching.Count) return;
             var choice = matching[e.Index]; var g = e.Graphics; var bounds = e.Bounds;
-            bool isChosen = choice.Common && choice.Name == chosen, hot = choice.Common && e.Index == hover;
+            bool selectable = Selectable(choice), isChosen = selectable && choice.Name == chosen, hot = selectable && e.Index == hover;
             using (var back = new SolidBrush(isChosen ? Ui.SelectBack : hot ? Color.FromArgb(244, 247, 253) : Color.White)) g.FillRectangle(back, bounds);
             var flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
             if (choice.Header)
@@ -500,7 +512,7 @@ namespace Excel_Iterate
             }
             var glyph = RadioButtonRenderer.GetGlyphSize(g, RadioButtonState.UncheckedNormal);
             var at = new Point(bounds.Left + P(2), bounds.Top + (bounds.Height - glyph.Height) / 2);
-            RadioButtonRenderer.DrawRadioButton(g, at, !choice.Common ? RadioButtonState.UncheckedDisabled : isChosen ? RadioButtonState.CheckedNormal : RadioButtonState.UncheckedNormal);
+            RadioButtonRenderer.DrawRadioButton(g, at, !selectable ? RadioButtonState.UncheckedDisabled : isChosen ? RadioButtonState.CheckedNormal : RadioButtonState.UncheckedNormal);
             int left = at.X + glyph.Width + P(6), right = bounds.Right - P(6);
             if (!choice.Common)
             {
@@ -509,7 +521,7 @@ namespace Excel_Iterate
                 TextRenderer.DrawText(g, coverage, Font, new Rectangle(right - width, bounds.Top, width, bounds.Height), Ui.InkDim, flags);
                 right -= width + P(8);
             }
-            TextRenderer.DrawText(g, choice.Name, Font, new Rectangle(left, bounds.Top, Math.Max(0, right - left), bounds.Height), choice.Common ? (isChosen ? Ui.SelectInk : Ui.Ink) : SystemColors.GrayText, flags);
+            TextRenderer.DrawText(g, choice.Name, Font, new Rectangle(left, bounds.Top, Math.Max(0, right - left), bounds.Height), selectable ? (isChosen ? Ui.SelectInk : Ui.Ink) : SystemColors.GrayText, flags);
         }
     }
 }

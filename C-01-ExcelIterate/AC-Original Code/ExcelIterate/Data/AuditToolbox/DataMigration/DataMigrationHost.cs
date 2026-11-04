@@ -143,10 +143,10 @@ namespace Excel_Iterate
         }
         internal static string Digest(string path)
         { using (var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", ""); }
-        internal string PickSourceRange(string path, string sheetName, string current, Func<object, object> picker)
+        internal string PickSourceRange(string path, string sheetName, string current, Func<object, object> picker, string role = "源")
         {
             Check(); CheckFile(path);
-            if (string.IsNullOrWhiteSpace(sheetName)) throw new InvalidOperationException("请先选择源工作表。");
+            if (string.IsNullOrWhiteSpace(sheetName)) throw new InvalidOperationException("请先选择" + role + "工作表。");
             string full = Path.GetFullPath(path); bool open = false;
             using (var bag = new ComBag())
             {
@@ -165,7 +165,7 @@ namespace Excel_Iterate
             {
                 object chosen = picker != null ? picker(handle.Sheet) : ((dynamic)app).InputBox(
                     "请用鼠标框选“" + sheetName + "”中的连续单元格区域，然后点确定。取消会保留原区域。",
-                    "选择源区域 · " + Path.GetFileName(full), initial, Type.Missing, Type.Missing, Type.Missing, Type.Missing, 8);
+                    "选择" + role + "区域 · " + Path.GetFileName(full), initial, Type.Missing, Type.Missing, Type.Missing, Type.Missing, 8);
                 if (chosen == null || chosen is bool) return null;
                 chosen = refs.Own(chosen);
                 return SourceRangeAddress(chosen, handle.Book, handle.Sheet);

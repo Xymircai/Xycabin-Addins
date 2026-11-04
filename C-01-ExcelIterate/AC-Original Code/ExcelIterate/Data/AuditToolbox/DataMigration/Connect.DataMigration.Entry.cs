@@ -53,6 +53,20 @@ namespace Excel_Iterate
                         catch (Exception error) { Log("迁移工作簿读取失败：" + path + " " + error); form.AddBook(target, path, new string[0], error.Message); }
                     }
                 };
+                // Pick button in workbook mode: open the workbook read-only (or use
+                // it if already open), select with the mouse, then come back.
+                form.RangePickRequested += delegate(bool target, string path, string sheet, string current, Action<string> done)
+                {
+                    if (form.Running) return;
+                    string address = null; Exception failure = null;
+                    form.Hide();
+                    try { using (var host = new DataMigrationHost(_app)) address = host.PickSourceRange(path, sheet, current, null, target ? "目标" : "源"); }
+                    catch (Exception error) { failure = error; Log("迁移框选区域：" + error); }
+                    finally { form.Show(); form.Activate(); }
+                    if (failure != null) form.Message("框选失败：" + failure.Message);
+                    else if (address == null) form.Message("已取消框选，区域保持不变。");
+                    else done(address);
+                };
                 form.FormClosed += delegate { ResetMigration(); _migrationForm = null; form.Dispose(); };
                 DefaultMigrationSource(form);
                 IntPtr owner = GetHostWindowHandle(); if (owner == IntPtr.Zero) form.Show(); else form.Show(new WindowWrapper(owner));
@@ -82,7 +96,7 @@ namespace Excel_Iterate
                     try { dynamic sheet = bag.Own(((dynamic)_app).ActiveSheet); if (sheet != null) active = Convert.ToString(sheet.Name); } catch { }
                     if (!names.Contains(active)) active = names[0];
                     form.AddDefaultSource(Path.GetFullPath(path), names, active);
-                    form.Message("已把当前工作簿“" + Path.GetFileName(path) + "”（工作表“" + active + "”）作为第 1 个源区域；在右侧框选源区域，再到“目标区域”页添加目标。"
+                    form.Message("已把当前工作簿“" + Path.GetFileName(path) + "”（工作表“" + active + "”）作为第 1 个源区域；点这一行末的框选按钮选择源区域，再到“目标区域”页添加目标。"
                         + (ComFormulaHost.Boolean(book.Saved, "Saved") ? "" : "当前工作簿有未保存修改，预检前请先保存。"));
                 }
             }

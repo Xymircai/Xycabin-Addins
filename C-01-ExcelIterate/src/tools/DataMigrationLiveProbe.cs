@@ -21,8 +21,7 @@ internal static class DataMigrationLiveProbe
         using (var form = new DataMigrationForm()) using (var timeout = new Timer { Interval = 300000 })
         {
             form.Text += " · 焦点验证";
-            form.SetSource(request.SourcePath, request.SourceSheet, request.SourceRange, new[] { request.SourceSheet });
-            foreach (var target in request.Targets) { form.AddTarget(target.Path, new[] { target.Sheet }, target.Sheet, target.Start); form.Targets.Rows[form.Targets.Rows.Count - 1].Tag = target; }
+            LoadRequest(form, request);
             Action<MigrationProgress> observe = delegate(MigrationProgress step)
             {
                 inspect(step); observations++;
@@ -36,8 +35,7 @@ internal static class DataMigrationLiveProbe
             Action<Exception> failed = delegate(Exception error) { failure = error; form.Close(); };
             form.PreviewRequested += delegate
             {
-                var actual = form.Request(); request.Targets.Clear(); request.Targets.AddRange(actual.Targets);
-                form.Run(Observed(host.Preview(actual), observe), delegate
+                form.Run(Observed(host.Preview(request), observe), delegate
                 {
                     form.RefreshResults(); Console.WriteLine("UI_PREVIEW_READY");
                 }, failed);
@@ -52,6 +50,17 @@ internal static class DataMigrationLiveProbe
         }
         if (failure != null) throw failure;
         Check(completed && observations > 0 && missed == 0, "迁移窗口在真实宿主读写全过程保持前台且未最小化；观测=" + observations + "，失焦=" + missed);
+    }
+    // Show the request as one row of the table (source -> every target).
+    private static void LoadRequest(DataMigrationForm form, MigrationRequest request)
+    {
+        form.AddBook(false, request.SourcePath, new[] { request.SourceSheet });
+        foreach (var target in request.Targets) form.AddBook(true, target.Path, new[] { target.Sheet });
+        var pair = form.AddPair(new MigrationPair());
+        pair.Source.Books.Clear(); pair.Source.Books.Add(Path.GetFullPath(request.SourcePath)); pair.Source.Sheet = request.SourceSheet; pair.Source.Range = request.SourceRange;
+        pair.Target.Books.Clear(); pair.Target.Books.AddRange(request.Targets.Select(t => Path.GetFullPath(t.Path)));
+        if (request.Targets.Count > 0) { pair.Target.Sheet = request.Targets[0].Sheet; pair.Target.Range = request.Targets[0].Start; }
+        form.RefreshResults();
     }
     private static void Check(bool passed, string message)
     { if (!passed) throw new InvalidOperationException(message); Console.WriteLine("PASS: " + message); }
@@ -112,8 +121,7 @@ internal static class DataMigrationLiveProbe
         Exception failure = null;
         using (var context = new ApplicationContext()) using (var form = new DataMigrationForm())
         {
-            form.SetSource(request.SourcePath, request.SourceSheet, request.SourceRange, new[] { request.SourceSheet });
-            foreach (var target in request.Targets) { form.AddTarget(target.Path, new[] { target.Sheet }, target.Sheet, target.Start); form.Targets.Rows[form.Targets.Rows.Count - 1].Tag = target; }
+            LoadRequest(form, request);
             Action<Exception> failed = delegate(Exception error) { failure = error; context.ExitThread(); };
             form.Run(host.Preview(request), delegate {
                 form.RefreshResults();

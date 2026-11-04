@@ -37,6 +37,9 @@ namespace Excel_Iterate
         internal string SourcePath = "", SourceSheet = "", SourceRange = "";
         internal bool AllowEmptySource;
         internal bool ReplaceTargets;
+        // 只写数值: formulas in the source are read as their calculated values
+        // and written as constants; no formula translation or names involved.
+        internal bool ValuesOnly;
         internal int NonEmptyCells, FormulaCells;
         internal List<MigrationTarget> Targets = new List<MigrationTarget>();
     }
@@ -140,10 +143,10 @@ namespace Excel_Iterate
         }
         internal static string Digest(string path)
         { using (var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", ""); }
-        internal string PickSourceRange(string path, string sheetName, string current, Func<object, object> picker)
+        internal string PickSourceRange(string path, string sheetName, string current, Func<object, object> picker, string role = "源")
         {
             Check(); CheckFile(path);
-            if (string.IsNullOrWhiteSpace(sheetName)) throw new InvalidOperationException("请先选择源工作表。");
+            if (string.IsNullOrWhiteSpace(sheetName)) throw new InvalidOperationException("请先选择" + role + "工作表。");
             string full = Path.GetFullPath(path); bool open = false;
             using (var bag = new ComBag())
             {
@@ -162,7 +165,7 @@ namespace Excel_Iterate
             {
                 object chosen = picker != null ? picker(handle.Sheet) : ((dynamic)app).InputBox(
                     "请用鼠标框选“" + sheetName + "”中的连续单元格区域，然后点确定。取消会保留原区域。",
-                    "选择源区域 · " + Path.GetFileName(full), initial, Type.Missing, Type.Missing, Type.Missing, Type.Missing, 8);
+                    "选择" + role + "区域 · " + Path.GetFileName(full), initial, Type.Missing, Type.Missing, Type.Missing, Type.Missing, 8);
                 if (chosen == null || chosen is bool) return null;
                 chosen = refs.Own(chosen);
                 return SourceRangeAddress(chosen, handle.Book, handle.Sheet);
@@ -324,8 +327,9 @@ namespace Excel_Iterate
                 using (var bag = new ComBag())
                 {
                     dynamic cell = bag.Own(((dynamic)source.Sheet).Range[MigrationArea.Cell(area.Row + r, area.Column + c)]);
-                    RejectArray(cell); ReadMerge(cell, area, merges);
-                    bool follower = IsMergeFollower(cell), formula = !follower && ComFormulaHost.Boolean(cell.HasFormula, "HasFormula");
+                    if (!input.ValuesOnly) RejectArray(cell);
+                    ReadMerge(cell, area, merges);
+                    bool follower = IsMergeFollower(cell), formula = !follower && !input.ValuesOnly && ComFormulaHost.Boolean(cell.HasFormula, "HasFormula");
                     cells.Add(new MigrationCell { IsFormula = formula, Formula = formula ? Formula(cell) : null, Value = formula || follower ? null : (object)cell.Value2, Style = ReadStyle(cell) });
                 }
                 yield return new MigrationProgress("读取源区域 " + cells.Count + "/" + ((long)area.Rows * area.Columns));

@@ -59,7 +59,7 @@ namespace Excel_Iterate
         }
     }
 
-    // Shared chrome for the grid's Excel-style header dropdowns ("选择" and
+    // Shared chrome for the grid's Excel-style dropdowns (workbooks and
     // "工作表"): framed search box, a framed list area the subclass fills,
     // count on the left, 确定/取消 on the right, and a corner resize grip.
     // It is a lightweight ToolStripDropDown, not a second modeless Form.
@@ -290,51 +290,55 @@ namespace Excel_Iterate
         { if (disposing) Tips.Dispose(); base.Dispose(disposing); }
     }
 
-    // "选择" dropdown: search targets and check/uncheck them in bulk. All edits
-    // remain a draft until 确定; searching never changes the main grid's rows.
-    internal sealed class MigrationTargetSelectionPopup : MigrationFilterPopup
+    // Workbook picker for one side of a row: search, (全选)/反选, check the
+    // workbooks this row applies to, or add more. Edits stay a draft until 确定.
+    internal sealed class MigrationBookPopup : MigrationFilterPopup
     {
         private sealed class Choice
         {
-            internal DataGridViewRow Row;
-            internal string Path, Sheet;
+            internal string Path, Sheets;
             internal bool Selected;
-            public override string ToString() { return System.IO.Path.GetFileName(Path) + (Sheet.Length == 0 ? "" : "  ·  " + Sheet); }
+            public override string ToString() { return System.IO.Path.GetFileName(Path); }
         }
         private readonly List<Choice> choices = new List<Choice>();
         private readonly List<Choice> matching = new List<Choice>();
-        private readonly CheckedListBox list = new CheckedListBox { Name = "migrationSelectionList", CheckOnClick = true, IntegralHeight = false, BorderStyle = BorderStyle.None, HorizontalScrollbar = true };
-        private readonly CheckBox all = new CheckBox { Name = "migrationSelectionAll", Text = "(全选)", AutoSize = true, AutoCheck = false, BackColor = Color.White };
-        private readonly LinkLabel invert = new LinkLabel { Name = "migrationSelectionInvert", Text = "反选", AutoSize = true, LinkBehavior = LinkBehavior.HoverUnderline, BackColor = Color.White };
-        private readonly Action<IDictionary<DataGridViewRow, bool>> apply;
+        private readonly CheckedListBox list = new CheckedListBox { Name = "migrationBookList", CheckOnClick = true, IntegralHeight = false, BorderStyle = BorderStyle.None, HorizontalScrollbar = true };
+        private readonly CheckBox all = new CheckBox { Name = "migrationBookAll", Text = "(全选)", AutoSize = true, AutoCheck = false, BackColor = Color.White };
+        private readonly LinkLabel invert = new LinkLabel { Name = "migrationBookInvert", Text = "反选", AutoSize = true, LinkBehavior = LinkBehavior.HoverUnderline, BackColor = Color.White };
+        private readonly LinkLabel add = new LinkLabel { Name = "migrationBookAdd", Text = "添加工作簿…", AutoSize = true, LinkBehavior = LinkBehavior.HoverUnderline, BackColor = Color.White };
+        private readonly Action<IList<string>> apply;
         private bool populating;
         internal CheckedListBox List { get { return list; } }
         internal int MatchCount { get { return matching.Count; } }
 
-        internal MigrationTargetSelectionPopup(DataGridView grid, Action<IDictionary<DataGridViewRow, bool>> onApply)
-            : base(grid, "migrationSelection", "搜索文件名、路径或工作表", "没有匹配的工作簿",
-                grid.Columns.Contains("include") ? grid.Columns["include"].Width : 0, new Size(320, 360))
+        internal MigrationBookPopup(DataGridView grid, IEnumerable<MigrationBook> books, IEnumerable<string> selected, string title, Action<IList<string>> onApply, Action onAdd)
+            : base(grid, "migrationBook", "搜索文件名、路径或工作表", "没有匹配的工作簿", 0, new Size(340, 360))
         {
             apply = onApply;
-            foreach (DataGridViewRow row in grid.Rows)
-                if (!row.IsNewRow) choices.Add(new Choice { Row = row, Path = Convert.ToString(row.Cells["path"].Value), Sheet = Convert.ToString(row.Cells["sheet"].Value), Selected = DataMigrationForm.IsIncluded(row) });
-            all.Font = invert.Font = Font;
-            Strip.Controls.Add(all); Strip.Controls.Add(invert);
+            var chosen = new HashSet<string>(selected ?? new string[0], StringComparer.OrdinalIgnoreCase);
+            foreach (var book in books) choices.Add(new Choice { Path = book.Path, Sheets = string.Join("、", book.Sheets.ToArray()), Selected = chosen.Contains(book.Path) });
+            all.Font = invert.Font = add.Font = Font;
+            Strip.Controls.Add(all); Strip.Controls.Add(add); Strip.Controls.Add(invert);
             Strip.Layout += delegate
             {
-                var allSize = all.PreferredSize; var invertSize = invert.PreferredSize;
+                var allSize = all.PreferredSize; var invertSize = invert.PreferredSize; var addSize = add.PreferredSize;
                 invert.SetBounds(Strip.Width - P(10) - invertSize.Width, (Strip.Height - invertSize.Height) / 2, invertSize.Width, invertSize.Height);
-                all.SetBounds(P(5), (Strip.Height - allSize.Height) / 2, Math.Min(allSize.Width, Math.Max(0, invert.Left - P(12) - P(5))), allSize.Height);
+                add.SetBounds(invert.Left - P(14) - addSize.Width, (Strip.Height - addSize.Height) / 2, addSize.Width, addSize.Height);
+                all.SetBounds(P(5), (Strip.Height - allSize.Height) / 2, Math.Min(allSize.Width, Math.Max(0, add.Left - P(12) - P(5))), allSize.Height);
             };
             HostList(list);
             all.Click += delegate { SelectMatching(all.CheckState != CheckState.Checked); };
             invert.LinkClicked += delegate { InvertMatching(); };
+            add.LinkClicked += delegate { Close(); if (onAdd != null) onAdd(); };
             list.ItemCheck += delegate(object sender, ItemCheckEventArgs e)
             { if (!populating) { matching[e.Index].Selected = e.NewValue == CheckState.Checked; UpdateCount(); } };
             list.MouseMove += delegate(object sender, MouseEventArgs e)
-            { int index = list.IndexFromPoint(e.Location); string text = index < 0 || index >= matching.Count ? "" : matching[index].Path; if (Tips.GetToolTip(list) != text) Tips.SetToolTip(list, text); };
-            list.KeyDown += delegate(object sender, KeyEventArgs e)
-            { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; ApplySelection(); } };
+            {
+                int index = list.IndexFromPoint(e.Location);
+                string text = index < 0 || index >= matching.Count ? "" : matching[index].Path + (matching[index].Sheets.Length == 0 ? "" : Environment.NewLine + "工作表：" + matching[index].Sheets);
+                if (Tips.GetToolTip(list) != text) Tips.SetToolTip(list, text);
+            };
+            list.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; ApplySelection(); } };
             Populate();
         }
         protected override void Refilter() { Populate(); }
@@ -347,7 +351,7 @@ namespace Excel_Iterate
             {
                 matching.Clear(); list.Items.Clear();
                 foreach (var choice in choices)
-                    if (term.Length == 0 || choice.Path.IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0 || choice.Sheet.IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0)
+                    if (term.Length == 0 || choice.Path.IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0 || choice.Sheets.IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0)
                     { matching.Add(choice); list.Items.Add(choice, choice.Selected); }
             }
             finally { list.EndUpdate(); populating = false; }
@@ -371,7 +375,7 @@ namespace Excel_Iterate
         }
         internal void ApplySelection()
         {
-            apply(choices.ToDictionary(c => c.Row, c => c.Selected)); Close();
+            apply(choices.Where(c => c.Selected).Select(c => c.Path).ToList()); Close();
         }
     }
 
@@ -390,24 +394,34 @@ namespace Excel_Iterate
         private readonly ListBox list = new ListBox { Name = "migrationSheetList", IntegralHeight = false, BorderStyle = BorderStyle.None, DrawMode = DrawMode.OwnerDrawFixed, SelectionMode = SelectionMode.None };
         private readonly Label scope = new Label { Name = "migrationSheetScope", AutoSize = false, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Ui.InkDim, BackColor = Color.White };
         private readonly Action<string> apply;
+        private readonly string noun;
         private readonly int total;
         private string chosen;
         private int hover = -1;
+        private bool allowPartial;
+        // When set, a sheet only some workbooks have can be chosen too; the
+        // caller then splits the workbooks lacking it into their own row.
+        internal bool AllowPartial
+        {
+            get { return allowPartial; }
+            set { if (allowPartial == value) return; allowPartial = value; Populate(); }
+        }
+        private bool Selectable(SheetChoice choice) { return !choice.Header && (choice.Common || allowPartial); }
         internal ListBox List { get { return list; } }
         internal string Chosen { get { return chosen; } }
         internal int MatchCount { get { return matching.Count(c => c.Common); } }
 
-        internal MigrationSheetPopup(DataGridView grid, IList<string> common, IList<KeyValuePair<string, int>> partial, int scopeCount, bool scopeIsChecked, string current, Action<string> onApply)
+        internal MigrationSheetPopup(DataGridView grid, IList<string> common, IList<KeyValuePair<string, int>> partial, int scopeCount, bool scopeIsChecked, string current, Action<string> onApply, string noun = "目标")
             : base(grid, "migrationSheet", "搜索工作表名称", "没有匹配的工作表",
                 grid.Columns.Contains("sheet") ? grid.Columns["sheet"].Width : 0, new Size(300, 340))
         {
-            apply = onApply; total = scopeCount;
+            apply = onApply; total = scopeCount; this.noun = noun;
             foreach (string name in common) choices.Add(new SheetChoice { Name = name, Count = scopeCount, Common = true });
             foreach (var pair in partial) choices.Add(new SheetChoice { Name = pair.Key, Count = pair.Value });
             chosen = common.FirstOrDefault(n => string.Equals(n, current, StringComparison.OrdinalIgnoreCase));
 
             scope.Font = Font;
-            scope.Text = scopeCount == 0 ? "没有可读取工作表的目标" : "应用到 " + scopeCount + " 个" + (scopeIsChecked ? "已勾选" : "") + "目标";
+            scope.Text = scopeCount == 0 ? "没有可读取工作表的目标" : "应用到 " + scopeCount + " 个" + (scopeIsChecked ? "已勾选" : "") + noun;
             Strip.Controls.Add(scope);
             Strip.Layout += delegate { scope.SetBounds(P(6), 0, Math.Max(0, Strip.Width - P(12)), Strip.Height); };
 
@@ -419,13 +433,15 @@ namespace Excel_Iterate
                 int index = list.IndexFromPoint(e.Location);
                 if (index >= matching.Count) index = -1;
                 if (index != hover) { hover = index; list.Invalidate(); }
-                string tip = index < 0 || matching[index].Common || matching[index].Header ? "" : "只有 " + matching[index].Count + "/" + total + " 个目标有这张工作表，不能统一应用";
+                string tip = index < 0 || matching[index].Common || matching[index].Header ? "" : allowPartial
+                    ? "只有 " + matching[index].Count + "/" + total + " 个" + noun + "有这张工作表；应用后其余的拆成单独一行，保持原工作表"
+                    : "只有 " + matching[index].Count + "/" + total + " 个目标有这张工作表，不能统一应用";
                 if (Tips.GetToolTip(list) != tip) Tips.SetToolTip(list, tip);
             };
             list.MouseLeave += delegate { if (hover != -1) { hover = -1; list.Invalidate(); } };
             list.MouseClick += delegate(object sender, MouseEventArgs e) { Choose(list.IndexFromPoint(e.Location)); };
             list.MouseDoubleClick += delegate(object sender, MouseEventArgs e)
-            { int index = list.IndexFromPoint(e.Location); if (index >= 0 && index < matching.Count && matching[index].Common) { Choose(index); Commit(); } };
+            { int index = list.IndexFromPoint(e.Location); if (index >= 0 && index < matching.Count && Selectable(matching[index])) { Choose(index); Commit(); } };
             list.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Commit(); }
@@ -448,7 +464,7 @@ namespace Excel_Iterate
                     if (!choice.Common && !header)
                     {
                         // A non-selectable caption separates the partial names.
-                        var caption = new SheetChoice { Name = "仅部分目标存在（不能统一应用）", Header = true };
+                        var caption = new SheetChoice { Name = allowPartial ? "仅部分" + noun + "有（应用后拆分为两行）" : "仅部分目标存在（不能统一应用）", Header = true };
                         matching.Add(caption); list.Items.Add(caption); header = true;
                     }
                     matching.Add(choice); list.Items.Add(choice);
@@ -461,14 +477,14 @@ namespace Excel_Iterate
         }
         private void Choose(int index)
         {
-            if (index < 0 || index >= matching.Count || !matching[index].Common) return;
+            if (index < 0 || index >= matching.Count || !Selectable(matching[index])) return;
             chosen = matching[index].Name; list.Invalidate(); UpdateCount();
         }
         private void Step(int direction)
         {
-            var commons = matching.Select((c, i) => new { c, i }).Where(x => x.c.Common).Select(x => x.i).ToList();
+            var commons = matching.Select((c, i) => new { c, i }).Where(x => Selectable(x.c)).Select(x => x.i).ToList();
             if (commons.Count == 0) return;
-            int current = chosen == null ? -1 : matching.FindIndex(c => c.Common && c.Name == chosen);
+            int current = chosen == null ? -1 : matching.FindIndex(c => Selectable(c) && c.Name == chosen);
             int position = commons.IndexOf(current);
             position = position < 0 ? (direction > 0 ? 0 : commons.Count - 1) : Math.Max(0, Math.Min(commons.Count - 1, position + direction));
             Choose(commons[position]);
@@ -485,7 +501,7 @@ namespace Excel_Iterate
         {
             if (e.Index < 0 || e.Index >= matching.Count) return;
             var choice = matching[e.Index]; var g = e.Graphics; var bounds = e.Bounds;
-            bool isChosen = choice.Common && choice.Name == chosen, hot = choice.Common && e.Index == hover;
+            bool selectable = Selectable(choice), isChosen = selectable && choice.Name == chosen, hot = selectable && e.Index == hover;
             using (var back = new SolidBrush(isChosen ? Ui.SelectBack : hot ? Color.FromArgb(244, 247, 253) : Color.White)) g.FillRectangle(back, bounds);
             var flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
             if (choice.Header)
@@ -496,7 +512,7 @@ namespace Excel_Iterate
             }
             var glyph = RadioButtonRenderer.GetGlyphSize(g, RadioButtonState.UncheckedNormal);
             var at = new Point(bounds.Left + P(2), bounds.Top + (bounds.Height - glyph.Height) / 2);
-            RadioButtonRenderer.DrawRadioButton(g, at, !choice.Common ? RadioButtonState.UncheckedDisabled : isChosen ? RadioButtonState.CheckedNormal : RadioButtonState.UncheckedNormal);
+            RadioButtonRenderer.DrawRadioButton(g, at, !selectable ? RadioButtonState.UncheckedDisabled : isChosen ? RadioButtonState.CheckedNormal : RadioButtonState.UncheckedNormal);
             int left = at.X + glyph.Width + P(6), right = bounds.Right - P(6);
             if (!choice.Common)
             {
@@ -505,7 +521,7 @@ namespace Excel_Iterate
                 TextRenderer.DrawText(g, coverage, Font, new Rectangle(right - width, bounds.Top, width, bounds.Height), Ui.InkDim, flags);
                 right -= width + P(8);
             }
-            TextRenderer.DrawText(g, choice.Name, Font, new Rectangle(left, bounds.Top, Math.Max(0, right - left), bounds.Height), choice.Common ? (isChosen ? Ui.SelectInk : Ui.Ink) : SystemColors.GrayText, flags);
+            TextRenderer.DrawText(g, choice.Name, Font, new Rectangle(left, bounds.Top, Math.Max(0, right - left), bounds.Height), selectable ? (isChosen ? Ui.SelectInk : Ui.Ink) : SystemColors.GrayText, flags);
         }
     }
 }

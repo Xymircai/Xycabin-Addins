@@ -1696,25 +1696,21 @@ namespace Excel_Iterate
                 }
                 UpdatePreview(); ShowPairDetails(); return;
             }
-            var source = TryParse(pair.Source.Range); var area = picked; string text;
-            if (source != null)
-            {
-                if (single) area = new MigrationArea { Row = picked.Row, Column = picked.Column, Rows = source.Rows, Columns = source.Columns };
-                else if (picked.Rows != source.Rows || picked.Columns != source.Columns)
-                {
-                    text = "拖选的区域 " + picked.Address + " 为 " + picked.Rows + "×" + picked.Columns + "，与源区域 " + source.Rows + "×" + source.Columns + " 不一致；单击一个单元格即可按源尺寸放置。";
-                    Message(text); sheetPreview.SetHint(text); return;
-                }
-            }
-            try { area.Check(1048576, 16384); }
+            // Any target area is accepted: a single cell is a start (sized by
+            // the source), a block is kept as chosen. Whether it fits the source
+            // is shown in 映射, not enforced here.
+            var source = TryParse(pair.Source.Range);
+            try { picked.Check(1048576, 16384); }
             catch (Exception error) { Message(error.Message); sheetPreview.SetHint(error.Message); return; }
-            side.Range = source == null && single ? MigrationArea.Cell(area.Row, area.Column) : area.Address;
+            side.Range = single ? MigrationArea.Cell(picked.Row, picked.Column) : picked.Address;
+            string fit = source == null || single || (picked.Rows == source.Rows && picked.Columns == source.Columns) ? ""
+                : "（" + picked.Rows + "×" + picked.Columns + "，与源区域 " + source.Rows + "×" + source.Columns + " 不一致，“映射”页会提示）";
             pair.Instances.Clear(); RefreshRows(); Changed();
             var mine = TargetArea(pair);
             var overlap = pairs.Where(p => p != pair && p.Enabled && p.Target.Used && string.Equals(p.Target.Sheet, side.Sheet, StringComparison.OrdinalIgnoreCase)
                     && p.Target.Books.Intersect(side.Books, StringComparer.OrdinalIgnoreCase).Any() && Overlaps(TargetArea(p), mine))
                 .Select(p => "映射第 " + (pairs.IndexOf(p) + 1) + " 行").ToList();
-            Message("映射第 " + (pairs.IndexOf(pair) + 1) + " 行的目标区域已设为 " + side.Sheet + "!" + side.Range + "，应用到 " + side.Books.Count + " 个目标工作簿。"
+            Message("映射第 " + (pairs.IndexOf(pair) + 1) + " 行的目标区域已设为 " + side.Sheet + "!" + side.Range + fit + "，应用到 " + side.Books.Count + " 个目标工作簿。"
                 + (overlap.Count > 0 ? "注意：与 " + string.Join("、", overlap.Take(3).ToArray()) + " 重叠，预检时会被拦下。" : ""));
             UpdatePreview(); ShowPairDetails();
         }
@@ -2031,9 +2027,13 @@ namespace Excel_Iterate
             {
                 var clock = Stopwatch.StartNew();
                 string message = null;
-                do { if (!steps.MoveNext()) { Finish(null); return; } message = steps.Current.Message; } while (clock.ElapsedMilliseconds < 12);
-                if (message != null && (!statusClock.IsRunning || statusClock.ElapsedMilliseconds >= StatusIntervalMilliseconds) && status.Text != message)
-                { status.Text = message; statusClock.Restart(); }
+                bool pause = false;
+                do { if (!steps.MoveNext()) { Finish(null); return; } message = steps.Current.Message; pause = steps.Current.Pause; } while (!pause && clock.ElapsedMilliseconds < 12);
+                // A pause step announces a long blocking host call (opening or
+                // saving a large workbook): show it now and paint before the
+                // next step blocks this thread, so the window does not look hung.
+                if (message != null && (pause || !statusClock.IsRunning || statusClock.ElapsedMilliseconds >= StatusIntervalMilliseconds) && status.Text != message)
+                { status.Text = message; statusClock.Restart(); if (pause) status.Refresh(); }
                 GuardWindow();
             }
             catch (Exception error) { Finish(error); }

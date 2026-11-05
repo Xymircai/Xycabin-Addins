@@ -47,6 +47,9 @@ namespace Excel_Iterate
         internal int RowDelta, ColumnDelta, MaxRow = 1048576, MaxColumn = 16384;
         internal HashSet<string> TargetSheets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         internal Dictionary<string, string> ExternalFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // File names the workbook links to under more than one path. Only a
+        // formula that actually refers to one of them is ambiguous.
+        internal HashSet<string> AmbiguousFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         internal List<MigrationName> Names = new List<MigrationName>();
         internal string MapSheet(string name)
         {
@@ -264,6 +267,7 @@ namespace Excel_Iterate
             {
                 if (!context.ExternalFiles.TryGetValue(book, out full))
                 {
+                    if (context.AmbiguousFiles.Contains(book)) throw new InvalidOperationException("外链中存在同名不同路径文件，无法可靠判定来源：" + book);
                     if (string.Equals(book, Path.GetFileName(context.SourcePath), StringComparison.OrdinalIgnoreCase)) return null;
                     throw new InvalidOperationException("无法确定外链完整路径：" + book);
                 }

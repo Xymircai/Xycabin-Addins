@@ -25,7 +25,9 @@ namespace Excel_Iterate
                 {
                     MigrationAction(form, delegate
                     {
-                        ResetMigration(); var plan = form.BuildPlan(); _migrationPlan = plan; _planCancelled = false;
+                        ResetMigration(); var plan = form.BuildPlan();
+                        if (!ReleaseBusyWorkbooks(form, plan)) return;
+                        _migrationPlan = plan; _planCancelled = false;
                         form.Run(RunPlan(form, plan, false), delegate { form.RefreshResults(); }, delegate(Exception error) { form.Message(error.Message); ResetMigration(); });
                     });
                 };
@@ -34,6 +36,7 @@ namespace Excel_Iterate
                     MigrationAction(form, delegate
                     {
                         if (_migrationPlan == null) throw new InvalidOperationException("请先重新预检。");
+                        if (!ReleaseBusyWorkbooks(form, _migrationPlan)) return;
                         ExecutePlan(form);
                     });
                 };
@@ -120,12 +123,12 @@ namespace Excel_Iterate
                     // Execution re-checks each target right before writing,
                     // because an earlier pass may just have updated it.
                     var preview = host.Preview(pass.Request).GetEnumerator();
-                    try { while (Advance(preview, out step, out failure)) yield return new MigrationProgress(label + step.Message); }
+                    try { while (Advance(preview, out step, out failure)) yield return new MigrationProgress(label + step.Message, step.Pause); }
                     finally { preview.Dispose(); }
                     if (failure != null) { MarkPass(pass, failure is OperationCanceledException ? "已取消" : "失败", "源区域预检：" + failure.Message); continue; }
                     if (!execute || !pass.Request.Targets.Any(t => t.Ready)) continue;
                     var run = host.Execute().GetEnumerator();
-                    try { while (Advance(run, out step, out failure)) yield return new MigrationProgress(label + step.Message); }
+                    try { while (Advance(run, out step, out failure)) yield return new MigrationProgress(label + step.Message, step.Pause); }
                     finally { run.Dispose(); }
                     if (failure != null) MarkPass(pass, failure is OperationCanceledException ? "已取消" : "失败", "执行：" + failure.Message);
                     if (!plan.OutputCopies) foreach (var target in pass.Request.Targets) if (target.Status == "成功") form.RecordRestorePoint(target.Path, target.Backup);
@@ -198,6 +201,67 @@ namespace Excel_Iterate
                 else try { File.Delete(pair.Value); } catch (Exception error) { Log("未使用的迁移结果副本：" + error); }
             }
             plan.Outputs.Clear();
+        }
+        // Workbooks WPS holds that would make the precheck fail: a source with
+        // unsaved changes (must be saved), a target that is open while its
+        // original is to be replaced (must be saved and closed), or an open
+        // target with unsaved changes in copy mode (must be saved). With the
+        // user's consent they are saved (and closed) here; otherwise nothing
+        // is touched. Returns false when the user declined or a save failed.
+        private static bool ReleaseBusyWorkbooks(DataMigrationForm form, MigrationPlan plan)
+        {
+            var sources = new HashSet<string>(plan.Passes.Select(p => Path.GetFullPath(p.Request.SourcePath)), StringComparer.OrdinalIgnoreCase);
+            var targets = new HashSet<string>(plan.Passes.SelectMany(p => p.Request.Targets).Select(t => Path.GetFullPath(t.Path)), StringComparer.OrdinalIgnoreCase);
+            var save = new List<string>(); var close = new List<string>();
+            using (var bag = new ComBag())
+            {
+                dynamic books = bag.Own(((dynamic)_app).Workbooks);
+                for (int i = 1; i <= Convert.ToInt32(books.Count); i++)
+                {
+                    dynamic book = bag.Own(books.Item(i)); string full;
+                    try { full = Path.GetFullPath(Convert.ToString(book.FullName)); } catch (Exception) { continue; }
+                    bool saved = ComFormulaHost.Boolean(book.Saved, "Saved");
+                    if (targets.Contains(full) && plan.ReplaceTargets) close.Add(full);
+                    else if ((sources.Contains(full) || targets.Contains(full)) && !saved) save.Add(full);
+                }
+            }
+            if (save.Count == 0 && close.Count == 0) return true;
+            string line = Environment.NewLine;
+            string text = "以下工作簿正在 WPS 中被占用，预检无法读取或替换："
+                + (save.Count == 0 ? "" : line + line + "有未保存修改（将保存）：" + line + string.Join(line, save.Select(p => "· " + Path.GetFileName(p)).ToArray()))
+                + (close.Count == 0 ? "" : line + line + "目标工作簿已打开（将保存并关闭，迁移后可重新打开）：" + line + string.Join(line, close.Select(p => "· " + Path.GetFileName(p)).ToArray()))
+                + line + line + "保存会把你在这些工作簿中尚未保存的修改一并写入文件。" + line + "是否保存并关闭后继续？";
+            if (UiDialog.Show(form, text, "工作簿被占用", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1) != DialogResult.Yes)
+            { form.Message("已取消：请自行保存源工作簿、保存并关闭目标工作簿后再预检。"); return false; }
+            var failures = new List<string>();
+            foreach (string path in save.Concat(close))
+            {
+                bool shut = close.Contains(path, StringComparer.OrdinalIgnoreCase);
+                try
+                {
+                    using (var bag = new ComBag())
+                    {
+                        dynamic books = bag.Own(((dynamic)_app).Workbooks); dynamic match = null;
+                        for (int i = 1; i <= Convert.ToInt32(books.Count) && match == null; i++)
+                        {
+                            dynamic book = bag.Own(books.Item(i));
+                            if (string.Equals(Path.GetFullPath(Convert.ToString(book.FullName)), path, StringComparison.OrdinalIgnoreCase)) match = book;
+                        }
+                        if (match == null) continue;
+                        if (ComFormulaHost.Boolean(match.ReadOnly, "ReadOnly")) throw new InvalidOperationException("文件以只读方式打开，无法保存");
+                        if (!ComFormulaHost.Boolean(match.Saved, "Saved")) match.Save();
+                        if (shut) match.Close(false);
+                    }
+                }
+                catch (Exception error) { Log("迁移释放占用工作簿：" + path + " " + error); failures.Add(Path.GetFileName(path) + "：" + error.Message); }
+            }
+            if (failures.Count > 0)
+            {
+                form.Message("未能处理：" + string.Join("；", failures.ToArray()) + "。请手动保存或关闭后再预检。");
+                return false;
+            }
+            form.Message("已保存 " + save.Count + " 个、保存并关闭 " + close.Count + " 个被占用的工作簿，继续预检。");
+            return true;
         }
         private static void MigrationAction(DataMigrationForm form, Action action)
         { try { action(); } catch (Exception error) { Log("批量迁移数据：" + error); form.Message(error.Message); } }

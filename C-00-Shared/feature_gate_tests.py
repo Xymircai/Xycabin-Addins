@@ -158,7 +158,7 @@ def run(repository):
             # Real process boundaries prove all entry points reject before compiling.
             for directory, _, _ in index.PRODUCTS:
                 config = fixture / directory / 'project.json'
-                data = json.loads(config.read_text(encoding='utf-8'))
+                data = json.loads(config.read_text(encoding='utf-8-sig'))
                 first = next(iter(data['features'].values()))
                 first['directory'] += '/InvalidDepth'
                 config.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')

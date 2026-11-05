@@ -79,7 +79,7 @@ def fixture(parent):
     (docs / 'A-UserGuide.md').write_text(GUIDE, encoding='utf-8-sig')
     (docs / 'B1-Project-Files.md').write_text(B1, encoding='utf-8')
     (docs / 'B2-DevExperience.md').write_text(B2, encoding='utf-8')
-    (docs / 'B3-Gate Control.md').write_text(B3, encoding='utf-8')
+    (docs / 'B3-Spec Coding.md').write_text(B3, encoding='utf-8')
     (docs / 'B4-Code Index.md').write_text('**代码索引**\n\n# 一. Excel-Iterate\n索引。\n# 二. WordUpdater\n索引。\n', encoding='utf-8')
     (docs / 'B0-Entry.md').write_text('# 一. 入口\n', encoding='utf-8')
     (base / 'AA-Program/C1-Exceliterate_Configure.py').write_text('# fixture\n', encoding='utf-8')

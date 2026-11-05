@@ -14,14 +14,14 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent
 DOCS = ROOT / 'C-04-Devlog'
 FILES = ('B0-Entry.md', 'A-UserGuide.md', 'B1-Project-Files.md',
-         'B2-DevExperience.md', 'B3-Gate Control.md', 'B4-Code Index.md')
+         'B2-DevExperience.md', 'B3-Spec Coding.md', 'B4-Code Index.md')
 LIMIT = 200
 AUDIT_HEAD = re.compile(r'^###\s+\(\d+\)\.\s*本轮交付证据\s*$')
 EXPECTED_SCOPES = {
     'A-UserGuide.md': ['excel', 'word', 'site'],
     'B1-Project-Files.md': ['shared', 'excel', 'word', 'site'],
     'B2-DevExperience.md': ['shared', 'excel', 'word', 'site'],
-    'B3-Gate Control.md': ['shared', 'site'],
+    'B3-Spec Coding.md': ['shared', 'site'],
     'B4-Code Index.md': ['excel', 'word'],
 }
 RULE_LINE = re.compile(r'(?m)^\*\*(R-\d{2})\*\*')
@@ -470,7 +470,7 @@ def verify_file(path):
     elif name == 'B2-DevExperience.md':
         if len(chapters) != 4:
             errors.append(name + ': 必须包含四个一级章节')
-    elif name == 'B3-Gate Control.md':
+    elif name == 'B3-Spec Coding.md':
         if len(chapters) != 2:
             errors.append(name + ': 必须包含两个一级章节')
     elif name == 'B4-Code Index.md':
@@ -487,7 +487,7 @@ def verify(files=None):
             errors.append('缺少文档：' + str(path))
             continue
         errors += verify_file(path)
-    b3 = DOCS / 'B3-Gate Control.md'
+    b3 = DOCS / 'B3-Spec Coding.md'
     if b3.is_file():
         text = b3.read_text(encoding='utf-8-sig')
         errors += check_rules(text)
@@ -548,7 +548,15 @@ def self_test():
         path = Path(temporary) / 'B2-DevExperience.md'
         path.write_text('# 一. Word与Excel共享开发经验\n## 1. 乙\n# 二. Excel-Iterate 专属\n# 三. WordUpdater 专属\n# 四. XyCabin 专属\n', encoding='utf-8')
         assert verify_file(path) == []
-    print('VerifyDevlog self-test: 21 PASS, 0 FAIL', flush=True)
+        path = Path(temporary) / 'B3-Spec Coding.md'
+        text = (DOCS / path.name).read_text(encoding='utf-8-sig')
+        path.write_text(text, encoding='utf-8')
+        assert verify_file(path) == []
+        assert check_rules(text) == [] and check_h_items(text) == [] and check_gate_inventory(text) == []
+        path.write_text(text + '\n# 三. Word与Excel共享门禁\n', encoding='utf-8')
+        assert any('两个一级章节' in item for item in verify_file(path))
+        assert check_rules(text.replace('**R-30**', '**R-99**'))
+    print('VerifyDevlog self-test: 25 PASS, 0 FAIL', flush=True)
 
 
 def main():

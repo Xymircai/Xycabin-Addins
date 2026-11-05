@@ -37,7 +37,7 @@
 | C-01/C-02 `开发日志.md` | 四. Word与Excel共享维护纪律 | `B3-Uphold-Discipline.md` 第一章 |
 | C-03 `开发日志.md` | 三. XyCabin项目维护纪律 | `B3-Uphold-Discipline.md` 第二章 |
 
-2026-10-20 更新：`B3-Uphold-Discipline.md` 已更名为 `B3-Gate Control.md`，第一章标题改为「Word与Excel共享门禁」，条款按 R-xx（自动门禁）/ H-xx（人工门禁）分类。
+2026-10-20 更新：`B3-Uphold-Discipline.md` 已更名为 `B3-Spec Coding.md`，第一章标题改为「Word与Excel共享门禁」，条款按 R-xx（自动门禁）/ H-xx（人工门禁）分类。
 
 ## 四、包内与运行时路径
 

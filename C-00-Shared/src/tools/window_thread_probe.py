@@ -9,7 +9,7 @@ ROOT = Path(PROJECT_ROOT).resolve()
 def verify():
     project = json.loads((ROOT / 'project.json').read_text(encoding='utf-8-sig'))
     allowed = {'UiKit.cs', 'HostDialogService.cs', 'DialogFormatting.cs',
-               'FormatEditorThread.cs', 'FormulaWindowThread.cs'}
+               'FormatEditorThread.cs', 'FormulaWindowThread.cs', 'ConversionWindowThread.cs'}
     calls = []
     for name in project['sources']:
         path = source_path(name, addin=True)

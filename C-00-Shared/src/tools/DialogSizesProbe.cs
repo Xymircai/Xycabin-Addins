@@ -149,7 +149,8 @@ internal static class DialogSizesProbe
             Check(!Directory.Exists(root),"default measurement creates no preferences, business files or logs");
             Check((Size)Field(Call(catalog,"Find","agent.dialogsizes"),"Default")==new Size(1520,640),"settings default is 1520 logical client width");
             // 5 个 PDF 工具窗口位于 #endif 之后的公共区段，两个宿主都会加载。
-            Check(definitions.Length==(ns.StartsWith("Word")?17:39),"complete host-specific catalog count including company workbooks, data migration, developer password and OCR child windows");
+            Check(definitions.Length==(ns.StartsWith("Word")?17:41),"complete host-specific catalog count including both conversion parameter windows");
+            Check((Call(catalog,"Find","conversion.text")!=null)==!ns.StartsWith("Word")&&(Call(catalog,"Find","formula.references")!=null)==!ns.StartsWith("Word"),"conversion dialogs registered only for Excel");
             foreach(object d in definitions){Check(identities.Add((string)Field(d,"Id")),"unique stable identity");Size size=(Size)Field(d,"Default"),min=(Size)Field(d,"Minimum");Check(size.Width>=min.Width&&size.Height>=min.Height,"default meets client minimum");}
             object empty=Call(store,"Read");Check(((Dictionary<string,Size>)Field(empty,"Values")).Count==0,"missing preferences use defaults");
             VerifyPasswordPreview(asm,ns,catalog,factory);

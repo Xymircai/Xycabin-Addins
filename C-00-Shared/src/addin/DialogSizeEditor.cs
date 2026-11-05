@@ -30,6 +30,7 @@ namespace Excel_Iterate
             {"btnLinkAssistant","links.assistant"},{"btnOrganizeFiles","file.organize"},{"btnRenameFiles","file.rename"},{"btnMergeHeaders","merge.headers"},
             {"btnEliminationReceivable","elimination.receivable"},{"btnEliminationRevenueCost","elimination.revenuecost"},
             {"btnDataMigration","migration.data"},
+            {"btnTextExtractFilter","conversion.text"},{"btnReferenceStyleConversion","formula.references"},
             {"btnCompanyWorkbooks","company.workbooks"},
             {"btnCurrentPdf","file.pdf.current"},{"btnConvertPdf","file.pdf.convert"},{"btnWatermarkPdf","file.pdf.watermark"},{"btnSplitPdf","file.pdf.split"},{"btnMergePdf","file.pdf.merge"},
             {"btnViewLinks","word.links"},{"btnAgentReadme","agent.developer"},{"btnAgentUserGuide","agent.user"},

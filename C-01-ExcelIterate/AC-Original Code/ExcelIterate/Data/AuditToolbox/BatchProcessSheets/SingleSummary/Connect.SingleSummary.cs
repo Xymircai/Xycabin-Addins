@@ -9,7 +9,7 @@ using System.Text;
 namespace Excel_Iterate
 {
     // =====================================================================
-    // 单体汇总表生成 —— 功能区接线与业务编排
+    // 单体汇总批量链接 —— 功能区接线与业务编排
     //
     // 全部 COM 调用都在 Ribbon 宿主线程执行；回调必须写在 Connect*.cs 内，
     // 否则配置器（configure_core.py）的回调存在性校验会失败。
@@ -120,7 +120,7 @@ namespace Excel_Iterate
                 { _summaryWorkbook.Clear(); _summarySession = null; form.ClearWorkbookContext(); }
                 // Restore the selector to the actual bound book after a rejected choice.
                 try { form.SetWorkbooks(_summaryWorkbook.Choices(), _summaryWorkbook.Path); } catch { }
-                Log("单体汇总表生成：选择工作簿失败 " + error);
+                Log("单体汇总批量链接：选择工作簿失败 " + error);
                 form.AppendLog("选择工作簿失败：" + error.Message);
             }
             finally { form.SetBusy(false); _busy = false; }
@@ -163,6 +163,63 @@ namespace Excel_Iterate
                 if (string.Equals(Convert.ToString(sheet.Name), name.Trim(), StringComparison.Ordinal)) return sheet;
             }
             return null;
+        }
+
+        private static void RunSummarySelection(SingleSummaryForm form, string kind, bool pick = false)
+        {
+            if (_busy || form.IsBusy || (_summarySession != null && _summarySession.CanUndo)) return;
+            bool hidden = false;
+            _busy = true; form.SetBusy(true);
+            try
+            {
+                SummaryRequest request = form.BuildRequest();
+                object book = RequireSummaryBook();
+                using (var bag = new ComBag())
+                {
+                    string sheetName = kind == "lead" ? request.LeadSheet : request.TargetSheet;
+                    object sheet = FindSheet(book, sheetName, bag);
+                    if (sheet == null) throw new InvalidOperationException("请先选择对应的 Lead 或汇总工作表。");
+                    object selection;
+                    if (pick)
+                    {
+                        ((dynamic)book).Activate(); ((dynamic)sheet).Activate();
+                        form.Hide(); hidden = true;
+                        object chosen = DataMigrationHost.PickNativeRange(_summaryWorkbook.Application,
+                            kind == "column" ? "请选择模板列中的单元格或单列区域。取消保留原参数。" : "请选择表头所在行中的单元格或单行区域。取消保留原参数。",
+                            "单体汇总批量链接 · 在表中选择", Type.Missing);
+                        if (chosen == null || chosen is bool) return;
+                        selection = bag.Own(chosen);
+                        // The native dialog permits workbook switching; recheck the binding.
+                        book = RequireSummaryBook();
+                    }
+                    else selection = bag.Own(((dynamic)_summaryWorkbook.Application).Selection);
+                    var coordinates = DataMigrationHost.ReadCoordinates(selection, book, sheet);
+                    SummarySelectionRules.Validate(coordinates.Row, coordinates.Column, coordinates.Rows, coordinates.Columns,
+                        kind == "column", ((dynamic)selection).MergeCells);
+                    string title = "";
+                    if (kind == "column" || kind == "header")
+                    {
+                        int header = kind == "header" ? coordinates.Row : request.SheetHeaderRow;
+                        int column = kind == "column" ? coordinates.Column : request.TemplateColumn;
+                        if (header > 0 && column > 0)
+                        { dynamic cells = bag.Own(((dynamic)sheet).Cells); dynamic cell = bag.Own(cells[header, column]); title = Convert.ToString(cell.Value2); }
+                    }
+                    _summarySession = null;
+                    string description = "已读取 " + _summaryWorkbook.Path + " / " + sheetName + " / " + coordinates.Address
+                        + (kind == "column" ? "；模板列 " + SummaryColumns.Letter(coordinates.Column) + "，公司表头「" + title + "」" : "；第 " + coordinates.Row + " 行");
+                    form.ApplySelection(kind, coordinates.Row, coordinates.Column, description, title);
+                }
+            }
+            catch (Exception error) { form.AppendLog("读取选区失败：" + error.Message + " 可重新选择，或手动填写参数。"); }
+            finally
+            {
+                _busy = false;
+                if (!form.IsDisposed)
+                {
+                    form.SetBusy(false);
+                    if (hidden) { form.Show(); form.Activate(); }
+                }
+            }
         }
 
         // ---------------------------- 预检 ----------------------------
@@ -238,6 +295,7 @@ namespace Excel_Iterate
                     if (probe.Tokens.Count > 0)
                         text.AppendLine("模板列外链文件名：" + string.Join("、", probe.Tokens.ToArray()));
 
+                    form.SetSourceCandidates(probe.Tokens);
                     string suggested = request.SourceFile;
                     if (suggested.Length == 0) suggested = GuessSourceFile(probe, snapshot.Companies);
                     if (suggested.Length == 0)
@@ -249,9 +307,11 @@ namespace Excel_Iterate
                     if (request.Annual && suggested.Length > 0 && probe.Blocking.Count == 0)
                     {
                         foreach (string line in SummaryTemplateReader.AnnualPreview(book, target, request, probe)) text.AppendLine(line);
+                        form.SetYearPattern(request.YearPathPattern);
                         text.AppendLine("公司名在每列重复写入，年度按" + (request.DescendingYears ? "倒序" : "升序") + "排列；公司表头不合并。");
                     }
 
+                    SummaryTemplateReader.ValidateRelativeFormulas(request, probe);
                     bool ok = probe.Blocking.Count == 0 && suggested.Length > 0;
                     form.SetPreview(suggested, ok, text.ToString());
 
@@ -267,13 +327,13 @@ namespace Excel_Iterate
                     _summarySession.Probe = probe;
                     _summarySession.CanUndo = false;
 
-                    Log("单体汇总表生成预检：" + request.TargetSheet + "，候选 " + count + " 家，模板列 "
+                    Log("单体汇总批量链接预检：" + request.TargetSheet + "，候选 " + count + " 家，模板列 "
                         + request.TemplateColumn + "，末行 " + probe.LastRow);
                 }
             }
             catch (Exception ex)
             {
-                Log("单体汇总表生成预检：" + ex);
+                Log("单体汇总批量链接预检：" + ex);
                 form.SetPreview("", false, "预检失败：" + ex.Message);
             }
             finally
@@ -287,9 +347,12 @@ namespace Excel_Iterate
         private static string GuessSourceFile(SummaryTemplateProbe probe, List<SummaryCompany> companies)
         {
             if (probe == null || probe.Tokens.Count == 0) return "";
+            var matches = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (SummaryCompany company in companies)
                 foreach (string token in probe.Tokens)
-                    if (string.Equals(token, company.FileName, StringComparison.OrdinalIgnoreCase)) return token;
+                    if (string.Equals(token, company.FileName, StringComparison.OrdinalIgnoreCase)) matches.Add(token);
+            if (matches.Count == 1) foreach (string match in matches) return match;
+            if (matches.Count > 1) return "";
             return probe.Tokens.Count == 1 ? probe.Tokens[0] : "";
         }
 
@@ -328,6 +391,7 @@ namespace Excel_Iterate
                     SummaryTemplateProbe probe = SummaryTemplateReader.Read(target, request.SheetHeaderRow, request.TemplateColumn, lastColumn, request.Placeholder);
                     if (probe.Blocking.Count > 0) throw new InvalidOperationException(string.Join("；", probe.Blocking.ToArray()));
                     foreach (string line in SummaryTemplateReader.AnnualPreview(book, target, request, probe)) form.AppendLog(line);
+                    SummaryTemplateReader.ValidateRelativeFormulas(request, probe);
 
                     string confirm = "工作簿：" + request.WorkbookName + "\r\n将覆盖 "
                         + SummaryColumns.Letter(request.TemplateColumn) + "～" + SummaryColumns.Letter(lastColumn)
@@ -382,16 +446,16 @@ namespace Excel_Iterate
                         text.AppendLine("样例 " + sample.Cell + "：" + sample.Before + "  →  " + sample.After);
                     form.SetLog(text.ToString());
                     form.AppendLog("完成。");
-                    Log("单体汇总表生成：" + request.TargetSheet + "，" + report.Columns + " 列，备份 " + report.BackupSheet);
+                    Log("单体汇总批量链接：" + request.TargetSheet + "，" + report.Columns + " 列，备份 " + report.BackupSheet);
                 }
             }
             catch (Exception ex)
             {
-                Log("单体汇总表生成执行：" + ex);
+                Log("单体汇总批量链接执行：" + ex);
                 form.AppendLog("执行失败：" + ex.Message + "；正在尝试还原，结果见下方日志。");
                 TryRestoreSummary(form, false);
                 UiDialog.Show(form, "执行失败：" + ex.Message + "\r\n（已尽量按备份表还原目标区间；详见日志。）",
-                    "单体汇总表生成", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    "单体汇总批量链接", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             finally
             {
@@ -468,11 +532,11 @@ namespace Excel_Iterate
                 session.BackupSheet = "";
                 form.SetUndoAvailable(false);
                 form.AppendLog("已按备份表还原目标区间。");
-                Log("单体汇总表生成：已还原 " + session.TargetSheet);
+                Log("单体汇总批量链接：已还原 " + session.TargetSheet);
             }
             catch (Exception ex)
             {
-                Log("单体汇总表生成还原失败：" + ex);
+                Log("单体汇总批量链接还原失败：" + ex);
                 session.CanUndo = true; form.SetUndoAvailable(true);
                 form.AppendLog("还原失败：" + ex.Message + "；备份工作表仍在工作簿里，可手动恢复。");
             }
@@ -485,7 +549,7 @@ namespace Excel_Iterate
                 _summarySession.CanUndo = false;
                 form.SetUndoAvailable(false);
             }
-            Log("单体汇总表生成：已确认，本批结束。");
+            Log("单体汇总批量链接：已确认，本批结束。");
         }
     }
 }

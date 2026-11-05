@@ -42,7 +42,7 @@ namespace Excel_Iterate
         private static NumericUpDown Number(int value) { return new NumericUpDown { Minimum = 0, Maximum = 1048576, Value = value, Width = 85 }; }
         internal CompanyWorkbookForm()
         {
-            Text = "按公司生成工作簿"; DialogSizing.Prepare(this, "company.workbooks", "table", Ui.Blue);
+            Text = "单体模板生成"; DialogSizing.Prepare(this, "company.workbooks", "table", Ui.Blue);
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 4 };
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 68)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 32)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -87,6 +87,8 @@ namespace Excel_Iterate
             FormClosing += delegate(object sender, FormClosingEventArgs e)
             { if (Running || ticking || preparing) { e.Cancel = true; closePending = true; RequestCancel(); } };
             Disposed += delegate { timer.Stop(); timer.Dispose(); ReleaseHost(); };
+            inputs.ClientSizeChanged += delegate { FitInputRows(); };
+            Shown += delegate { FitInputRows(); };
             ResetProgress("等待开始");
         }
         internal void ResetProgress(string state)
@@ -109,7 +111,7 @@ namespace Excel_Iterate
             RenderProgress("正在取消，等待当前文件收尾", true);
             Append("已请求取消，当前文件完成后停止。");
         }
-        private static Label Label(string text) { return new Label { Text = text, AutoSize = true, Padding = new Padding(0, 6, 0, 0) }; }
+        private static Label Label(string text) { return new Label { Text = text, AutoSize = true, Margin = new Padding(3, 6, 3, 3) }; }
         private void InvalidateNames()
         {
             if (Running || preparing) return;
@@ -147,9 +149,20 @@ namespace Excel_Iterate
         }
         private void AddRow(string title, params Control[] controls)
         {
-            var row = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Width = 1000, Margin = new Padding(0, 3, 0, 3) };
-            row.Controls.Add(new Label { Text = title, Width = 105, Padding = new Padding(0, 6, 0, 0) });
+            var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Padding(0, 3, 0, 3) };
+            row.Controls.Add(new Label { Text = title, AutoSize = true, MinimumSize = new Size(105, 0), MaximumSize = new Size(105, 0), Margin = new Padding(3, 6, 3, 3) });
             row.Controls.AddRange(controls); inputs.Controls.Add(row);
+        }
+        private void FitInputRows()
+        {
+            int width = Math.Max(1, inputs.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - inputs.Padding.Horizontal);
+            foreach (Control row in inputs.Controls)
+            {
+                row.MaximumSize = new Size(width, 0);
+                row.Width = width;
+                foreach (Control control in row.Controls)
+                    if (control is Label) control.MaximumSize = new Size(Math.Min(control.MinimumSize.Width > 0 ? control.MinimumSize.Width : width - 12, width), 0);
+            }
         }
         internal void Append(string message) { if (!log.IsDisposed) log.AppendText(DateTime.Now.ToString("HH:mm:ss") + " " + message + Environment.NewLine); }
         internal void Shutdown()

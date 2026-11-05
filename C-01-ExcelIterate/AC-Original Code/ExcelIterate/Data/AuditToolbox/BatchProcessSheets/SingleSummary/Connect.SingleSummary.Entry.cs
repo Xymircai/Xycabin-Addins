@@ -4,7 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows.Forms;
 
-// 功能：Excel-Iterate → 数据 → 审计工具箱 → 批量生成过程表 → 单体汇总表生成
+// 功能：Excel-Iterate → 数据 → 审计工具箱 → 批量生成过程表 → 单体汇总批量链接
 // 控件：btnSingleSummary
 namespace Excel_Iterate
 {
@@ -26,6 +26,8 @@ namespace Excel_Iterate
                 form.CurrentRequested += delegate { RunSummaryWorkbookChoice(form, delegate { _summaryWorkbook.UseCurrent(); return true; }); };
                 form.BrowseRequested += delegate { RunSummaryBrowse(form); };
                 form.SheetsRequested += delegate { RunSummaryRefresh(form); };
+                form.SelectionRequested += delegate(string kind) { RunSummarySelection(form, kind); };
+                form.RangeRequested += delegate(string kind) { RunSummarySelection(form, kind, true); };
                 form.PreviewRequested += delegate { RunSummaryPreview(form); };
                 form.ExecuteRequested += delegate { RunSummaryExecute(form); };
                 form.UndoRequested += delegate { RunSummaryUndo(form); };
@@ -36,9 +38,9 @@ namespace Excel_Iterate
                     SummarySession session = _summarySession;
                     _summarySession = null;
                     if (session != null && session.CanUndo)
-                        Log("单体汇总表生成：窗口关闭时仍有可还原批次，备份表 " + session.BackupSheet + " 保留在工作簿里");
+                        Log("单体汇总批量链接：窗口关闭时仍有可还原批次，备份表 " + session.BackupSheet + " 保留在工作簿里");
                     try { if (_summaryWorkbook != null) _summaryWorkbook.Dispose(); }
-                    catch (Exception error) { Log("单体汇总表生成：释放所选工作簿引用失败 " + error.Message); }
+                    catch (Exception error) { Log("单体汇总批量链接：释放所选工作簿引用失败 " + error.Message); }
                     _summaryWorkbook = null;
                     form.Dispose();
                 };
@@ -49,8 +51,8 @@ namespace Excel_Iterate
             }
             catch (Exception ex)
             {
-                Log("单体汇总表生成：" + ex);
-                UiDialog.Show(ex.Message, "单体汇总表生成", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Log("单体汇总批量链接：" + ex);
+                UiDialog.Show(ex.Message, "单体汇总批量链接", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 

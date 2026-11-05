@@ -26,6 +26,7 @@ namespace Excel_Iterate
                     MigrationAction(form, delegate
                     {
                         ResetMigration(); var plan = form.BuildPlan();
+                        if (!ConfirmOverrides(form, plan)) return;
                         if (!ReleaseBusyWorkbooks(form, plan)) return;
                         _migrationPlan = plan; _planCancelled = false;
                         form.Run(RunPlan(form, plan, false), delegate { form.RefreshResults(); }, delegate(Exception error) { form.Message(error.Message); ResetMigration(); });
@@ -110,14 +111,23 @@ namespace Excel_Iterate
         // on, which is what gives each target its partial save.
         private static IEnumerable<MigrationProgress> RunPlan(DataMigrationForm form, MigrationPlan plan, bool execute)
         {
-            for (int index = 0; index < plan.Passes.Count; index++)
+            // Consecutive 逐行重算 passes of one source share a host, so the
+            // source copy is opened once and only its trigger cell changes.
+            DataMigrationHost host = null; string hostSource = null;
+            try
             {
-                var pass = plan.Passes[index];
-                string label = "[" + (index + 1) + "/" + plan.Passes.Count + "] " + pass.Source.Label + " " + pass.Request.SourceSheet + "!" + pass.Request.SourceRange + "：";
-                if (_planCancelled) { MarkPass(pass, "已取消", "已取消，未执行"); continue; }
-                var host = new DataMigrationHost(_app); _migrationHost = host;
-                try
+                for (int index = 0; index < plan.Passes.Count; index++)
                 {
+                    var pass = plan.Passes[index];
+                    string label = "[" + (index + 1) + "/" + plan.Passes.Count + "] " + pass.Source.Label + " " + pass.Request.SourceSheet + "!" + pass.Request.SourceRange + "：";
+                    if (_planCancelled) { MarkPass(pass, "已取消", "已取消，未执行"); continue; }
+                    bool reuse = host != null && pass.Request.TriggerCell.Length > 0 && string.Equals(hostSource, pass.Request.SourcePath, StringComparison.OrdinalIgnoreCase);
+                    if (!reuse)
+                    {
+                        if (host != null) { _migrationHost = null; try { host.Dispose(); } catch (Exception error) { Log("迁移会话释放：" + error); } }
+                        host = new DataMigrationHost(_app); hostSource = pass.Request.TriggerCell.Length > 0 ? pass.Request.SourcePath : null;
+                    }
+                    _migrationHost = host;
                     Exception failure;
                     MigrationProgress step;
                     // Execution re-checks each target right before writing,
@@ -125,20 +135,25 @@ namespace Excel_Iterate
                     var preview = host.Preview(pass.Request).GetEnumerator();
                     try { while (Advance(preview, out step, out failure)) yield return new MigrationProgress(label + step.Message, step.Pause); }
                     finally { preview.Dispose(); }
-                    if (failure != null) { MarkPass(pass, failure is OperationCanceledException ? "已取消" : "失败", "源区域预检：" + failure.Message); continue; }
+                    if (failure != null)
+                    {
+                        MarkPass(pass, failure is OperationCanceledException ? "已取消" : "失败", "源区域预检：" + failure.Message);
+                        // A failed pass may leave the host half way; start clean.
+                        hostSource = null; continue;
+                    }
                     if (!execute || !pass.Request.Targets.Any(t => t.Ready)) continue;
                     var run = host.Execute().GetEnumerator();
                     try { while (Advance(run, out step, out failure)) yield return new MigrationProgress(label + step.Message, step.Pause); }
                     finally { run.Dispose(); }
-                    if (failure != null) MarkPass(pass, failure is OperationCanceledException ? "已取消" : "失败", "执行：" + failure.Message);
+                    if (failure != null) { MarkPass(pass, failure is OperationCanceledException ? "已取消" : "失败", "执行：" + failure.Message); hostSource = null; }
                     if (!plan.OutputCopies) foreach (var target in pass.Request.Targets) if (target.Status == "成功") form.RecordRestorePoint(target.Path, target.Backup);
                     if (host.Cancelled) _planCancelled = true;
                 }
-                finally
-                {
-                    _migrationHost = null;
-                    try { host.Dispose(); } catch (Exception error) { Log("迁移会话释放：" + error); }
-                }
+            }
+            finally
+            {
+                _migrationHost = null;
+                if (host != null) try { host.Dispose(); } catch (Exception error) { Log("迁移会话释放：" + error); }
             }
         }
         private static bool Advance(IEnumerator<MigrationProgress> steps, out MigrationProgress step, out Exception failure)
@@ -208,10 +223,25 @@ namespace Excel_Iterate
         // target with unsaved changes in copy mode (must be saved). With the
         // user's consent they are saved (and closed) here; otherwise nothing
         // is touched. Returns false when the user declined or a save failed.
+        // Two 逐行重算 rows writing the same target area: the later row wins.
+        // Ask before going on instead of refusing.
+        private static bool ConfirmOverrides(DataMigrationForm form, MigrationPlan plan)
+        {
+            if (plan.Overrides.Count == 0) return true;
+            string line = Environment.NewLine;
+            string text = "以下行会写入同一个目标的同一区域，后面的会覆盖前面的：" + line + line
+                + string.Join(line, plan.Overrides.Take(12).Select(o => "· " + o).ToArray()) + (plan.Overrides.Count > 12 ? line + "…… 共 " + plan.Overrides.Count + " 处" : "")
+                + line + line + "是否继续？";
+            if (UiDialog.Show(form, text, "目标区域重复", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes) return true;
+            form.Message("已取消：请在明细中调整这些行的目标后再预检。"); return false;
+        }
         private static bool ReleaseBusyWorkbooks(DataMigrationForm form, MigrationPlan plan)
         {
             var sources = new HashSet<string>(plan.Passes.Select(p => Path.GetFullPath(p.Request.SourcePath)), StringComparer.OrdinalIgnoreCase);
             var targets = new HashSet<string>(plan.Passes.SelectMany(p => p.Request.Targets).Select(t => Path.GetFullPath(t.Path)), StringComparer.OrdinalIgnoreCase);
+            // 逐行重算 edits the trigger cell in our own copy, so its source
+            // must not be open in WPS (the copy is only made for closed files).
+            var triggerSources = new HashSet<string>(plan.Passes.Where(p => p.Request.TriggerCell.Length > 0).Select(p => Path.GetFullPath(p.Request.SourcePath)), StringComparer.OrdinalIgnoreCase);
             var save = new List<string>(); var close = new List<string>();
             using (var bag = new ComBag())
             {
@@ -221,7 +251,7 @@ namespace Excel_Iterate
                     dynamic book = bag.Own(books.Item(i)); string full;
                     try { full = Path.GetFullPath(Convert.ToString(book.FullName)); } catch (Exception) { continue; }
                     bool saved = ComFormulaHost.Boolean(book.Saved, "Saved");
-                    if (targets.Contains(full) && plan.ReplaceTargets) close.Add(full);
+                    if ((targets.Contains(full) && plan.ReplaceTargets) || triggerSources.Contains(full)) close.Add(full);
                     else if ((sources.Contains(full) || targets.Contains(full)) && !saved) save.Add(full);
                 }
             }
@@ -229,7 +259,7 @@ namespace Excel_Iterate
             string line = Environment.NewLine;
             string text = "以下工作簿正在 WPS 中被占用，预检无法读取或替换："
                 + (save.Count == 0 ? "" : line + line + "有未保存修改（将保存）：" + line + string.Join(line, save.Select(p => "· " + Path.GetFileName(p)).ToArray()))
-                + (close.Count == 0 ? "" : line + line + "目标工作簿已打开（将保存并关闭，迁移后可重新打开）：" + line + string.Join(line, close.Select(p => "· " + Path.GetFileName(p)).ToArray()))
+                + (close.Count == 0 ? "" : line + line + "已打开的目标或逐行重算的源工作簿（将保存并关闭，完成后可重新打开）：" + line + string.Join(line, close.Select(p => "· " + Path.GetFileName(p)).ToArray()))
                 + line + line + "保存会把你在这些工作簿中尚未保存的修改一并写入文件。" + line + "是否保存并关闭后继续？";
             if (UiDialog.Show(form, text, "工作簿被占用", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1) != DialogResult.Yes)
             { form.Message("已取消：请自行保存源工作簿、保存并关闭目标工作簿后再预检。"); return false; }

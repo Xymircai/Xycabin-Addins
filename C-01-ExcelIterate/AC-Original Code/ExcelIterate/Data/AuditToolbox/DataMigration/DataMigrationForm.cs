@@ -8,6 +8,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using System.Xml;
 
@@ -27,7 +28,35 @@ namespace Excel_Iterate
         internal readonly List<string> Books = new List<string>();
         internal string Sheet = "", Range = "";
         internal bool Used;
-        internal MigrationSide Copy() { var copy = new MigrationSide { Sheet = Sheet, Range = Range, Used = Used }; copy.Books.AddRange(Books); return copy; }
+        // Source side only: fill the trigger cell with each trigger value,
+        // recalculate, read this range and send it to the workbook named on
+        // the same row (逐行重算).
+        internal MigrationTrigger Trigger;
+        internal MigrationSide Copy() { var copy = new MigrationSide { Sheet = Sheet, Range = Range, Used = Used, Trigger = Trigger == null ? null : Trigger.Copy() }; copy.Books.AddRange(Books); return copy; }
+    }
+    // One trigger value row and the target workbook its name resolved to.
+    internal sealed class MigrationTriggerRow
+    {
+        internal int Row;
+        internal string Value = "", Name = "", Path = "";
+        // 精确 / 模糊 / 多个候选 / 缺失 / 已确认 / 跳过 / 空值
+        internal string Kind = "";
+        internal readonly List<KeyValuePair<string, double>> Candidates = new List<KeyValuePair<string, double>>();
+        internal bool Ready { get { return Path.Length > 0 && (Kind == "精确" || Kind == "已确认"); } }
+    }
+    internal sealed class MigrationTrigger
+    {
+        internal string Cell = "B2", Values = "", NameColumn = "H";
+        // Sheet row -> target path the user chose ("" = skip this row).
+        internal readonly Dictionary<int, string> Chosen = new Dictionary<int, string>();
+        internal readonly List<MigrationTriggerRow> Rows = new List<MigrationTriggerRow>();
+        internal string Error = "", Signature = "";
+        internal MigrationTrigger Copy()
+        {
+            var copy = new MigrationTrigger { Cell = Cell, Values = Values, NameColumn = NameColumn };
+            foreach (var chosen in Chosen) copy.Chosen[chosen.Key] = chosen.Value;
+            return copy;
+        }
     }
     // One row of 映射: the source range and target range on the same row are
     // paired; dragging in 映射 swaps one side between two rows.
@@ -44,6 +73,10 @@ namespace Excel_Iterate
         internal readonly string Id = Guid.NewGuid().ToString("N");
         internal string Path = "", Sheet = "", Range = "", Name = "";
         internal bool ValuesOnly;
+        // 逐行重算: copy TriggerFrom into TriggerCell and recalculate first;
+        // TriggerNameCell must still read TriggerExpect.
+        internal string TriggerCell = "", TriggerFrom = "", TriggerNameCell = "", TriggerExpect = "";
+        internal int TriggerRow;
         internal string Label { get { return System.IO.Path.GetFileName(Path) + (Name.Length == 0 ? "" : " · " + Name); } }
     }
     // One concrete write: a source range of one workbook into one target workbook.
@@ -70,6 +103,9 @@ namespace Excel_Iterate
         internal bool ReplaceTargets, AllowEmptySource, OutputCopies;
         internal readonly Dictionary<string, string> Outputs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         internal int Blocked;
+        // 逐行重算 rows left out (empty value, skipped, no target), and rows
+        // whose writes land on the same target area (later one wins).
+        internal readonly List<string> Skipped = new List<string>(), Overrides = new List<string>();
     }
     // Narrow vertical tab on the window's right edge: "◂ 区域选择" opens the
     // range panel, "▸" closes it.
@@ -651,7 +687,7 @@ namespace Excel_Iterate
             public override Color ImageMarginGradientBegin { get { return Color.White; } }
             public override Color ImageMarginGradientMiddle { get { return Color.White; } }
             public override Color ImageMarginGradientEnd { get { return Color.White; } }
-            public override Color MenuBorder { get { return Ui.GridFrame; } }
+            public override Color MenuBorder { get { return Color.FromArgb(160, 170, 186); } }
             public override Color MenuItemBorder { get { return Color.Transparent; } }
             public override Color MenuItemSelected { get { return Ui.SelectBack; } }
             public override Color SeparatorDark { get { return Ui.GridLine; } }
@@ -750,6 +786,9 @@ namespace Excel_Iterate
             }
         }
         private MigrationSheetPopup sheetPopup;
+        private ToolStripDropDown triggerPopup;
+        // Lines of the 明细 box that open a choice for a 逐行重算 row.
+        private readonly Dictionary<int, KeyValuePair<MigrationSide, MigrationTriggerRow>> detailLinks = new Dictionary<int, KeyValuePair<MigrationSide, MigrationTriggerRow>>();
         private readonly Timer pump = new Timer { Interval = 15 };
         // Progress text is throttled: rewriting the status line for every
         // cell repainted and re-measured the dialog dozens of times a second.
@@ -802,6 +841,8 @@ namespace Excel_Iterate
             main.Controls.Add(split, 0, 0); main.Controls.Add(rail, 1, 0);
             main.HandleCreated += delegate { main.ColumnStyles[1].Width = Ui.Px(main, 30); };
             root.Controls.Add(main, 0, 0); root.Controls.Add(details, 0, 1);
+            details.MouseClick += delegate(object sender, MouseEventArgs e) { if (e.Button == MouseButtons.Left) ShowTriggerChoices(e.Location); };
+            details.MouseMove += delegate(object sender, MouseEventArgs e) { var cursor = DetailLink(e.Location) != null ? Cursors.Hand : Cursors.IBeam; if (details.Cursor != cursor) details.Cursor = cursor; };
             status.AutoSize = true; status.MaximumSize = new Size(1100, 0); root.Controls.Add(status, 0, 2);
             var actions = Ui.ActionBar(); var close = Ui.Button("关闭", 90);
             preview.Click += delegate { if (PreviewRequested != null) PreviewRequested(); };
@@ -810,7 +851,7 @@ namespace Excel_Iterate
             restoreTip.SetToolTip(restore, "把本窗口中以“更新目标原文件”方式迁移过的工作簿，还原为迁移前的备份。");
             clearBackups.Name = "migrationClearBackups"; clearBackups.Click += delegate { ClearBackups(); };
             restoreTip.SetToolTip(clearBackups, "永久删除本窗口迁移时生成的备份文件；删除后无法再还原。");
-            restoreTip.SetToolTip(edge, "打开或收起右侧区域选择"); restoreTip.SetToolTip(gear, "设置");
+            restoreTip.SetToolTip(edge, "打开或收起右侧区域选择"); restoreTip.SetToolTip(gear, "预设与设置");
             guardTail.Tick += delegate { GuardWindow(); if (--guardTailTicks <= 0) guardTail.Stop(); };
             open.Click += delegate { OpenResult(); }; close.Click += delegate { Close(); };
             actions.Controls.Add(preview); actions.Controls.Add(execute); actions.Controls.Add(restore); actions.Controls.Add(clearBackups); actions.Controls.Add(open); actions.Controls.Add(close);
@@ -894,22 +935,56 @@ namespace Excel_Iterate
             sheetPreview.Sync.Checked = false;
             return panel;
         }
+        // Small settings popups: a clear outer frame like the filter popups,
+        // so the popup stands out from the white grid behind it.
+        private static void FramePopup(Control panel)
+        {
+            panel.Paint += delegate(object sender, PaintEventArgs e)
+            {
+                using (var pen = new Pen(Color.FromArgb(160, 170, 186))) e.Graphics.DrawRectangle(pen, 0, 0, panel.Width - 1, panel.Height - 1);
+            };
+            panel.Resize += delegate { panel.Invalidate(); };
+        }
+        // 齿轮: presets on top, then the pick-button mode as one switch row.
+        // Every row is laid out here (not by ToolStrip) so all titles share
+        // one left edge and all notes start in one column.
         private void ShowSettings()
         {
             var drop = new ToolStripDropDown { Padding = Padding.Empty, DropShadowEnabled = true, BackColor = Color.White, Renderer = new MigrationMenuRenderer() };
             var font = Ui.MakeFont(10f, FontStyle.Regular, Font);
-            int p4 = Ui.Px(this, 4), p8 = Ui.Px(this, 8);
-            var panel = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, RowCount = 4, BackColor = Color.White, Font = font, Padding = new Padding(Ui.Px(this, 16), Ui.Px(this, 14), Ui.Px(this, 16), Ui.Px(this, 14)) };
-            var title = new Label { Text = "行末框选按钮", AutoSize = true, ForeColor = Ui.Ink, Font = Ui.MakeFont(10f, FontStyle.Bold, Font), Margin = new Padding(0, 0, 0, p8) };
-            var inBook = new RadioButton { Name = "migrationPickInBook", Text = "打开工作簿，在工作表里框选（只读）", AutoSize = true, Checked = PickInWorkbook, ForeColor = Ui.Ink, Margin = new Padding(0, p4, 0, p4) };
-            var inPanel = new RadioButton { Name = "migrationPickInPanel", Text = "打开右侧区域选择栏框选", AutoSize = true, Checked = !PickInWorkbook, ForeColor = Ui.Ink, Margin = new Padding(0, p4, 0, p4) };
-            var note = new Label { Text = "多个工作簿时打开第一个，定位到它们共有的工作表。设置保存在本机。", AutoSize = true, MaximumSize = new Size(Ui.Px(this, 300), 0), ForeColor = Ui.InkDim, Margin = new Padding(0, p8, 0, 0) };
-            inBook.CheckedChanged += delegate { if (inBook.Checked) { PickInWorkbook = true; Message("框选按钮：打开工作簿框选。"); } };
-            inPanel.CheckedChanged += delegate { if (inPanel.Checked) { PickInWorkbook = false; Message("框选按钮：在右侧区域选择栏框选。"); } };
-            panel.Controls.Add(title, 0, 0); panel.Controls.Add(inBook, 0, 1); panel.Controls.Add(inPanel, 0, 2); panel.Controls.Add(note, 0, 3);
-            panel.PerformLayout();
-            var host = new ToolStripControlHost(panel) { AutoSize = false, Margin = Padding.Empty, Padding = Padding.Empty, Size = panel.PreferredSize };
-            drop.Items.Add(host);
+            int pad = Ui.Px(this, 14), rowHeight = Ui.Px(this, 34), gap = Ui.Px(this, 28), inset = Ui.Px(this, 4);
+            var entries = new[] { new[] { "保存为预设…", "把当前整套设置存进预设库" }, new[] { "预设管理…", "查看、应用、导入、导出、删除" } };
+            int titleWidth = entries.Max(e => TextRenderer.MeasureText(e[0], font).Width), noteWidth = entries.Max(e => TextRenderer.MeasureText(e[1], font).Width);
+            string pickLabel = "行末框选按钮"; int toggleWidth = Ui.Px(this, 200);
+            int width = Math.Max(pad + titleWidth + gap + noteWidth + pad, pad + TextRenderer.MeasureText(pickLabel, font).Width + gap + toggleWidth + pad);
+            var panel = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, BackColor = Color.White, Font = font, Padding = new Padding(inset, Ui.Px(this, 6), inset, Ui.Px(this, 8)) };
+            Action<string> section = delegate(string text)
+            { panel.Controls.Add(new Label { Text = text, AutoSize = false, Size = new Size(width, Ui.Px(this, 28)), TextAlign = ContentAlignment.BottomLeft, ForeColor = Ui.InkDim, Padding = new Padding(pad, 0, 0, Ui.Px(this, 3)), Margin = Padding.Empty }); };
+            section("预设");
+            var actions = new Action[] { delegate { SavePreset(); }, delegate { ShowPresetManager(); } };
+            for (int i = 0; i < entries.Length; i++)
+            {
+                var action = actions[i];
+                var row = new MigrationMenuRow { Title = entries[i][0], Note = entries[i][1], TextLeft = pad, NoteLeft = pad + titleWidth + gap, Size = new Size(width, rowHeight), Font = font, Margin = Padding.Empty };
+                row.Click += delegate { drop.Close(); BeginInvoke(action); };
+                panel.Controls.Add(row);
+            }
+            panel.Controls.Add(new Panel { Size = new Size(width - pad, 1), BackColor = Ui.GridLine, Margin = new Padding(pad / 2, Ui.Px(this, 6), 0, Ui.Px(this, 2)) });
+            section("框选方式");
+            var pick = new TableLayoutPanel { Size = new Size(width, rowHeight + Ui.Px(this, 6)), ColumnCount = 2, RowCount = 1, BackColor = Color.White, Margin = Padding.Empty, Padding = new Padding(pad, 0, pad, 0) };
+            pick.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); pick.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, toggleWidth));
+            pick.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            pick.Controls.Add(new Label { Text = pickLabel, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, ForeColor = Ui.Ink, Margin = Padding.Empty, Padding = Padding.Empty }, 0, 0);
+            var toggle = new MigrationSegmented("打开工作簿", "右侧栏", PickInWorkbook ? 0 : 1) { Name = "migrationPickMode", Size = new Size(toggleWidth, Ui.Px(this, 30)), Font = font, Anchor = AnchorStyles.Right, Margin = Padding.Empty };
+            toggle.SelectedChanged += delegate
+            {
+                PickInWorkbook = toggle.Selected == 0;
+                Message(PickInWorkbook ? "框选按钮：打开工作簿，在工作表里框选（只读）。" : "框选按钮：在右侧区域选择栏框选。");
+            };
+            pick.Controls.Add(toggle, 1, 0);
+            panel.Controls.Add(pick);
+            FramePopup(panel); panel.PerformLayout();
+            drop.Items.Add(new ToolStripControlHost(panel) { AutoSize = false, Size = panel.PreferredSize, Margin = Padding.Empty, Padding = Padding.Empty });
             drop.Closed += delegate { BeginInvoke(new Action(delegate { drop.Dispose(); font.Dispose(); })); };
             drop.Show(gear.PointToScreen(new Point(gear.Width, gear.Height)), ToolStripDropDownDirection.BelowLeft);
             MigrationDropDownWatch.Attach(drop);
@@ -930,6 +1005,11 @@ namespace Excel_Iterate
             AddGridColumn(g, "sheet", role + "工作表", 140, true);
             AddGridColumn(g, "range", role + "区域", 120, false);
             AddGridColumn(g, "pick", "", 40, true);
+            if (!target)
+            {
+                AddGridColumn(g, "trigger", "", 40, true);
+                g.Columns["trigger"].Resizable = DataGridViewTriState.False; g.Columns["trigger"].ToolTipText = "逐行重算：把一列值逐个填入触发单元格，重算后写入同行文件名对应的目标工作簿";
+            }
             AddGridColumn(g, "size", "尺寸", 100, true);
             g.Columns["pick"].Resizable = DataGridViewTriState.False; g.Columns["pick"].ToolTipText = "框选区域（打开方式可在右上角设置中切换）";
             g.Columns["no"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
@@ -951,15 +1031,16 @@ namespace Excel_Iterate
                 if (name == "book") ShowBookPopup(g, g.Rows[e.RowIndex], target);
                 else if (name == "sheet") ShowRowSheetPopup(g, g.Rows[e.RowIndex], target);
                 else if (name == "pick") OpenRangePicker(g, g.Rows[e.RowIndex], target);
+                else if (name == "trigger") ShowTriggerPopup(g, (MigrationPair)g.Rows[e.RowIndex].Tag, null);
             };
             g.CellMouseEnter += delegate(object sender, DataGridViewCellEventArgs e)
             {
                 string name = e.ColumnIndex < 0 ? "" : g.Columns[e.ColumnIndex].Name;
-                g.Cursor = e.RowIndex >= 0 && !g.ReadOnly && (name == "book" || name == "sheet" || name == "pick") ? Cursors.Hand : Cursors.Default;
-                int hot = e.RowIndex >= 0 && name == "pick" ? e.RowIndex : -1;
-                if (!object.Equals(g.Tag, hot)) { g.Tag = hot; g.InvalidateColumn(g.Columns["pick"].Index); }
+                g.Cursor = e.RowIndex >= 0 && !g.ReadOnly && (name == "book" || name == "sheet" || name == "pick" || name == "trigger") ? Cursors.Hand : Cursors.Default;
+                string hot = e.RowIndex >= 0 && (name == "pick" || name == "trigger") ? name + ":" + e.RowIndex : "";
+                if (!object.Equals(g.Tag, hot)) { g.Tag = hot; g.Invalidate(); }
             };
-            g.CellMouseLeave += delegate { g.Cursor = Cursors.Default; if (!object.Equals(g.Tag, -1)) { g.Tag = -1; g.InvalidateColumn(g.Columns["pick"].Index); } };
+            g.CellMouseLeave += delegate { g.Cursor = Cursors.Default; if (!object.Equals(g.Tag, "")) { g.Tag = ""; g.Invalidate(); } };
             g.CellPainting += PaintChoiceCell;
             g.CurrentCellChanged += delegate { UpdatePreview(); ShowPairDetails(); };
             AttachRowMenu(g, target);
@@ -967,7 +1048,7 @@ namespace Excel_Iterate
             // Vertical rules so each value reads under its own column.
             g.CellBorderStyle = DataGridViewCellBorderStyle.Single;
             g.CellPainting += PaintHeaderRule;
-            g.HandleCreated += delegate { g.Columns["sheet"].HeaderCell.Style.Padding = new Padding(Ui.Px(g, 6), 0, Ui.Px(g, 28), 0); g.Columns["pick"].HeaderCell.Style.Padding = new Padding(1); };
+            g.HandleCreated += delegate { g.Columns["sheet"].HeaderCell.Style.Padding = new Padding(Ui.Px(g, 6), 0, Ui.Px(g, 28), 0); g.Columns["pick"].HeaderCell.Style.Padding = new Padding(1); if (g.Columns.Contains("trigger")) g.Columns["trigger"].HeaderCell.Style.Padding = new Padding(1); };
             FitLikeTargets(g, new Dictionary<string, int> { { "book", 34 }, { "sheet", 24 }, { "range", 22 }, { "size", 20 } });
         }
         // Workbook and sheet cells: plain text with a small chevron, like the
@@ -976,10 +1057,12 @@ namespace Excel_Iterate
         {
             var grid = (DataGridView)sender;
             if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
-            string name = grid.Columns[e.ColumnIndex].Name; if (name != "book" && name != "sheet" && name != "pick") return;
+            string name = grid.Columns[e.ColumnIndex].Name; if (name != "book" && name != "sheet" && name != "pick" && name != "trigger") return;
             e.Paint(e.ClipBounds, DataGridViewPaintParts.All & ~DataGridViewPaintParts.ContentForeground);
             float u = e.Graphics.DpiX / 96f; var cell = e.CellBounds;
-            if (name == "pick") { PaintPickIcon(e.Graphics, cell, u, grid.Tag is int && (int)grid.Tag == e.RowIndex, !grid.ReadOnly); e.Handled = true; return; }
+            bool hot = object.Equals(grid.Tag, name + ":" + e.RowIndex);
+            if (name == "pick") { PaintPickIcon(e.Graphics, cell, u, hot, !grid.ReadOnly); e.Handled = true; return; }
+            if (name == "trigger") { PaintTriggerIcon(e.Graphics, cell, u, hot, Convert.ToString(e.Value) == "on", !grid.ReadOnly); e.Handled = true; return; }
             int arrow = (int)(24 * u), gap = (int)(8 * u);
             string text = Convert.ToString(e.FormattedValue);
             bool placeholder = text.StartsWith("（", StringComparison.Ordinal), selected = (e.State & DataGridViewElementStates.Selected) != 0;
@@ -1028,7 +1111,7 @@ namespace Excel_Iterate
         private void ShowRowSheetPopup(DataGridView grid, DataGridViewRow row, bool target)
         {
             if (Running || grid.ReadOnly) return;
-            var pair = (MigrationPair)row.Tag; var side = target ? pair.Target : pair.Source;
+            var pair = (MigrationPair)row.Tag; var side = BooksSide(target ? pair.Target : pair.Source, target);
             if (side.Books.Count == 0) { Message("请先为这一行选择" + (target ? "目标" : "源") + "工作簿。"); ShowBookPopup(grid, row, target); return; }
             bool wasOpen = sheetPopup != null && sheetPopup.Visible; ClosePopups(); if (wasOpen) return;
             var common = CommonSheets(side, target); var commonSet = new HashSet<string>(common, StringComparer.OrdinalIgnoreCase);
@@ -1053,7 +1136,7 @@ namespace Excel_Iterate
         private void OpenRangePicker(DataGridView grid, DataGridViewRow row, bool target)
         {
             if (Running) return;
-            var pair = (MigrationPair)row.Tag; var side = target ? pair.Target : pair.Source;
+            var pair = (MigrationPair)row.Tag; var side = BooksSide(target ? pair.Target : pair.Source, target);
             if (side.Books.Count == 0) { Message("请先为这一行选择" + (target ? "目标" : "源") + "工作簿。"); ShowBookPopup(grid, row, target); return; }
             if (side.Sheet.Length == 0)
             {
@@ -1099,7 +1182,9 @@ namespace Excel_Iterate
             b.ModeToggled += delegate(int row)
             {
                 if (Running || row < 0 || row >= pairs.Count) return;
-                var pair = pairs[row]; pair.ValuesOnly = !pair.ValuesOnly; pair.Instances.Clear(); UpdateMappingRow(pair); Changed(); ShowPairDetails();
+                var pair = pairs[row];
+                if (pair.Source.Trigger != null) { Message("逐行重算固定只写数值（写入重算后的结果）。"); return; }
+                pair.ValuesOnly = !pair.ValuesOnly; pair.Instances.Clear(); UpdateMappingRow(pair); Changed(); ShowPairDetails();
                 Message("映射第 " + (row + 1) + " 行改为“" + (pair.ValuesOnly ? ModeValues : ModeFormula) + "”。");
             };
             b.SwapRequested += delegate(int from, int to, bool target) { if (!Running) SwapSides(from, to, target); };
@@ -1222,7 +1307,9 @@ namespace Excel_Iterate
             try
             {
                 row.Cells["no"].Value = string.Join("、", RowsUsing(side, target).Select(i => (i + 1).ToString(CultureInfo.InvariantCulture)).ToArray());
-                row.Cells["book"].Value = BooksText(side.Books);
+                bool byName = target && IsByName(side);
+                row.Cells["book"].Value = byName ? "按文件名匹配（已添加 " + TargetBooks.Count + " 个）" : BooksText(side.Books);
+                if (!target) row.Cells["trigger"].Value = side.Trigger != null ? "on" : "";
                 row.Cells["book"].ToolTipText = side.Books.Count == 0 ? "点击选择" + (target ? "目标" : "源") + "工作簿（可多选）" : string.Join(Environment.NewLine, side.Books.ToArray());
                 row.Cells["sheet"].Value = side.Sheet.Length == 0 ? "（选择工作表）" : side.Sheet;
                 row.Cells["sheet"].ToolTipText = side.Books.Count == 0 ? "请先选择工作簿" : "点击选择" + (target ? "目标" : "源") + "工作表";
@@ -1238,16 +1325,18 @@ namespace Excel_Iterate
             var source = TryParse(pair.Source.Range); var target = TargetArea(pair);
             var entry = new MigrationMappingBoard.Entry
             {
-                SourceUsed = pair.Source.Used, TargetUsed = pair.Target.Used, Enabled = pair.Enabled, ValuesOnly = pair.ValuesOnly,
-                SourceTitle = CardTitle(pair.Source, source), SourceDetail = CardDetail(pair.Source, source) + Shared(pair.Source, false),
-                TargetTitle = CardTitle(pair.Target, target), TargetDetail = CardDetail(pair.Target, target),
+                SourceUsed = pair.Source.Used, TargetUsed = pair.Target.Used, Enabled = pair.Enabled, ValuesOnly = pair.ValuesOnly || pair.Source.Trigger != null,
+                SourceTitle = CardTitle(pair.Source, source), SourceDetail = CardDetail(pair.Source, source) + Shared(pair.Source, false) + TriggerTag(pair.Source),
+                TargetTitle = CardTitle(pair.Target, target),
+                TargetDetail = pair.Source.Trigger != null ? "按文件名匹配（已添加 " + TargetBooks.Count + " 个）" + (target == null ? "" : " · " + target.Rows + "×" + target.Columns) : CardDetail(pair.Target, target),
                 SourceTip = string.Join(Environment.NewLine, pair.Source.Books.ToArray()),
                 TargetTip = string.Join(Environment.NewLine, pair.Target.Books.ToArray()),
                 Status = PairStatus(pair)
             };
             string errors = PairErrors(pair); entry.StatusTip = errors.Length > 0 ? errors : entry.Status;
             string s = entry.Status;
-            entry.Tone = !pair.Enabled ? 0 : s.StartsWith("成功", StringComparison.Ordinal) ? 1 : s.StartsWith("部分成功", StringComparison.Ordinal) ? 2
+            entry.Tone = !pair.Enabled ? 0 : s.StartsWith("逐行", StringComparison.Ordinal) ? (s.Contains("模糊") || s.Contains("候选") ? 2 : 4)
+                : s.StartsWith("成功", StringComparison.Ordinal) ? 1 : s.StartsWith("部分成功", StringComparison.Ordinal) ? 2
                 : s.StartsWith("可执行", StringComparison.Ordinal) || s.StartsWith("就绪", StringComparison.Ordinal) ? 4
                 : s.StartsWith("未配对", StringComparison.Ordinal) || s.StartsWith("已还原", StringComparison.Ordinal) || s.StartsWith("待", StringComparison.Ordinal) ? 0 : 3;
             return entry;
@@ -1323,19 +1412,23 @@ namespace Excel_Iterate
             if (pair.Source.Sheet.Length == 0) return "未选源工作表";
             if (pair.Source.Range.Length == 0) return "未设源区域";
             var source = TryParse(pair.Source.Range); if (source == null) return "源区域无效：" + pair.Source.Range;
-            if (pair.Target.Books.Count == 0) return "未选目标工作簿";
+            bool byName = pair.Source.Trigger != null;
+            if (byName && pair.Source.Books.Count != 1) return "逐行重算只支持一个源工作簿";
+            if (byName && TargetBooks.Count == 0) return "请先添加目标工作簿（按文件名匹配）";
+            if (!byName && pair.Target.Books.Count == 0) return "未选目标工作簿";
             if (pair.Target.Sheet.Length == 0) return "未选目标工作表";
             if (pair.Target.Range.Length == 0) return "未设目标区域";
             var target = TargetArea(pair); if (target == null) return "目标区域无效：" + pair.Target.Range;
             if (target.Rows != source.Rows || target.Columns != source.Columns) return "形状不一致：源 " + source.Rows + "×" + source.Columns + "，目标 " + target.Rows + "×" + target.Columns;
-            if (pair.Source.Books.Count > 1 && pair.Source.Books.Count != pair.Target.Books.Count) return "源工作簿 " + pair.Source.Books.Count + " 个与目标 " + pair.Target.Books.Count + " 个无法一一对应";
+            if (!byName && pair.Source.Books.Count > 1 && pair.Source.Books.Count != pair.Target.Books.Count) return "源工作簿 " + pair.Source.Books.Count + " 个与目标 " + pair.Target.Books.Count + " 个无法一一对应";
             return "";
         }
         private string PairStatus(MigrationPair pair)
         {
             string problem = RowProblem(pair);
             if (!pair.Enabled) return "未启用" + (problem.Length == 0 ? "" : "；" + problem);
-            if (pair.Instances.Count == 0 || pair.Instances.All(m => m.Result == null)) return problem.Length > 0 ? problem : "就绪（待预检）";
+            if (pair.Instances.Count == 0 || pair.Instances.All(m => m.Result == null))
+                return problem.Length > 0 ? problem : pair.Source.Trigger != null ? TriggerSummary(pair.Source) : "就绪（待预检）";
             var results = pair.Instances.Where(m => m.Result != null).Select(m => m.Result).ToList();
             int total = results.Count, ok = results.Count(t => t.Status == "成功"), ready = results.Count(t => t.Ready && t.Status == "可执行"), restored = results.Count(t => t.Status == "已还原");
             int bad = results.Count(t => t.Status == "失败" || t.Status == "冲突" || t.Status == "已取消");
@@ -1533,6 +1626,8 @@ namespace Excel_Iterate
         private void ShowBookPopup(DataGridView grid, DataGridViewRow row, bool target)
         {
             if (Running || grid.ReadOnly) return;
+            if (target && IsByName(((MigrationPair)row.Tag).Target))
+            { Message("这一行与逐行重算的源配对：目标工作簿按触发值同行的文件名，在已添加的 " + TargetBooks.Count + " 个目标工作簿中自动匹配，无需选择。"); return; }
             if (Pool(target).Count == 0) { PickBooks(target, (MigrationPair)row.Tag); return; }
             bool wasOpen = bookPopup != null && bookPopup.Visible; ClosePopups(); if (wasOpen) return;
             bookPopup = CreateBookPopup((MigrationPair)row.Tag, target);
@@ -1544,6 +1639,7 @@ namespace Excel_Iterate
         {
             var books = bookPopup; bookPopup = null; if (books != null) { books.Close(); books.Dispose(); }
             var sheets = sheetPopup; sheetPopup = null; if (sheets != null) { sheets.Close(); sheets.Dispose(); }
+            var trigger = triggerPopup; triggerPopup = null; if (trigger != null) { trigger.Close(); trigger.Dispose(); }
         }
         // 统一设置工作表 for one side: every range of that side.
         private void ShowSheetMenu(bool target)
@@ -1582,6 +1678,7 @@ namespace Excel_Iterate
         internal int ApplySheet(MigrationPair pair, bool target, string sheet)
         {
             var side = target ? pair.Target : pair.Source; string old = side.Sheet;
+            if (target && IsByName(side)) { side.Sheet = sheet; pair.Instances.Clear(); return 0; }
             var lacking = side.Books.Where(path => { var book = FindBook(target, path); return book != null && book.Sheets.Count > 0 && !book.Sheets.Contains(sheet, StringComparer.OrdinalIgnoreCase); }).ToList();
             pair.Instances.Clear();
             if (lacking.Count == side.Books.Count) return 0;
@@ -1598,7 +1695,8 @@ namespace Excel_Iterate
         {
             Sources.ReadOnly = Targets.ReadOnly = value; Mappings.ReadOnly = value;
             if (value) return;
-            foreach (string name in new[] { "no", "book", "sheet", "size" }) { Sources.Columns[name].ReadOnly = true; Targets.Columns[name].ReadOnly = true; }
+            foreach (string name in new[] { "no", "book", "sheet", "pick", "trigger", "size" })
+                foreach (var grid in new DataGridView[] { Sources, Targets }) if (grid.Columns.Contains(name)) grid.Columns[name].ReadOnly = true;
         }
         private void Changed()
         {
@@ -1640,7 +1738,7 @@ namespace Excel_Iterate
             bool target; var pair = PanelPair(out target);
             sideSwitch.Visible = CurrentPage == mappingsPage;
             if (pair == null) { FillPreviewBooks(null); sheetPreview.Clear("在左侧选择一行，这里显示它的工作表，可直接框选区域。"); return; }
-            var side = target ? pair.Target : pair.Source; string role = target ? "目标" : "源";
+            var side = BooksSide(target ? pair.Target : pair.Source, target); string role = target ? "目标" : "源";
             FillPreviewBooks(side);
             sheetPreview.Sync.Visible = !target; sheetPreview.Sync.Text = "作为新的源区域加入"; sheetPreview.OverlapConflict = target;
             if (!side.Used) { sheetPreview.Clear("映射第 " + (pairs.IndexOf(pair) + 1) + " 行还没有" + role + "区域：到“" + role + "区域”页新增，或在本页拖动与其他行对应。"); return; }
@@ -1718,6 +1816,312 @@ namespace Excel_Iterate
         { return !side.Used ? "（未配对）" : (side.Sheet.Length == 0 ? "（未选工作表）" : side.Sheet) + " · " + (area != null ? area.Address : side.Range.Length == 0 ? "（未设区域）" : side.Range + "（无效）"); }
         private static string Books(MigrationSide side)
         { return side.Books.Count == 0 ? "（未选）" : string.Join("；", side.Books.Select(Path.GetFileName).ToArray()); }
+        // ---------------- 逐行重算 ----------------
+        // A target range paired with a 逐行重算 source takes its workbook from
+        // the trigger row's name, matched among all added targets.
+        private bool IsByName(MigrationSide side)
+        { return side.Used && pairs.Any(p => p.Target == side && p.Source.Used && p.Source.Trigger != null); }
+        // The workbooks a side stands for: a by-name target stands for all
+        // added targets (for sheet lists, picking and preview).
+        private MigrationSide BooksSide(MigrationSide side, bool target)
+        {
+            if (!target || !IsByName(side)) return side;
+            var all = new MigrationSide { Sheet = side.Sheet, Range = side.Range, Used = side.Used }; all.Books.AddRange(TargetBooks.Select(b => b.Path));
+            return all;
+        }
+        private string TriggerTag(MigrationSide side)
+        {
+            if (side.Trigger == null) return "";
+            RefreshTrigger(side);
+            return side.Trigger.Error.Length > 0 ? " · 逐行（设置无效）" : " · 逐行 " + side.Trigger.Rows.Count(r => r.Kind != "空值");
+        }
+        private string TriggerSummary(MigrationSide side)
+        {
+            var trigger = side.Trigger; RefreshTrigger(side);
+            if (trigger.Error.Length > 0) return "逐行重算设置无效：" + trigger.Error;
+            var rows = trigger.Rows.Where(r => r.Kind != "空值").ToList();
+            int matched = rows.Count(r => r.Ready), fuzzy = rows.Count(r => r.Kind == "模糊"), many = rows.Count(r => r.Kind == "多个候选"), missing = rows.Count(r => r.Kind == "缺失"), skipped = rows.Count(r => r.Kind == "跳过");
+            var parts = new List<string> { "匹配 " + matched };
+            if (fuzzy > 0) parts.Add("模糊 " + fuzzy); if (many > 0) parts.Add("多个候选 " + many); if (missing > 0) parts.Add("缺 " + missing); if (skipped > 0) parts.Add("跳过 " + skipped);
+            return "逐行 " + rows.Count + "：" + string.Join("，", parts.ToArray());
+        }
+        private static int ColumnIndex(string letters)
+        {
+            if (!Regex.IsMatch(letters ?? "", "^[A-Za-z]{1,3}$")) throw new InvalidOperationException("文件名列应为列字母，例如 H");
+            return MigrationArea.Parse(letters.ToUpperInvariant() + "1").Column;
+        }
+        // Re-read the trigger values and names (from the saved file, without
+        // opening WPS) and match each name against the added targets. Cached
+        // until the file, settings, targets or choices change.
+        private void RefreshTrigger(MigrationSide side)
+        {
+            var trigger = side.Trigger; if (trigger == null) return;
+            string path = side.Books.Count == 1 ? side.Books[0] : "";
+            long stamp = path.Length > 0 && File.Exists(path) ? File.GetLastWriteTimeUtc(path).Ticks : 0;
+            string signature = path + "|" + side.Sheet + "|" + trigger.Cell + "|" + trigger.Values + "|" + trigger.NameColumn + "|" + stamp + "|"
+                + string.Join("|", TargetBooks.Select(b => b.Path).ToArray()) + "|" + string.Join(",", trigger.Chosen.Select(c => c.Key + "=" + c.Value).ToArray());
+            if (signature == trigger.Signature) return;
+            trigger.Signature = signature; trigger.Rows.Clear(); trigger.Error = "";
+            try
+            {
+                if (side.Books.Count != 1) throw new InvalidOperationException("逐行重算只支持一个源工作簿");
+                if (side.Sheet.Length == 0) throw new InvalidOperationException("请先选择源工作表");
+                var cell = MigrationArea.Parse(trigger.Cell); if (cell.Rows != 1 || cell.Columns != 1) throw new InvalidOperationException("触发单元格只能是一个单元格");
+                var values = MigrationArea.Parse(trigger.Values); if (values.Columns != 1) throw new InvalidOperationException("触发值区域只能是一列");
+                int nameColumn = ColumnIndex(trigger.NameColumn);
+                var snapshot = LoadSnapshot(path, side.Sheet);
+                var pool = TargetBooks.Select(b => b.Path).ToList();
+                for (int r = values.Row; r < values.Row + values.Rows; r++)
+                {
+                    var row = new MigrationTriggerRow { Row = r, Value = snapshot.Value(r, values.Column).Trim(), Name = snapshot.Value(r, nameColumn).Trim() };
+                    if (row.Value.Length == 0) row.Kind = "空值";
+                    else
+                    {
+                        MatchRow(row, pool); string chosen;
+                        if (trigger.Chosen.TryGetValue(r, out chosen) && (chosen.Length == 0 || pool.Contains(chosen, StringComparer.OrdinalIgnoreCase)))
+                        { row.Kind = chosen.Length == 0 ? "跳过" : "已确认"; row.Path = chosen; }
+                    }
+                    trigger.Rows.Add(row);
+                }
+            }
+            catch (Exception error) { trigger.Error = error.Message; }
+        }
+        // Name normalisation for matching: no extension, full/half width
+        // unified, no "！" or leading numbering such as "00-" / "03-01-", no spaces.
+        internal static string NormalizeName(string name)
+        {
+            string text = (name ?? "").Trim();
+            foreach (string extension in new[] { ".xlsx", ".xlsm", ".xls", ".et" })
+                if (text.EndsWith(extension, StringComparison.OrdinalIgnoreCase)) { text = text.Substring(0, text.Length - extension.Length); break; }
+            text = text.Normalize(NormalizationForm.FormKC);
+            text = Regex.Replace(text, @"^[\s!]*(?:\d+[\s\-_.、]+)*", "");
+            text = Regex.Replace(text, @"[\s!]", "");
+            return text.ToLowerInvariant();
+        }
+        internal static double NameScore(string a, string b)
+        {
+            if (a.Length == 0 || b.Length == 0) return 0;
+            if (a == b) return 1;
+            int min = Math.Min(a.Length, b.Length), max = Math.Max(a.Length, b.Length);
+            if (a.Contains(b) || b.Contains(a)) return 0.7 + 0.29 * min / max;
+            var previous = new int[b.Length + 1]; var current = new int[b.Length + 1];
+            for (int j = 0; j <= b.Length; j++) previous[j] = j;
+            for (int i = 1; i <= a.Length; i++)
+            {
+                current[0] = i;
+                for (int j = 1; j <= b.Length; j++) current[j] = Math.Min(Math.Min(current[j - 1] + 1, previous[j] + 1), previous[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1));
+                var swap = previous; previous = current; current = swap;
+            }
+            return 0.99 * (1 - (double)previous[b.Length] / max);
+        }
+        // 精确: one candidate equal after normalisation. 模糊: one clearly best
+        // close candidate (needs confirmation). 多个候选: no clear winner.
+        // 缺失: nothing close enough.
+        internal static void MatchRow(MigrationTriggerRow row, IEnumerable<string> pool)
+        {
+            row.Candidates.Clear(); row.Path = ""; string key = NormalizeName(row.Name);
+            foreach (string path in pool)
+            {
+                double score = NameScore(key, NormalizeName(Path.GetFileName(path)));
+                if (score >= 0.7) row.Candidates.Add(new KeyValuePair<string, double>(path, score));
+            }
+            row.Candidates.Sort((x, y) => y.Value.CompareTo(x.Value));
+            int exact = row.Candidates.Count(c => c.Value >= 1);
+            if (row.Candidates.Count == 0) row.Kind = "缺失";
+            else if (exact == 1) { row.Kind = "精确"; row.Path = row.Candidates[0].Key; }
+            else if (exact > 1 || (row.Candidates.Count > 1 && row.Candidates[0].Value - row.Candidates[1].Value < 0.05)) row.Kind = "多个候选";
+            else { row.Kind = "模糊"; row.Path = row.Candidates[0].Key; }
+        }
+        // Set or change 逐行重算 for a source range. Ranges of the same
+        // workbook and sheet share the setting (one recalculation feeds all).
+        internal void SetTrigger(MigrationSide side, MigrationTrigger trigger)
+        {
+            int shared = 0;
+            foreach (var other in DistinctSides(false))
+            {
+                if (other == side || other.Books.Count != 1 || side.Books.Count != 1 || !string.Equals(other.Books[0], side.Books[0], StringComparison.OrdinalIgnoreCase) || !string.Equals(other.Sheet, side.Sheet, StringComparison.OrdinalIgnoreCase)) continue;
+                if (trigger == null && other.Trigger == null) continue;
+                other.Trigger = trigger == null ? null : trigger.Copy(); shared++;
+            }
+            side.Trigger = trigger;
+            foreach (var pair in pairs) if (pair.Source.Used && (pair.Source == side || (pair.Source.Books.Count == 1 && side.Books.Count == 1 && string.Equals(pair.Source.Books[0], side.Books[0], StringComparison.OrdinalIgnoreCase)))) pair.Instances.Clear();
+            RefreshRows(); Changed(); ShowPairDetails();
+            Message(trigger == null ? "已取消逐行重算" + (shared > 0 ? "（同表另外 " + shared + " 个源区域一并取消）" : "") + "。"
+                : "已设置逐行重算：触发单元格 " + trigger.Cell + "，触发值 " + trigger.Values + "，文件名列 " + trigger.NameColumn + (shared > 0 ? "；已同时应用到同表的 " + shared + " 个源区域" : "") + "。在“映射”页或下方明细核对每一行的目标。");
+        }
+        private void ShowTriggerPopup(DataGridView grid, MigrationPair pair, MigrationTrigger draft)
+        {
+            if (Running || grid.ReadOnly || !pairs.Contains(pair)) return;
+            var side = pair.Source;
+            if (side.Books.Count != 1) { Message("逐行重算只支持一个源工作簿：请让这一行只选一个源工作簿。"); return; }
+            if (side.Sheet.Length == 0) { Message("请先为这一行选择源工作表。"); return; }
+            ClosePopups();
+            var value = draft ?? (side.Trigger != null ? side.Trigger.Copy() : new MigrationTrigger());
+            if (draft == null && side.Trigger == null)
+                try
+                {
+                    // Guess the value list: column G from row 2 down to its last value.
+                    var snapshot = LoadSnapshot(side.Books[0], side.Sheet); int last = 0;
+                    for (int r = 2; r <= snapshot.MaxRow; r++) if (snapshot.Value(r, 7).Trim().Length > 0) last = r;
+                    if (last >= 2) value.Values = "G2:G" + last.ToString(CultureInfo.InvariantCulture);
+                }
+                catch (Exception) { }
+            var drop = new ToolStripDropDown { Padding = Padding.Empty, DropShadowEnabled = true, BackColor = Color.White, Renderer = new MigrationMenuRenderer() };
+            var font = Ui.MakeFont(10f, FontStyle.Regular, Font);
+            int p4 = Ui.Px(this, 4), p8 = Ui.Px(this, 8);
+            var panel = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 3, BackColor = Color.White, Font = font, Padding = new Padding(Ui.Px(this, 16), Ui.Px(this, 14), Ui.Px(this, 16), Ui.Px(this, 12)) };
+            var title = new Label { Text = "逐行重算", AutoSize = true, ForeColor = Ui.Ink, Font = Ui.MakeFont(10f, FontStyle.Bold, Font), Margin = new Padding(0, 0, 0, p8) };
+            panel.Controls.Add(title, 0, 0); panel.SetColumnSpan(title, 3);
+            var cellBox = new TextBox { Name = "migrationTriggerCell", Text = value.Cell, Width = Ui.Px(this, 150), Margin = new Padding(0, p4, p4, p4) };
+            var valuesBox = new TextBox { Name = "migrationTriggerValues", Text = value.Values, Width = Ui.Px(this, 150), Margin = new Padding(0, p4, p4, p4) };
+            var nameBox = new TextBox { Name = "migrationTriggerName", Text = value.NameColumn, Width = Ui.Px(this, 60), Margin = new Padding(0, p4, p4, p4) };
+            Action keep = delegate { value.Cell = NormalizeAddress(cellBox.Text); value.Values = NormalizeAddress(valuesBox.Text); value.NameColumn = (nameBox.Text ?? "").Trim().ToUpperInvariant(); };
+            Func<string, TextBox, bool, int, Control> line = delegate(string caption, TextBox box, bool pick, int at)
+            {
+                panel.Controls.Add(new Label { Text = caption, AutoSize = true, ForeColor = Ui.InkDim, Margin = new Padding(0, Ui.Px(this, 8), p8, 0) }, 0, at);
+                panel.Controls.Add(box, 1, at);
+                if (!pick) return box;
+                var button = new Label { Text = "", AutoSize = false, Size = new Size(Ui.Px(this, 28), Ui.Px(this, 26)), Cursor = Cursors.Hand, Margin = new Padding(0, p4, 0, p4) };
+                button.Paint += delegate(object sender, PaintEventArgs e) { PaintPickIcon(e.Graphics, button.ClientRectangle, e.Graphics.DpiX / 96f, false, true); };
+                button.Click += delegate
+                {
+                    keep(); drop.Close();
+                    if (RangePickRequested == null) return;
+                    bool forCell = box == cellBox;
+                    RangePickRequested(false, side.Books[0], side.Sheet, forCell ? value.Cell : value.Values, delegate(string address)
+                    {
+                        var area = MigrationArea.Parse(address);
+                        if (forCell) value.Cell = MigrationArea.Cell(area.Row, area.Column); else value.Values = area.Address;
+                        ShowTriggerPopup(grid, pair, value);
+                    });
+                };
+                restoreTip.SetToolTip(button, "在工作表中框选");
+                panel.Controls.Add(button, 2, at); return box;
+            };
+            line("触发单元格", cellBox, true, 1);
+            line("触发值", valuesBox, true, 2);
+            line("目标文件名列", nameBox, false, 3);
+            var note = new Label { Text = "每个触发值依次填入触发单元格，重算后读取本行源区域（只写数值），写入同一行文件名在已添加的目标工作簿中匹配到的那个工作簿。源文件只在副本中改动。", AutoSize = true, MaximumSize = new Size(Ui.Px(this, 320), 0), ForeColor = Ui.InkDim, Margin = new Padding(0, p8, 0, 0) };
+            panel.Controls.Add(note, 0, 4); panel.SetColumnSpan(note, 3);
+            var error = new Label { AutoSize = true, MaximumSize = new Size(Ui.Px(this, 320), 0), ForeColor = Ui.Danger, Margin = new Padding(0, p4, 0, 0) };
+            panel.Controls.Add(error, 0, 5); panel.SetColumnSpan(error, 3);
+            var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Dock = DockStyle.Fill, Margin = new Padding(0, p8, 0, 0), BackColor = Color.White };
+            Func<string, bool, RoundedButton> make = delegate(string text, bool primary)
+            {
+                var b = Ui.Button(text, 72); if (primary) Ui.StylePrimary(b); else Ui.StyleSecondary(b);
+                b.Font = font; b.MinimumSize = Size.Empty; b.Size = new Size(Ui.Px(this, text.Length > 2 ? 110 : 72), Ui.Px(this, 30)); b.Margin = new Padding(p8, 0, 0, 0); return b;
+            };
+            var ok = make("确定", true); var cancel = make("取消", false);
+            buttons.Controls.Add(ok); buttons.Controls.Add(cancel);
+            if (side.Trigger != null)
+            {
+                var clear = make("取消逐行", false);
+                clear.Click += delegate { drop.Close(); SetTrigger(side, null); };
+                buttons.Controls.Add(clear);
+            }
+            panel.Controls.Add(buttons, 0, 6); panel.SetColumnSpan(buttons, 3);
+            ok.Click += delegate
+            {
+                keep();
+                try
+                {
+                    var cell = MigrationArea.Parse(value.Cell); if (cell.Rows != 1 || cell.Columns != 1) throw new InvalidOperationException("触发单元格只能是一个单元格");
+                    var values = MigrationArea.Parse(value.Values); if (values.Columns != 1) throw new InvalidOperationException("触发值区域只能是一列");
+                    int nameColumn = ColumnIndex(value.NameColumn);
+                    if (nameColumn == values.Column) throw new InvalidOperationException("文件名列不能和触发值是同一列");
+                    var source = TryParse(side.Range);
+                    if (source != null && cell.Row >= source.Row && cell.Row < source.Row + source.Rows && cell.Column >= source.Column && cell.Column < source.Column + source.Columns)
+                        throw new InvalidOperationException("触发单元格不能在源区域里");
+                    value.Cell = cell.Address; value.Values = values.Address; value.Signature = "";
+                }
+                catch (Exception failure) { error.Text = failure.Message; return; }
+                drop.Close(); SetTrigger(side, value);
+            };
+            cancel.Click += delegate { drop.Close(); };
+            FramePopup(panel); panel.PerformLayout();
+            var host = new ToolStripControlHost(panel) { AutoSize = false, Margin = Padding.Empty, Padding = Padding.Empty, Size = panel.PreferredSize };
+            drop.Items.Add(host);
+            error.SizeChanged += delegate { panel.PerformLayout(); host.Size = panel.PreferredSize; drop.Size = panel.PreferredSize; };
+            drop.Closed += delegate { if (triggerPopup == drop) triggerPopup = null; BeginInvoke(new Action(delegate { drop.Dispose(); font.Dispose(); })); };
+            triggerPopup = drop;
+            var row = RowOf(grid, pair); int column = grid.Columns["trigger"].Index;
+            var rect = row == null ? new Rectangle(0, 0, 0, 0) : grid.GetCellDisplayRectangle(column, row.Index, true);
+            drop.Show(grid, new Point(Math.Max(0, rect.Right - panel.PreferredSize.Width), rect.Bottom));
+            MigrationDropDownWatch.Attach(drop);
+        }
+        private static void PaintTriggerIcon(Graphics g, Rectangle cell, float u, bool hot, bool on, bool enabled)
+        {
+            var smoothing = g.SmoothingMode; g.SmoothingMode = SmoothingMode.AntiAlias;
+            float size = 26 * u, x = cell.Left + (cell.Width - size) / 2f, y = cell.Top + (cell.Height - size) / 2f;
+            if ((hot || on) && enabled)
+                using (var path = Ui.RoundRect(new RectangleF(x, y, size, size), 6 * u)) using (var brush = new SolidBrush(on ? Color.FromArgb(232, 240, 254) : Color.FromArgb(242, 246, 255))) g.FillPath(brush, path);
+            Color ink = !enabled ? Color.FromArgb(200, 206, 216) : on || hot ? Ui.Blue : Color.FromArgb(120, 132, 152);
+            float cx = x + size / 2f, cy = y + size / 2f, r = 6.5f * u;
+            using (var pen = new Pen(ink, 1.6f * u) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+            {
+                g.DrawArc(pen, cx - r, cy - r, r * 2, r * 2, 200, 130);
+                g.DrawArc(pen, cx - r, cy - r, r * 2, r * 2, 20, 130);
+            }
+            using (var brush = new SolidBrush(ink))
+                foreach (double degrees in new[] { 330.0, 150.0 })
+                {
+                    double a = degrees * Math.PI / 180; float px = cx + (float)(r * Math.Cos(a)), py = cy + (float)(r * Math.Sin(a));
+                    float tx = (float)-Math.Sin(a), ty = (float)Math.Cos(a), nx = (float)Math.Cos(a), ny = (float)Math.Sin(a), head = 3.2f * u;
+                    g.FillPolygon(brush, new[] { new PointF(px + tx * head, py + ty * head), new PointF(px + nx * head * 0.9f, py + ny * head * 0.9f), new PointF(px - nx * head * 0.9f, py - ny * head * 0.9f) });
+                }
+            g.SmoothingMode = smoothing;
+        }
+        private KeyValuePair<MigrationSide, MigrationTriggerRow>? DetailLink(Point location)
+        {
+            if (detailLinks.Count == 0 || details.TextLength == 0) return null;
+            int index = details.GetCharIndexFromPosition(location); string text = details.Text;
+            int line = 0; for (int i = 0; i < Math.Min(index, text.Length); i++) if (text[i] == '\n') line++;
+            // The click must land on the line's text, not in the blank area below.
+            var start = details.GetPositionFromCharIndex(index); if (location.Y > start.Y + details.Font.Height * 2) return null;
+            KeyValuePair<MigrationSide, MigrationTriggerRow> link;
+            return detailLinks.TryGetValue(line, out link) ? link : (KeyValuePair<MigrationSide, MigrationTriggerRow>?)null;
+        }
+        // Choose the target of one 逐行重算 row: a candidate, any added
+        // target, skip, or back to the automatic match.
+        private void ShowTriggerChoices(Point location)
+        {
+            if (Running) return;
+            var link = DetailLink(location); if (link == null) return;
+            var side = link.Value.Key; var row = link.Value.Value; var trigger = side.Trigger; if (trigger == null) return;
+            var menu = new ContextMenuStrip { ShowImageMargin = false, Renderer = new MigrationMenuRenderer(), BackColor = Color.White, Font = Ui.MakeFont(10f, FontStyle.Regular, Font) };
+            Action<string> choose = delegate(string path)
+            {
+                trigger.Chosen[row.Row] = path; trigger.Signature = "";
+                foreach (var pair in pairs) if (pair.Source.Trigger == trigger) pair.Instances.Clear();
+                RefreshRows(); Changed(); ShowPairDetails();
+                Message("触发第 " + row.Row + " 行" + (path.Length == 0 ? "已设为跳过。" : "的目标已定为 " + Path.GetFileName(path) + "。"));
+            };
+            int h = Ui.Px(this, 10), v = Ui.Px(this, 5);
+            var head = new ToolStripMenuItem("第 " + row.Row + " 行：" + (row.Name.Length == 0 ? "（文件名为空）" : row.Name)) { Enabled = false, Padding = new Padding(h, v, h, v) };
+            menu.Items.Add(head);
+            foreach (var candidate in row.Candidates.Take(8))
+            {
+                string path = candidate.Key;
+                var item = new ToolStripMenuItem(Path.GetFileName(path) + "    " + (candidate.Value >= 1 ? "精确" : "相似 " + Math.Round(candidate.Value * 100) + "%")) { Padding = new Padding(h, v, h, v), Checked = string.Equals(row.Path, path, StringComparison.OrdinalIgnoreCase) && row.Ready };
+                item.Click += delegate { choose(path); }; menu.Items.Add(item);
+            }
+            var all = new ToolStripMenuItem("从全部目标工作簿中选择") { Padding = new Padding(h, v, h, v) };
+            all.DropDown.Renderer = new MigrationMenuRenderer(); all.DropDown.Font = menu.Font;
+            foreach (var book in TargetBooks.OrderBy(b => b.Name, StringComparer.CurrentCulture))
+            { string path = book.Path; var item = new ToolStripMenuItem(book.Name) { Padding = new Padding(h, v, h, v) }; item.Click += delegate { choose(path); }; all.DropDownItems.Add(item); }
+            if (all.DropDownItems.Count > 0) menu.Items.Add(all);
+            menu.Items.Add(new ToolStripSeparator());
+            if (trigger.Chosen.ContainsKey(row.Row))
+            {
+                var auto = new ToolStripMenuItem("恢复自动匹配") { Padding = new Padding(h, v, h, v) };
+                auto.Click += delegate { trigger.Chosen.Remove(row.Row); trigger.Signature = ""; foreach (var pair in pairs) if (pair.Source.Trigger == trigger) pair.Instances.Clear(); RefreshRows(); Changed(); ShowPairDetails(); };
+                menu.Items.Add(auto);
+            }
+            if (row.Kind != "跳过") { var skip = new ToolStripMenuItem("跳过这一行") { Padding = new Padding(h, v, h, v), ForeColor = Ui.Danger }; skip.Click += delegate { choose(""); }; menu.Items.Add(skip); }
+            menu.Closed += delegate { BeginInvoke(new Action(delegate { menu.Dispose(); })); };
+            menu.Show(details, location);
+            MigrationDropDownWatch.Attach(menu);
+        }
         private void ShowPairDetails()
         {
             bool target; var pair = tabs == null ? null : PanelPair(out target); if (pair == null) { details.Text = ""; return; }
@@ -1734,6 +2138,22 @@ namespace Excel_Iterate
                 lines.Add("· " + Path.GetFileName(m.Source.Path) + " → " + Path.GetFileName(m.TargetPath) + "：" + t.Status + (t.Error.Length == 0 ? "" : "：" + t.Error)
                     + (t.Overwritten > 0 ? "；覆盖 " + t.Overwritten + " 格" : "") + (t.Output.Length == 0 ? "" : "；输出 " + t.Output) + (t.Backup.Length == 0 ? "" : "；备份 " + t.Backup));
                 foreach (string sample in t.Samples.Take(3)) lines.Add("    " + sample);
+            }
+            detailLinks.Clear();
+            var trigger = pair.Source.Trigger;
+            if (trigger != null)
+            {
+                RefreshTrigger(pair.Source);
+                lines.Add("逐行重算：触发单元格 " + trigger.Cell + "，触发值 " + trigger.Values + "，文件名列 " + trigger.NameColumn + "；目标按文件名在已添加的 " + TargetBooks.Count + " 个目标工作簿中匹配");
+                if (trigger.Error.Length > 0) lines.Add("    设置无效：" + trigger.Error);
+                foreach (var row in trigger.Rows)
+                {
+                    string mark = row.Kind == "精确" ? "✓ 精确" : row.Kind == "已确认" ? "✓ 已确认" : row.Kind == "模糊" ? "⚠ 模糊（点此确认或更换）"
+                        : row.Kind == "多个候选" ? "⚠ 多个候选（点此选择）" : row.Kind == "缺失" ? "✗ 没有匹配的目标工作簿，将跳过（点此手动指定）"
+                        : row.Kind == "跳过" ? "– 已设为跳过（点此恢复）" : "– 触发值为空，跳过";
+                    if (row.Kind != "空值") detailLinks[lines.Count] = new KeyValuePair<MigrationSide, MigrationTriggerRow>(pair.Source, row);
+                    lines.Add("第 " + row.Row + " 行  " + (row.Value.Length == 0 ? "（空）" : row.Value) + "  →  " + (row.Path.Length > 0 ? Path.GetFileName(row.Path) : row.Name.Length == 0 ? "（文件名为空）" : row.Name) + "    " + mark);
+                }
             }
             details.Text = string.Join(Environment.NewLine, lines.ToArray());
         }
@@ -1756,6 +2176,7 @@ namespace Excel_Iterate
                 var pair = pairs[number - 1]; pair.Instances.Clear();
                 if (!pair.Enabled || RowProblem(pair).Length > 0) continue;
                 var source = MigrationArea.Parse(pair.Source.Range); var area = TargetArea(pair);
+                if (pair.Source.Trigger != null) { ExpandTrigger(plan, pair, number, area, targetPaths, valid); continue; }
                 var books = pair.Source.Books.Count == 1 ? pair.Target.Books.Select(t => new KeyValuePair<string, string>(pair.Source.Books[0], t)).ToList()
                     : pair.Source.Books.Zip(pair.Target.Books, (s, t) => new KeyValuePair<string, string>(s, t)).ToList();
                 foreach (var link in books)
@@ -1789,6 +2210,13 @@ namespace Excel_Iterate
                         int bottom = Math.Min(a.Row + a.Rows, b.Row + b.Rows), right = Math.Min(a.Column + a.Columns, b.Column + b.Columns);
                         if (top >= bottom || left >= right) continue;
                         string overlap = new MigrationArea { Row = top, Column = left, Rows = bottom - top, Columns = right - left }.Address;
+                        // Two trigger rows sent to the same target area: the
+                        // later row overwrites the earlier; ask, do not block.
+                        if (list[i].Source.TriggerRow > 0 && list[j].Source.TriggerRow > 0)
+                        {
+                            plan.Overrides.Add(list[i].Source.Name + "、" + list[j].Source.Name + " → " + Path.GetFileName(list[i].TargetPath) + "  " + list[i].TargetSheet + "!" + overlap + "，最终保留后者的结果");
+                            continue;
+                        }
                         Note(list[i], "与" + list[j].Source.Name + "在 " + list[i].TargetSheet + "!" + overlap + " 重叠");
                         Note(list[j], "与" + list[i].Source.Name + "在 " + list[j].TargetSheet + "!" + overlap + " 重叠");
                         conflicted.Add(list[i]); conflicted.Add(list[j]);
@@ -1799,6 +2227,40 @@ namespace Excel_Iterate
             lastPlan = plan; RefreshRows(); ShowPairDetails();
             if (plan.Passes.Count == 0) throw new InvalidOperationException(plan.Mappings.Count == 0 ? "没有可预检的映射：请在“映射”页查看各行“状态”提示的问题。" : "所有写入均未通过检查，请在“映射”页查看各行“状态”。");
             return plan;
+        }
+        // 逐行重算: one write per trigger value row, to the workbook its name
+        // matched among the added targets. Rows not yet resolved are blocked
+        // with the reason; empty, skipped and unmatched rows are left out.
+        private void ExpandTrigger(MigrationPlan plan, MigrationPair pair, int number, MigrationArea area, HashSet<string> targetPaths, List<MigrationMapping> valid)
+        {
+            var trigger = pair.Source.Trigger; RefreshTrigger(pair.Source);
+            if (trigger.Error.Length > 0) throw new InvalidOperationException("映射第 " + number + " 行的逐行重算设置无效：" + trigger.Error);
+            string sourcePath = pair.Source.Books[0]; var values = MigrationArea.Parse(trigger.Values); int nameColumn = ColumnIndex(trigger.NameColumn);
+            var sourceBook = FindBook(false, sourcePath);
+            foreach (var row in trigger.Rows)
+            {
+                string label = "映射第 " + number + " 行 · 触发第 " + row.Row + " 行";
+                if (row.Kind == "空值" || row.Kind == "跳过" || row.Kind == "缺失")
+                { plan.Skipped.Add(label + "：" + (row.Kind == "空值" ? "触发值为空" : row.Kind == "跳过" ? "已设为跳过" : "没有匹配的目标工作簿（" + row.Name + "）")); continue; }
+                var item = new MigrationSourceItem
+                {
+                    Path = sourcePath, Sheet = pair.Source.Sheet, Range = pair.Source.Range, ValuesOnly = true, Name = label, TriggerRow = row.Row,
+                    TriggerCell = MigrationArea.Parse(trigger.Cell).Address, TriggerFrom = MigrationArea.Cell(row.Row, values.Column), TriggerNameCell = MigrationArea.Cell(row.Row, nameColumn), TriggerExpect = row.Name
+                };
+                string path = row.Path.Length > 0 ? row.Path : "（未确定）";
+                var m = new MigrationMapping { Pair = pair, Source = item, TargetPath = path, TargetSheet = pair.Target.Sheet, Area = area, Start = MigrationArea.Cell(area.Row, area.Column), TargetRange = area.Address };
+                m.Result = new MigrationTarget { Path = path, Sheet = pair.Target.Sheet, Start = m.Start, Status = "待预检" };
+                pair.Instances.Add(m); plan.Mappings.Add(m);
+                string problem = null; var targetBook = row.Path.Length > 0 ? FindBook(true, row.Path) : null;
+                if (row.Kind == "模糊") problem = "触发第 " + row.Row + " 行为模糊匹配（" + row.Name + " → " + Path.GetFileName(row.Path) + "），请在明细中确认";
+                else if (row.Kind == "多个候选") problem = "触发第 " + row.Row + " 行“" + row.Name + "”有多个候选目标，请在明细中选择";
+                else if (sourceBook != null && sourceBook.Error.Length > 0) problem = "源工作簿读取失败：" + sourceBook.Error;
+                else if (targetBook != null && targetBook.Error.Length > 0) problem = "目标工作簿读取失败：" + targetBook.Error;
+                else if (targetBook != null && targetBook.Sheets.Count > 0 && !targetBook.Sheets.Contains(pair.Target.Sheet, StringComparer.OrdinalIgnoreCase)) problem = "目标工作簿缺少工作表“" + pair.Target.Sheet + "”";
+                else if (string.Equals(path, sourcePath, StringComparison.OrdinalIgnoreCase) || targetPaths.Contains(sourcePath)) problem = "源文件不能同时作为目标";
+                else { try { area.Check(1048576, 16384); } catch (Exception error) { problem = error.Message; } }
+                if (problem != null) Block(plan, m, problem); else valid.Add(m);
+            }
         }
         internal void RefreshResults()
         {
@@ -1898,7 +2360,7 @@ namespace Excel_Iterate
             try
             {
                 Ui.EnsureGridHeaders(grid);
-                if (grid.Columns.Contains("pick")) grid.Columns["pick"].MinimumWidth = Ui.Px(grid, 40);
+                foreach (string narrow in new[] { "pick", "trigger" }) if (grid.Columns.Contains(narrow)) grid.Columns[narrow].MinimumWidth = Ui.Px(grid, 40);
                 if (grid.Columns.Contains("sheet") && grid.Columns["sheet"].HeaderCell is MigrationSelectionHeader)
                     grid.Columns["sheet"].MinimumWidth = Math.Max(grid.Columns["sheet"].MinimumWidth, Ui.Px(grid, 104));
                 for (int pass = 0; pass < 3; pass++)
@@ -1960,7 +2422,8 @@ namespace Excel_Iterate
                 while (pending.Count > 0)
                 {
                     var source = pending[0].Source;
-                    var pass = new MigrationPass { Source = source, Request = new MigrationRequest { SourcePath = source.Path, SourceSheet = source.Sheet, SourceRange = source.Range, AllowEmptySource = plan.AllowEmptySource, ReplaceTargets = replace, ValuesOnly = source.ValuesOnly } };
+                    var pass = new MigrationPass { Source = source, Request = new MigrationRequest { SourcePath = source.Path, SourceSheet = source.Sheet, SourceRange = source.Range, AllowEmptySource = plan.AllowEmptySource, ReplaceTargets = replace, ValuesOnly = source.ValuesOnly,
+                        TriggerCell = source.TriggerCell, TriggerFrom = source.TriggerFrom, TriggerNameCell = source.TriggerNameCell, TriggerExpect = source.TriggerExpect } };
                     var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     foreach (var m in pending.ToList())
                     {
@@ -1989,8 +2452,9 @@ namespace Excel_Iterate
         {
             var results = plan.Mappings.Where(m => m.Result != null).Select(m => m.Result).ToList();
             int ok = results.Count(t => t.Status == "成功"), failed = results.Count(t => t.Status == "失败" || t.Status == "冲突"), ready = results.Count(t => t.Ready && t.Status == "可执行");
-            int rows = plan.Mappings.Select(m => m.Pair).Distinct().Count(), targets = plan.Mappings.Select(m => m.TargetPath).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+            int rows = plan.Mappings.Select(m => m.Pair).Distinct().Count(), skipped = plan.Skipped.Count, targets = plan.Mappings.Select(m => m.TargetPath).Distinct(StringComparer.OrdinalIgnoreCase).Count();
             return "对照 " + rows + " 行，目标工作簿 " + targets + " 个，共 " + plan.Mappings.Count + " 处写入：成功 " + ok + "，失败/冲突 " + failed + "，可执行 " + ready + "。"
+                + (skipped > 0 ? "逐行重算跳过 " + skipped + " 行（见明细）。" : "")
                 + (plan.ReplaceTargets ? "保存方式：校验后更新原文件并备份。" : "保存方式：另存结果副本。");
         }
         internal void RecordRestorePoint(string path, string backup)
@@ -2123,8 +2587,799 @@ namespace Excel_Iterate
             Message((restored > 0 ? "已还原 " + restored + " 个工作簿为迁移前的备份；如需再次迁移请重新预检。" : "未还原任何工作簿。")
                 + (failures.Count == 0 ? "" : " 未还原：" + string.Join("；", failures.ToArray())));
         }
+        // ---------------- presets ----------------
+        // The whole setup as preset data: workbooks (absolute path plus the
+        // path relative to their common folder), ranges, mappings, write
+        // modes and 逐行重算 settings. Never any sheet data.
+        internal Dictionary<string, object> CapturePreset(string name)
+        {
+            EndEdits();
+            var sources = DistinctSides(false); var targets = DistinctSides(true);
+            var paths = SourceBooks.Select(b => b.Path).Concat(TargetBooks.Select(b => b.Path)).Concat(sources.Concat(targets).SelectMany(s => s.Books))
+                .Concat(sources.Where(s => s.Trigger != null).SelectMany(s => s.Trigger.Chosen.Values).Where(v => v.Length > 0)).ToList();
+            string root = CommonFolder(paths);
+            Func<string, object> book = delegate(string path) { return MigrationJson.Obj("path", path, "relative", RelativeTo(root, path)); };
+            Func<MigrationSide, string, bool, object> sideData = delegate(MigrationSide side, string id, bool target)
+            {
+                object trigger = null;
+                if (!target && side.Trigger != null)
+                    trigger = MigrationJson.Obj("cell", side.Trigger.Cell, "values", side.Trigger.Values, "nameColumn", side.Trigger.NameColumn,
+                        "chosen", side.Trigger.Chosen.OrderBy(c => c.Key).Select(c => (object)MigrationJson.Obj("row", (long)c.Key, "path", c.Value, "relative", c.Value.Length == 0 ? "" : RelativeTo(root, c.Value))).ToList());
+                var data = MigrationJson.Obj("id", id, "books", side.Books.Select(book).ToList(), "sheet", side.Sheet, "range", side.Range);
+                if (trigger != null) data["trigger"] = trigger;
+                return data;
+            };
+            var mappings = pairs.Select(p => (object)MigrationJson.Obj(
+                "source", p.Source.Used ? (object)("s" + (sources.IndexOf(p.Source) + 1)) : null,
+                "target", p.Target.Used ? (object)("t" + (targets.IndexOf(p.Target) + 1)) : null,
+                "enabled", p.Enabled, "valuesOnly", p.ValuesOnly)).ToList();
+            return MigrationJson.Obj(
+                "format", MigrationPreset.Format, "version", (long)MigrationPreset.Version, "name", name,
+                "saved", DateTime.Now.ToString("s", CultureInfo.InvariantCulture), "root", root,
+                "options", MigrationJson.Obj("replaceTargets", replaceTargets.Checked, "allowEmptySource", allowEmpty.Checked),
+                "sourceBooks", SourceBooks.Select(b => book(b.Path)).ToList(),
+                "targetBooks", TargetBooks.Select(b => book(b.Path)).ToList(),
+                "sources", sources.Select((s, i) => sideData(s, "s" + (i + 1), false)).ToList(),
+                "targets", targets.Select((s, i) => sideData(s, "t" + (i + 1), true)).ToList(),
+                "mappings", mappings);
+        }
+        private static string CommonFolder(IEnumerable<string> paths)
+        {
+            string[] common = null;
+            foreach (string path in paths)
+            {
+                string folder = Path.GetDirectoryName(path); if (string.IsNullOrEmpty(folder)) continue;
+                var parts = folder.TrimEnd('\\').Split('\\');
+                if (common == null) { common = parts; continue; }
+                int n = 0; while (n < common.Length && n < parts.Length && string.Equals(common[n], parts[n], StringComparison.OrdinalIgnoreCase)) n++;
+                common = common.Take(n).ToArray();
+            }
+            return common == null || common.Length == 0 ? "" : string.Join("\\", common) + (common.Length == 1 ? "\\" : "");
+        }
+        private static string RelativeTo(string root, string path)
+        {
+            if (root.Length == 0) return Path.GetFileName(path);
+            string prefix = root.EndsWith("\\") ? root : root + "\\";
+            return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? path.Substring(prefix.Length) : Path.GetFileName(path);
+        }
+        // Replace the whole setup with a preset's. remap: old path -> path on
+        // this computer (from 定位缺失的工作簿). Only settings change: nothing
+        // is read or written until the user runs 预检.
+        internal void ApplyPresetData(Dictionary<string, object> data, IDictionary<string, string> remap)
+        {
+            if (Running) throw new InvalidOperationException("迁移运行期间不能应用预设。");
+            MigrationPreset.From(data, null);
+            Func<string, string> map = delegate(string path)
+            {
+                string found; if (path.Length == 0) return path;
+                return remap != null && remap.TryGetValue(path, out found) ? found : path;
+            };
+            Func<Dictionary<string, object>, string> pathOf = delegate(Dictionary<string, object> b) { return map(MigrationJson.Str(b, "path")); };
+            ClosePopups(); EndEdits();
+            pairs.Clear(); SourceBooks.Clear(); TargetBooks.Clear(); mappingFocus = null; lastPlan = null;
+            var options = MigrationJson.Map(data, "options");
+            syncing = true;
+            try { replaceTargets.Checked = MigrationJson.Flag(options, "replaceTargets", true); allowEmpty.Checked = MigrationJson.Flag(options, "allowEmptySource", false); }
+            finally { syncing = false; }
+            LoadPresetBooks(false, MigrationJson.Maps(data, "sourceBooks").Select(pathOf));
+            LoadPresetBooks(true, MigrationJson.Maps(data, "targetBooks").Select(pathOf));
+            var sides = new Dictionary<string, MigrationSide>(StringComparer.Ordinal);
+            foreach (string list in new[] { "sources", "targets" })
+                foreach (var item in MigrationJson.Maps(data, list))
+                {
+                    var side = new MigrationSide { Used = true, Sheet = MigrationJson.Str(item, "sheet"), Range = NormalizeAddress(MigrationJson.Str(item, "range")) };
+                    foreach (var b in MigrationJson.Maps(item, "books")) { string path = pathOf(b); if (path.Length > 0) side.Books.Add(Path.GetFullPath(path)); }
+                    var trigger = MigrationJson.Map(item, "trigger");
+                    if (list == "sources" && trigger != null)
+                    {
+                        side.Trigger = new MigrationTrigger { Cell = MigrationJson.Str(trigger, "cell"), Values = MigrationJson.Str(trigger, "values"), NameColumn = MigrationJson.Str(trigger, "nameColumn") };
+                        foreach (var chosen in MigrationJson.Maps(trigger, "chosen"))
+                        { string path = pathOf(chosen); side.Trigger.Chosen[(int)MigrationJson.Num(chosen, "row")] = path.Length == 0 ? "" : Path.GetFullPath(path); }
+                    }
+                    sides[(list == "sources" ? "S:" : "T:") + MigrationJson.Str(item, "id")] = side;
+                }
+            foreach (var item in MigrationJson.Maps(data, "mappings"))
+            {
+                var pair = new MigrationPair { Enabled = MigrationJson.Flag(item, "enabled", true), ValuesOnly = MigrationJson.Flag(item, "valuesOnly", false) };
+                MigrationSide side;
+                if (sides.TryGetValue("S:" + MigrationJson.Str(item, "source"), out side)) pair.Source = side;
+                if (sides.TryGetValue("T:" + MigrationJson.Str(item, "target"), out side)) pair.Target = side;
+                if (pair.Source.Used || pair.Target.Used) pairs.Add(pair);
+            }
+            RebuildViews(); Changed(); ShowPage(pairs.Count > 0 ? 2 : 0);
+        }
+        private void LoadPresetBooks(bool target, IEnumerable<string> paths)
+        {
+            var list = paths.Where(p => p.Length > 0).Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var present = list.Where(File.Exists).ToArray();
+            if (present.Length > 0 && BooksPicked != null) BooksPicked(target, present);
+            foreach (string path in list)
+                if (FindBook(target, path) == null) AddBook(target, path, new string[0], File.Exists(path) ? "" : "找不到文件，请重新选择");
+        }
+        private bool HasSetup { get { return pairs.Count > 0 || SourceBooks.Count > 0 || TargetBooks.Count > 0; } }
+        private string SuggestedPresetName()
+        {
+            var source = SourceBooks.FirstOrDefault();
+            return (source == null ? "迁移预设" : Path.GetFileNameWithoutExtension(source.Path)) + " " + DateTime.Now.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture).Replace(':', '.');
+        }
+        // 保存为预设: returns the saved file, or null when cancelled.
+        internal string SavePreset()
+        {
+            if (Running) return null;
+            if (!HasSetup) { Message("当前没有可保存的设置：先添加工作簿和区域。"); return null; }
+            string name = MigrationNameDialog.Ask(this, "保存为预设", "预设名称（保存在本机预设库，可在“预设管理”中导出分享）：", SuggestedPresetName());
+            if (name == null) return null;
+            string file = MigrationPreset.FileFor(name);
+            if (File.Exists(file) && UiDialog.Show(this, "已有同名预设“" + name + "”，是否覆盖？", "保存为预设", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return null;
+            try { MigrationPreset.Write(file, CapturePreset(name)); Message("已保存预设“" + name + "”。"); return file; }
+            catch (Exception error) { Message("保存预设失败：" + error.Message); return null; }
+        }
+        internal void ShowPresetManager()
+        {
+            if (Running) { Message("迁移运行期间不能管理预设。"); return; }
+            ClosePopups();
+            MigrationPreset chosen;
+            using (var manager = new MigrationPresetManager(null))
+            {
+                if (manager.ShowDialog(this) != DialogResult.OK || manager.Chosen == null) return;
+                chosen = manager.Chosen;
+            }
+            ApplyPreset(chosen);
+        }
+        // Apply: offer to keep the current setup first, relocate workbooks
+        // missing on this computer, then restore the settings only.
+        private void ApplyPreset(MigrationPreset preset)
+        {
+            if (HasSetup)
+            {
+                var answer = UiDialog.Show(this, "应用预设“" + preset.Name + "”会替换当前窗口中的全部设置。" + Environment.NewLine + Environment.NewLine + "是否先把当前设置保存为预设？",
+                    "应用预设", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1);
+                if (answer == DialogResult.Cancel) return;
+                if (answer == DialogResult.Yes && SavePreset() == null) return;
+            }
+            var missing = preset.Files().Where(f => !File.Exists(f)).ToList();
+            var remap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (missing.Count > 0)
+                using (var dialog = new MigrationRelocateDialog(preset, missing))
+                {
+                    if (dialog.ShowDialog(this) != DialogResult.OK) { Message("已取消应用预设，当前设置未改变。"); return; }
+                    foreach (var pair in dialog.Found) remap[pair.Key] = pair.Value;
+                }
+            try { ApplyPresetData(preset.Data, remap); }
+            catch (Exception error) { Message("应用预设失败：" + error.Message); return; }
+            int unresolved = missing.Count(m => !remap.ContainsKey(m));
+            Message("已应用预设“" + preset.Name + "”：只恢复了设置，没有读写任何工作簿。请检查各页后点“预检与预览”。" + (unresolved > 0 ? "仍有 " + unresolved + " 个工作簿找不到，相关区域需要重新选择。" : ""));
+        }
+
         internal void Message(string text) { status.Text = text; }
         public Size MeasureDefaultClient() { return new Size(1280, 800); }
+    }
+
+    // Minimal JSON for presets: objects are Dictionary<string, object>,
+    // arrays List<object>, numbers long or double, plus string/bool/null.
+    internal static class MigrationJson
+    {
+        internal static string Write(object value)
+        {
+            var text = new StringBuilder(); Write(text, value, 0); return text.ToString();
+        }
+        private static void Indent(StringBuilder text, int depth) { text.Append('\n').Append(' ', depth * 2); }
+        private static void Write(StringBuilder text, object value, int depth)
+        {
+            var map = value as IDictionary<string, object>; var list = value as IList<object>;
+            if (value == null) text.Append("null");
+            else if (value is string) Quote(text, (string)value);
+            else if (value is bool) text.Append((bool)value ? "true" : "false");
+            else if (value is int || value is long) text.Append(Convert.ToInt64(value).ToString(CultureInfo.InvariantCulture));
+            else if (value is double) text.Append(((double)value).ToString("R", CultureInfo.InvariantCulture));
+            else if (map != null)
+            {
+                if (map.Count == 0) { text.Append("{}"); return; }
+                text.Append('{'); bool first = true;
+                foreach (var pair in map)
+                {
+                    if (!first) text.Append(','); first = false;
+                    Indent(text, depth + 1); Quote(text, pair.Key); text.Append(": "); Write(text, pair.Value, depth + 1);
+                }
+                Indent(text, depth); text.Append('}');
+            }
+            else if (list != null)
+            {
+                if (list.Count == 0) { text.Append("[]"); return; }
+                text.Append('[');
+                for (int i = 0; i < list.Count; i++) { if (i > 0) text.Append(','); Indent(text, depth + 1); Write(text, list[i], depth + 1); }
+                Indent(text, depth); text.Append(']');
+            }
+            else Quote(text, Convert.ToString(value, CultureInfo.InvariantCulture));
+        }
+        private static void Quote(StringBuilder text, string value)
+        {
+            text.Append('"');
+            foreach (char c in value)
+            {
+                if (c == '"') text.Append("\\\"");
+                else if (c == '\\') text.Append("\\\\");
+                else if (c == '\n') text.Append("\\n");
+                else if (c == '\r') text.Append("\\r");
+                else if (c == '\t') text.Append("\\t");
+                else if (c < ' ') text.Append("\\u").Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));
+                else text.Append(c);
+            }
+            text.Append('"');
+        }
+        internal static object Parse(string text)
+        {
+            int at = 0; var value = Value(text, ref at); Space(text, ref at);
+            if (at != text.Length) throw new FormatException("JSON 末尾有多余内容（位置 " + at + "）");
+            return value;
+        }
+        private static void Space(string text, ref int at) { while (at < text.Length && char.IsWhiteSpace(text[at])) at++; }
+        private static Exception Bad(int at) { return new FormatException("JSON 格式错误（位置 " + at + "）"); }
+        private static object Value(string text, ref int at)
+        {
+            Space(text, ref at); if (at >= text.Length) throw Bad(at);
+            char c = text[at];
+            if (c == '{')
+            {
+                var map = new Dictionary<string, object>(StringComparer.Ordinal); at++; Space(text, ref at);
+                if (at < text.Length && text[at] == '}') { at++; return map; }
+                while (true)
+                {
+                    Space(text, ref at); if (at >= text.Length || text[at] != '"') throw Bad(at);
+                    string key = ReadString(text, ref at); Space(text, ref at);
+                    if (at >= text.Length || text[at] != ':') throw Bad(at); at++;
+                    map[key] = Value(text, ref at); Space(text, ref at);
+                    if (at < text.Length && text[at] == ',') { at++; continue; }
+                    if (at < text.Length && text[at] == '}') { at++; return map; }
+                    throw Bad(at);
+                }
+            }
+            if (c == '[')
+            {
+                var list = new List<object>(); at++; Space(text, ref at);
+                if (at < text.Length && text[at] == ']') { at++; return list; }
+                while (true)
+                {
+                    list.Add(Value(text, ref at)); Space(text, ref at);
+                    if (at < text.Length && text[at] == ',') { at++; continue; }
+                    if (at < text.Length && text[at] == ']') { at++; return list; }
+                    throw Bad(at);
+                }
+            }
+            if (c == '"') return ReadString(text, ref at);
+            if (string.CompareOrdinal(text, at, "true", 0, 4) == 0) { at += 4; return true; }
+            if (string.CompareOrdinal(text, at, "false", 0, 5) == 0) { at += 5; return false; }
+            if (string.CompareOrdinal(text, at, "null", 0, 4) == 0) { at += 4; return null; }
+            int start = at;
+            while (at < text.Length && "+-0123456789.eE".IndexOf(text[at]) >= 0) at++;
+            if (at == start) throw Bad(at);
+            string number = text.Substring(start, at - start); long whole; double real;
+            if (long.TryParse(number, NumberStyles.Integer, CultureInfo.InvariantCulture, out whole)) return whole;
+            if (double.TryParse(number, NumberStyles.Float, CultureInfo.InvariantCulture, out real)) return real;
+            throw Bad(start);
+        }
+        private static string ReadString(string text, ref int at)
+        {
+            var result = new StringBuilder(); at++;
+            while (at < text.Length)
+            {
+                char c = text[at++];
+                if (c == '"') return result.ToString();
+                if (c != '\\') { result.Append(c); continue; }
+                if (at >= text.Length) break;
+                char e = text[at++];
+                if (e == 'n') result.Append('\n'); else if (e == 'r') result.Append('\r'); else if (e == 't') result.Append('\t');
+                else if (e == 'b') result.Append('\b'); else if (e == 'f') result.Append('\f');
+                else if (e == 'u')
+                {
+                    if (at + 4 > text.Length) throw Bad(at);
+                    result.Append((char)int.Parse(text.Substring(at, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture)); at += 4;
+                }
+                else result.Append(e);
+            }
+            throw Bad(at);
+        }
+        // Typed reads with defaults, so an older or hand-edited preset with a
+        // missing field still loads.
+        internal static string Str(IDictionary<string, object> map, string key) { object v; return map != null && map.TryGetValue(key, out v) && v != null ? Convert.ToString(v, CultureInfo.InvariantCulture) : ""; }
+        internal static bool Flag(IDictionary<string, object> map, string key, bool fallback) { object v; return map != null && map.TryGetValue(key, out v) && v is bool ? (bool)v : fallback; }
+        internal static long Num(IDictionary<string, object> map, string key) { object v; return map != null && map.TryGetValue(key, out v) && (v is long || v is double) ? Convert.ToInt64(v) : 0; }
+        internal static Dictionary<string, object> Map(IDictionary<string, object> map, string key) { object v; return map != null && map.TryGetValue(key, out v) ? v as Dictionary<string, object> : null; }
+        internal static List<Dictionary<string, object>> Maps(IDictionary<string, object> map, string key)
+        { object v; var list = map != null && map.TryGetValue(key, out v) ? v as List<object> : null; return list == null ? new List<Dictionary<string, object>>() : list.OfType<Dictionary<string, object>>().ToList(); }
+        internal static Dictionary<string, object> Obj(params object[] pairs)
+        { var map = new Dictionary<string, object>(StringComparer.Ordinal); for (int i = 0; i + 1 < pairs.Length; i += 2) map[(string)pairs[i]] = pairs[i + 1]; return map; }
+    }
+
+    // A saved migration setup (settings only, never sheet data), kept as one
+    // .xymigration.json file. The local library is a folder of these files;
+    // export copies one out, import copies one in.
+    internal sealed class MigrationPreset
+    {
+        internal const string Format = "xycabin.migration-preset", Extension = ".xymigration.json";
+        internal const int Version = 1;
+        internal string FilePath = "", Name = "";
+        internal DateTime Saved;
+        internal Dictionary<string, object> Data;
+        internal int Sources, Targets, Mappings;
+        internal static string Library
+        { get { return System.IO.Path.Combine(DialogSizeStore.RootOverride ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), typeof(Connect).Assembly.GetName().Name, "迁移预设"); } }
+        internal static MigrationPreset From(Dictionary<string, object> data, string file)
+        {
+            if (data == null || MigrationJson.Str(data, "format") != Format) throw new InvalidOperationException("不是批量迁移数据的预设文件");
+            long version = MigrationJson.Num(data, "version");
+            if (version < 1) throw new InvalidOperationException("预设文件缺少版本号");
+            if (version > Version) throw new InvalidOperationException("预设由更新版本的加载项创建（格式版本 " + version + "），请先升级加载项");
+            var preset = new MigrationPreset { FilePath = file ?? "", Data = data, Name = MigrationJson.Str(data, "name") };
+            if (preset.Name.Length == 0) preset.Name = System.IO.Path.GetFileName(file ?? "未命名").Replace(Extension, "");
+            DateTime saved; if (DateTime.TryParse(MigrationJson.Str(data, "saved"), CultureInfo.InvariantCulture, DateTimeStyles.None, out saved)) preset.Saved = saved;
+            preset.Sources = MigrationJson.Maps(data, "sources").Count; preset.Targets = MigrationJson.Maps(data, "targets").Count; preset.Mappings = MigrationJson.Maps(data, "mappings").Count;
+            return preset;
+        }
+        internal static MigrationPreset Read(string file)
+        {
+            string text;
+            try { text = System.IO.File.ReadAllText(file, Encoding.UTF8); } catch (Exception error) { throw new InvalidOperationException("读取预设失败：" + error.Message, error); }
+            object data;
+            try { data = MigrationJson.Parse(text); } catch (FormatException error) { throw new InvalidOperationException("预设文件已损坏：" + error.Message, error); }
+            return From(data as Dictionary<string, object>, file);
+        }
+        // Written beside the target, then swapped in, so a failed write never
+        // leaves half a preset.
+        internal static void Write(string file, Dictionary<string, object> data)
+        {
+            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(file));
+            string temporary = file + ".tmp";
+            System.IO.File.WriteAllText(temporary, MigrationJson.Write(data), new UTF8Encoding(false));
+            if (System.IO.File.Exists(file)) System.IO.File.Delete(file);
+            System.IO.File.Move(temporary, file);
+        }
+        internal static List<MigrationPreset> List()
+        {
+            var result = new List<MigrationPreset>();
+            if (!Directory.Exists(Library)) return result;
+            foreach (string file in Directory.GetFiles(Library, "*" + Extension))
+                try { result.Add(Read(file)); } catch (Exception error) { UiDiagnostics.Record("migration-preset-list", error); }
+            return result.OrderByDescending(p => p.Saved).ThenBy(p => p.Name, StringComparer.CurrentCulture).ToList();
+        }
+        internal static string FileFor(string name)
+        {
+            var safe = new StringBuilder();
+            foreach (char c in name.Trim()) safe.Append(System.IO.Path.GetInvalidFileNameChars().Contains(c) ? '_' : c);
+            return System.IO.Path.Combine(Library, (safe.Length == 0 ? "未命名" : safe.ToString()) + Extension);
+        }
+        internal static string UniqueFile(string name)
+        {
+            string file = FileFor(name); int n = 2;
+            while (System.IO.File.Exists(file)) file = FileFor(name + " (" + n++ + ")");
+            return file;
+        }
+        // Every workbook the preset refers to (lists and 逐行重算 choices).
+        internal IEnumerable<string> Files()
+        {
+            var paths = new List<string>();
+            foreach (string list in new[] { "sourceBooks", "targetBooks" }) foreach (var book in MigrationJson.Maps(Data, list)) paths.Add(MigrationJson.Str(book, "path"));
+            foreach (string list in new[] { "sources", "targets" })
+                foreach (var side in MigrationJson.Maps(Data, list))
+                {
+                    foreach (var book in MigrationJson.Maps(side, "books")) paths.Add(MigrationJson.Str(book, "path"));
+                    foreach (var chosen in MigrationJson.Maps(MigrationJson.Map(side, "trigger"), "chosen")) paths.Add(MigrationJson.Str(chosen, "path"));
+                }
+            return paths.Where(p => p.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase);
+        }
+        internal string Relative(string path)
+        {
+            foreach (string list in new[] { "sourceBooks", "targetBooks" })
+                foreach (var book in MigrationJson.Maps(Data, list)) if (string.Equals(MigrationJson.Str(book, "path"), path, StringComparison.OrdinalIgnoreCase)) return MigrationJson.Str(book, "relative");
+            foreach (string list in new[] { "sources", "targets" })
+                foreach (var side in MigrationJson.Maps(Data, list))
+                {
+                    foreach (var book in MigrationJson.Maps(side, "books")) if (string.Equals(MigrationJson.Str(book, "path"), path, StringComparison.OrdinalIgnoreCase)) return MigrationJson.Str(book, "relative");
+                    foreach (var chosen in MigrationJson.Maps(MigrationJson.Map(side, "trigger"), "chosen")) if (string.Equals(MigrationJson.Str(chosen, "path"), path, StringComparison.OrdinalIgnoreCase)) return MigrationJson.Str(chosen, "relative");
+                }
+            return System.IO.Path.GetFileName(path);
+        }
+        // Readable summary of the whole setup for the manager's detail pane.
+        internal string Describe()
+        {
+            var lines = new List<string>(); string n = Environment.NewLine;
+            lines.Add(Name);
+            lines.Add("保存于 " + (Saved == DateTime.MinValue ? "未知" : Saved.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)) + "　·　源区域 " + Sources + "　·　目标区域 " + Targets + "　·　映射 " + Mappings);
+            var options = MigrationJson.Map(Data, "options");
+            lines.Add("保存方式：" + (MigrationJson.Flag(options, "replaceTargets", true) ? "更新目标原文件（自动备份）" : "另存结果副本") + (MigrationJson.Flag(options, "allowEmptySource", false) ? "；允许全空白源区域" : ""));
+            Func<Dictionary<string, object>, string> books = delegate(Dictionary<string, object> side)
+            {
+                var names = MigrationJson.Maps(side, "books").Select(b => System.IO.Path.GetFileName(MigrationJson.Str(b, "path"))).ToList();
+                return names.Count == 0 ? "（未选工作簿）" : names.Count == 1 ? names[0] : names[0] + " 等 " + names.Count + " 个";
+            };
+            Func<Dictionary<string, object>, string> place = delegate(Dictionary<string, object> side)
+            { string sheet = MigrationJson.Str(side, "sheet"), range = MigrationJson.Str(side, "range"); return (sheet.Length == 0 ? "未选工作表" : sheet) + "!" + (range.Length == 0 ? "未设区域" : range); };
+            var sources = MigrationJson.Maps(Data, "sources").ToDictionary(s => MigrationJson.Str(s, "id"), s => s);
+            var targets = MigrationJson.Maps(Data, "targets").ToDictionary(s => MigrationJson.Str(s, "id"), s => s);
+            lines.Add(""); lines.Add("映射");
+            int index = 0;
+            foreach (var mapping in MigrationJson.Maps(Data, "mappings"))
+            {
+                index++;
+                Dictionary<string, object> source, target;
+                sources.TryGetValue(MigrationJson.Str(mapping, "source"), out source); targets.TryGetValue(MigrationJson.Str(mapping, "target"), out target);
+                var trigger = source == null ? null : MigrationJson.Map(source, "trigger");
+                lines.Add(index + ".  " + (source == null ? "（未配对）" : place(source) + "  ·  " + books(source))
+                    + "  →  " + (target == null ? "（未配对）" : place(target) + "  ·  " + (trigger != null ? "按文件名匹配" : books(target))));
+                lines.Add("     " + (trigger != null || MigrationJson.Flag(mapping, "valuesOnly", false) ? "只写数值" : "带公式") + (MigrationJson.Flag(mapping, "enabled", true) ? "" : "　·　未启用")
+                    + (trigger == null ? "" : "　·　逐行重算：" + MigrationJson.Str(trigger, "values") + " → " + MigrationJson.Str(trigger, "cell") + "，文件名列 " + MigrationJson.Str(trigger, "nameColumn")));
+            }
+            var files = Files().ToList(); int missing = files.Count(f => !System.IO.File.Exists(f));
+            lines.Add(""); lines.Add("工作簿（" + files.Count + " 个" + (missing > 0 ? "，⚠ " + missing + " 个在本机找不到，应用时可重新定位" : "，均可找到") + "）");
+            foreach (string file in files) lines.Add((System.IO.File.Exists(file) ? "✓  " : "⚠  ") + file);
+            return string.Join(n, lines.ToArray());
+        }
+    }
+
+    // One clickable line of the settings popup: title at TextLeft, the grey
+    // note at NoteLeft, light blue rounded hover.
+    internal sealed class MigrationMenuRow : Control
+    {
+        internal string Title = "", Note = "";
+        internal int TextLeft, NoteLeft;
+        private bool hover;
+        internal MigrationMenuRow()
+        {
+            Cursor = Cursors.Hand; TabStop = false; BackColor = Color.White;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+        protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics; g.Clear(BackColor); float u = g.DpiX / 96f;
+            if (hover)
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var path = Ui.RoundRect(new RectangleF(1, 1, Width - 2, Height - 2), 6 * u)) using (var brush = new SolidBrush(Ui.SelectBack)) g.FillPath(brush, path);
+                g.SmoothingMode = SmoothingMode.Default;
+            }
+            var flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
+            TextRenderer.DrawText(g, Title, Font, new Rectangle(TextLeft, 0, Math.Max(0, NoteLeft - TextLeft), Height), hover ? Ui.SelectInk : Ui.Ink, flags);
+            TextRenderer.DrawText(g, Note, Font, new Rectangle(NoteLeft, 0, Math.Max(0, Width - NoteLeft - TextLeft), Height), Ui.InkDim, flags);
+        }
+    }
+
+    // Two-option switch used in the settings popup.
+    internal sealed class MigrationSegmented : Control
+    {
+        private readonly string[] options;
+        private int selected, hover = -1;
+        internal event Action SelectedChanged;
+        internal MigrationSegmented(string left, string right, int value)
+        {
+            options = new[] { left, right }; selected = value; Cursor = Cursors.Hand; TabStop = false;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            BackColor = Color.White;
+        }
+        internal int Selected { get { return selected; } }
+        private Rectangle Half(int index) { int w = Width / 2; return new Rectangle(index == 0 ? 0 : w, 0, index == 0 ? w : Width - w, Height); }
+        protected override void OnMouseMove(MouseEventArgs e) { int h = e.X < Width / 2 ? 0 : 1; if (h != hover) { hover = h; Invalidate(); } base.OnMouseMove(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = -1; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnMouseClick(MouseEventArgs e)
+        {
+            base.OnMouseClick(e); int value = e.X < Width / 2 ? 0 : 1;
+            if (value != selected) { selected = value; Invalidate(); if (SelectedChanged != null) SelectedChanged(); }
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics; g.Clear(BackColor); g.SmoothingMode = SmoothingMode.AntiAlias; float u = g.DpiX / 96f;
+            var outer = new RectangleF(0.5f, 0.5f, Width - 1f, Height - 1f);
+            using (var path = Ui.RoundRect(outer, 6 * u)) using (var pen = new Pen(Color.FromArgb(190, 205, 235))) g.DrawPath(pen, path);
+            for (int i = 0; i < 2; i++)
+            {
+                var half = Half(i); half.Inflate(-(int)(2 * u), -(int)(2 * u));
+                if (i == selected) using (var path = Ui.RoundRect(half, 5 * u)) using (var brush = new SolidBrush(Ui.Blue)) g.FillPath(brush, path);
+                else if (i == hover) using (var path = Ui.RoundRect(half, 5 * u)) using (var brush = new SolidBrush(Ui.Btn2Hover)) g.FillPath(brush, path);
+                TextRenderer.DrawText(g, options[i], Font, half, i == selected ? Color.White : Ui.Ink, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+            }
+        }
+    }
+
+    // Asks for a preset name.
+    internal sealed class MigrationNameDialog : Form
+    {
+        internal readonly TextBox Input = new TextBox { Name = "migrationPresetName" };
+        internal MigrationNameDialog(string title, string prompt, string value)
+        {
+            Text = title; DialogSizing.Prepare(this, "migration.preset.name", "table", Ui.Blue);
+            FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = MinimizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(18, 16, 18, 14), BackColor = Color.White };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            layout.Controls.Add(new Label { Text = prompt, AutoSize = true, ForeColor = Ui.Ink, Margin = new Padding(0, 0, 0, 8) }, 0, 0);
+            Input.Text = value; Input.Dock = DockStyle.Top; Input.Margin = new Padding(0, 0, 0, 12); layout.Controls.Add(Input, 0, 1);
+            var bar = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, WrapContents = false, BackColor = Color.White, Margin = Padding.Empty };
+            var ok = Ui.Button("确定", 90); Ui.StylePrimary(ok); var cancel = Ui.Button("取消", 90); Ui.StyleSecondary(cancel);
+            ok.Margin = new Padding(8, 0, 0, 0); cancel.Margin = new Padding(8, 0, 0, 0);
+            ok.Click += delegate { if (Input.Text.Trim().Length == 0) { Input.Focus(); return; } DialogResult = DialogResult.OK; };
+            cancel.Click += delegate { DialogResult = DialogResult.Cancel; };
+            bar.Controls.Add(ok); bar.Controls.Add(cancel); layout.Controls.Add(bar, 0, 2);
+            Controls.Add(layout); AcceptButton = ok; CancelButton = cancel;
+            Shown += delegate { Input.Focus(); Input.SelectAll(); };
+        }
+        internal static string Ask(IWin32Window owner, string title, string prompt, string value)
+        {
+            using (var dialog = new MigrationNameDialog(title, prompt, value))
+                return dialog.ShowDialog(owner) == DialogResult.OK ? dialog.Input.Text.Trim() : null;
+        }
+    }
+
+    // Workbooks a preset names that this computer does not have: pick a
+    // folder once and every missing file found there (by its path relative to
+    // the preset's common folder, or by name) is relocated; any left can be
+    // pointed to one by one.
+    internal sealed class MigrationRelocateDialog : Form
+    {
+        private readonly DataGridView grid = new DataGridView { Name = "migrationRelocate", Dock = DockStyle.Fill };
+        private readonly Label summary = new Label { AutoSize = true, ForeColor = Ui.InkDim, Margin = new Padding(0, 8, 0, 0) };
+        private readonly MigrationPreset preset;
+        internal readonly Dictionary<string, string> Found = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly List<string> missing;
+        internal MigrationRelocateDialog(MigrationPreset preset, List<string> missing)
+        {
+            this.preset = preset; this.missing = missing;
+            Text = "定位缺失的工作簿"; DialogSizing.Prepare(this, "migration.preset.relocate", "table", Ui.Blue);
+            ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent; MinimizeBox = false;
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(16), BackColor = Ui.Canvas };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            layout.Controls.Add(new Label { Text = "预设中有 " + missing.Count + " 个工作簿在本机原位置找不到。选择存放它们的文件夹，程序会按相同的相对位置或文件名自动找回；找不到的可以逐个指定。", AutoSize = true, MaximumSize = new Size(820, 0), ForeColor = Ui.Ink, Margin = new Padding(0, 0, 0, 10) }, 0, 0);
+            grid.AllowUserToAddRows = false; grid.AllowUserToDeleteRows = false; grid.RowHeadersVisible = false; grid.ReadOnly = true;
+            grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect; grid.MultiSelect = false;
+            grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "name", HeaderText = "工作簿", FillWeight = 30, AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "old", HeaderText = "原位置", FillWeight = 35, AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            grid.Columns.Add(new DataGridViewTextBoxColumn { Name = "now", HeaderText = "本机位置", FillWeight = 35, AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill });
+            Ui.StyleGrid(grid); layout.Controls.Add(grid, 0, 1);
+            layout.Controls.Add(summary, 0, 2);
+            var bar = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 10, 0, 0), BackColor = Ui.Canvas };
+            bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            var left = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty, BackColor = Ui.Canvas };
+            var right = new FlowLayoutPanel { AutoSize = true, WrapContents = false, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = Ui.Canvas };
+            var folder = Ui.Button("选择文件夹…", 130); Ui.StyleSecondary(folder);
+            var one = Ui.Button("指定所选文件…", 140); Ui.StyleSecondary(one);
+            var apply = Ui.Button("应用预设", 110); Ui.StylePrimary(apply);
+            var cancel = Ui.Button("取消", 90); Ui.StyleSecondary(cancel);
+            folder.Margin = new Padding(0, 0, 8, 0); one.Margin = new Padding(0, 0, 8, 0); apply.Margin = new Padding(8, 0, 0, 0); cancel.Margin = new Padding(8, 0, 0, 0);
+            left.Controls.Add(folder); left.Controls.Add(one); right.Controls.Add(apply); right.Controls.Add(cancel);
+            bar.Controls.Add(left, 0, 0); bar.Controls.Add(right, 1, 0); layout.Controls.Add(bar, 0, 3);
+            Controls.Add(layout); CancelButton = cancel;
+            folder.Click += delegate { PickFolder(); };
+            one.Click += delegate { PickOne(); };
+            grid.CellDoubleClick += delegate { PickOne(); };
+            apply.Click += delegate
+            {
+                int left2 = missing.Count(m => !Found.ContainsKey(m));
+                if (left2 > 0 && UiDialog.Show(this, "仍有 " + left2 + " 个工作簿没有找到。继续应用时它们会保留原路径并标为“找不到”，相关区域需要你稍后重新选择工作簿。" + Environment.NewLine + Environment.NewLine + "是否继续应用？",
+                    "仍有缺失", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+                DialogResult = DialogResult.OK;
+            };
+            cancel.Click += delegate { DialogResult = DialogResult.Cancel; };
+            Fill();
+        }
+        private void Fill()
+        {
+            grid.Rows.Clear();
+            foreach (string path in missing)
+            {
+                string now; bool found = Found.TryGetValue(path, out now);
+                int index = grid.Rows.Add(Path.GetFileName(path), path, found ? now : "（未找到）"); grid.Rows[index].Tag = path;
+                if (!found) grid.Rows[index].Cells["now"].Style.ForeColor = Ui.Danger;
+            }
+            int done = missing.Count(m => Found.ContainsKey(m));
+            summary.Text = "已找到 " + done + " / " + missing.Count + " 个。";
+        }
+        private void PickFolder()
+        {
+            using (var dialog = new FolderBrowserDialog { Description = "选择存放这些工作簿的文件夹", ShowNewFolderButton = false })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                int before = Found.Count;
+                foreach (string path in missing)
+                {
+                    if (Found.ContainsKey(path)) continue;
+                    string relative = preset.Relative(path), name = Path.GetFileName(path);
+                    foreach (string candidate in new[] { Path.Combine(dialog.SelectedPath, relative), Path.Combine(dialog.SelectedPath, name) })
+                        if (File.Exists(candidate)) { Found[path] = Path.GetFullPath(candidate); break; }
+                }
+                Fill();
+                if (Found.Count == before) UiDialog.Show(this, "这个文件夹里没有找到缺失的工作簿。", "定位缺失的工作簿", MessageBoxButtons.OK, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1);
+            }
+        }
+        private void PickOne()
+        {
+            if (grid.CurrentRow == null) return; string path = (string)grid.CurrentRow.Tag;
+            using (var dialog = new OpenFileDialog { Title = "指定 " + Path.GetFileName(path), Filter = DataMigrationForm.FileFilter, FileName = Path.GetFileName(path) })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                Found[path] = Path.GetFullPath(dialog.FileName); Fill();
+            }
+        }
+    }
+
+    // 预设管理: the saved presets on the left (scrolls), the full setup of
+    // the selected one on the right; import, export, rename, delete, apply.
+    // Applying only restores the settings; nothing runs until 预检.
+    internal sealed class MigrationPresetManager : Form
+    {
+        private readonly ListBox list = new ListBox { Name = "migrationPresetList", Dock = DockStyle.Fill, DrawMode = DrawMode.OwnerDrawFixed, BorderStyle = BorderStyle.None, IntegralHeight = false };
+        private readonly RichTextBox detail = new RichTextBox { Name = "migrationPresetDetail", Dock = DockStyle.Fill, ReadOnly = true, BorderStyle = BorderStyle.None, BackColor = Color.White, WordWrap = true };
+        private readonly TextBox search = new TextBox { Name = "migrationPresetSearch", Width = 220 };
+        private readonly RoundedButton apply = Ui.Button("应用到窗口", 130), rename = Ui.Button("重命名", 90), remove = Ui.Button("删除", 80), export = Ui.Button("导出…", 90);
+        private List<MigrationPreset> all = new List<MigrationPreset>();
+        private Font bold;
+        internal MigrationPreset Chosen;
+        internal MigrationPresetManager(string select)
+        {
+            Text = "预设管理"; DialogSizing.Prepare(this, "migration.preset.manager", "table", Ui.Blue);
+            ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent; MinimizeBox = false;
+            bold = Ui.MakeFont(10f, FontStyle.Bold, Font);
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(16), BackColor = Ui.Canvas };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            // Top: import on the left, search on the right.
+            var top = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, Margin = new Padding(0, 0, 0, 10), BackColor = Ui.Canvas };
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            var import = Ui.Button("导入预设…", 120); Ui.StyleSecondary(import); import.Margin = Padding.Empty;
+            var hint = new Label { Text = "预设只保存设置，不含表格数据；应用后请检查并预检。", AutoSize = true, ForeColor = Ui.InkDim, Anchor = AnchorStyles.Left, Margin = new Padding(12, 0, 0, 0) };
+            search.Anchor = AnchorStyles.Right; search.Margin = new Padding(0, 4, 0, 0);
+            top.Controls.Add(import, 0, 0); top.Controls.Add(hint, 1, 0); top.Controls.Add(search, 2, 0);
+            layout.Controls.Add(top, 0, 0);
+            // Middle: list | detail, each in a white framed card.
+            var middle = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, BackColor = Ui.Canvas };
+            middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36)); middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 64));
+            middle.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            middle.Controls.Add(Card(list, new Padding(0, 0, 6, 0), new Padding(1)), 0, 0);
+            middle.Controls.Add(Card(detail, new Padding(6, 0, 0, 0), new Padding(14, 12, 10, 10)), 1, 0);
+            layout.Controls.Add(middle, 0, 1);
+            // Bottom: item actions on the left, apply/close on the right.
+            var bottom = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 12, 0, 0), BackColor = Ui.Canvas };
+            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            var leftBar = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty, BackColor = Ui.Canvas };
+            var rightBar = new FlowLayoutPanel { AutoSize = true, WrapContents = false, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = Ui.Canvas };
+            var close = Ui.Button("关闭", 90); Ui.StyleSecondary(close);
+            Ui.StyleSecondary(rename); Ui.StyleSecondary(remove); Ui.StyleSecondary(export); Ui.StylePrimary(apply);
+            foreach (var b in new Control[] { rename, remove, export }) { b.Margin = new Padding(0, 0, 8, 0); leftBar.Controls.Add(b); }
+            apply.Margin = new Padding(8, 0, 0, 0); close.Margin = new Padding(8, 0, 0, 0);
+            rightBar.Controls.Add(close); rightBar.Controls.Add(apply);
+            bottom.Controls.Add(leftBar, 0, 0); bottom.Controls.Add(rightBar, 1, 0);
+            layout.Controls.Add(bottom, 0, 2);
+            Controls.Add(layout); CancelButton = close;
+
+            list.HandleCreated += delegate { list.ItemHeight = Math.Max(Ui.Px(list, 52), Font.Height * 2 + Ui.Px(list, 16)); };
+            list.DrawItem += DrawPreset;
+            list.SelectedIndexChanged += delegate { ShowDetail(); };
+            list.DoubleClick += delegate { if (Current != null) Apply(); };
+            list.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Delete) Remove(); else if (e.KeyCode == Keys.F2) Rename(); };
+            search.HandleCreated += delegate { MigrationPresetManagerNative.Cue(search, "搜索预设名称"); };
+            search.TextChanged += delegate { Fill(Current == null ? null : Current.FilePath); };
+            import.Click += delegate { Import(); }; export.Click += delegate { Export(); };
+            rename.Click += delegate { Rename(); }; remove.Click += delegate { Remove(); };
+            apply.Click += delegate { Apply(); }; close.Click += delegate { DialogResult = DialogResult.Cancel; };
+            Disposed += delegate { bold.Dispose(); };
+            Reload(select);
+        }
+        private static Control Card(Control content, Padding margin, Padding inner)
+        {
+            var card = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = inner, Margin = margin };
+            card.Paint += delegate(object sender, PaintEventArgs e) { using (var pen = new Pen(Ui.GridFrame)) e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1); };
+            card.Resize += delegate { card.Invalidate(); };
+            content.Dock = DockStyle.Fill; card.Controls.Add(content); return card;
+        }
+        private MigrationPreset Current { get { return list.SelectedItem as MigrationPreset; } }
+        private void Reload(string select)
+        {
+            // Layout previews must not read the user's preset library.
+            all = DialogPreviewFactory.IsConstructing ? new List<MigrationPreset>() : MigrationPreset.List(); Fill(select);
+        }
+        private void Fill(string select)
+        {
+            string term = search.Text.Trim();
+            list.BeginUpdate();
+            try
+            {
+                list.Items.Clear();
+                foreach (var preset in all) if (term.Length == 0 || preset.Name.IndexOf(term, StringComparison.CurrentCultureIgnoreCase) >= 0) list.Items.Add(preset);
+                int index = -1;
+                for (int i = 0; i < list.Items.Count; i++) if (string.Equals(((MigrationPreset)list.Items[i]).FilePath, select, StringComparison.OrdinalIgnoreCase)) index = i;
+                if (index < 0 && list.Items.Count > 0) index = 0;
+                list.SelectedIndex = index;
+            }
+            finally { list.EndUpdate(); }
+            ShowDetail();
+        }
+        private void ShowDetail()
+        {
+            var preset = Current; bool has = preset != null;
+            apply.Enabled = rename.Enabled = remove.Enabled = export.Enabled = has;
+            if (!has)
+            {
+                detail.Text = all.Count == 0 ? "还没有保存的预设。" + Environment.NewLine + Environment.NewLine + "在批量迁移窗口右上角的齿轮里点“保存为预设…”，或点上方“导入预设…”导入别人分享的预设文件。" : "没有名称匹配的预设。";
+                return;
+            }
+            detail.Text = preset.Describe();
+            // Title line in bold blue-ink, the rest plain.
+            detail.Select(0, preset.Name.Length); detail.SelectionFont = bold; detail.SelectionColor = Ui.Ink; detail.Select(0, 0);
+        }
+        private void DrawPreset(object sender, DrawItemEventArgs e)
+        {
+            if (e.Index < 0 || e.Index >= list.Items.Count) return;
+            var preset = (MigrationPreset)list.Items[e.Index]; var g = e.Graphics; var r = e.Bounds;
+            bool selected = (e.State & DrawItemState.Selected) != 0;
+            using (var back = new SolidBrush(selected ? Ui.SelectBack : Color.White)) g.FillRectangle(back, r);
+            if (selected) using (var bar = new SolidBrush(Ui.Blue)) g.FillRectangle(bar, r.Left, r.Top + 6, 3, r.Height - 12);
+            using (var line = new Pen(Ui.GridLine)) g.DrawLine(line, r.Left + 12, r.Bottom - 1, r.Right - 12, r.Bottom - 1);
+            var flags = TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
+            int pad = Ui.Px(list, 14), half = r.Height / 2;
+            TextRenderer.DrawText(g, preset.Name, bold, new Rectangle(r.Left + pad, r.Top + 4, r.Width - pad * 2, half - 2), selected ? Ui.SelectInk : Ui.Ink, flags | TextFormatFlags.Bottom);
+            string info = (preset.Saved == DateTime.MinValue ? "" : preset.Saved.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture) + "　·　") + "源 " + preset.Sources + "　目标 " + preset.Targets + "　映射 " + preset.Mappings;
+            TextRenderer.DrawText(g, info, list.Font, new Rectangle(r.Left + pad, r.Top + half + 1, r.Width - pad * 2, half - 4), Ui.InkDim, flags | TextFormatFlags.Top);
+        }
+        private void Import()
+        {
+            using (var dialog = new OpenFileDialog { Title = "导入预设", Filter = "迁移预设 (*" + MigrationPreset.Extension + ")|*" + MigrationPreset.Extension + "|JSON 文件 (*.json)|*.json", Multiselect = true })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                var failures = new List<string>(); string last = null;
+                foreach (string file in dialog.FileNames)
+                    try
+                    {
+                        var preset = MigrationPreset.Read(file);
+                        string target = MigrationPreset.UniqueFile(preset.Name);
+                        preset.Data["name"] = Path.GetFileName(target).Replace(MigrationPreset.Extension, "");
+                        MigrationPreset.Write(target, preset.Data); last = target;
+                    }
+                    catch (Exception error) { failures.Add(Path.GetFileName(file) + "：" + error.Message); }
+                Reload(last);
+                if (failures.Count > 0) UiDialog.Show(this, "以下文件未能导入：" + Environment.NewLine + string.Join(Environment.NewLine, failures.ToArray()), "导入预设", MessageBoxButtons.OK, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1);
+            }
+        }
+        private void Export()
+        {
+            var preset = Current; if (preset == null) return;
+            using (var dialog = new SaveFileDialog { Title = "导出预设", Filter = "迁移预设 (*" + MigrationPreset.Extension + ")|*" + MigrationPreset.Extension, FileName = Path.GetFileName(preset.FilePath), OverwritePrompt = true })
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+                string file = dialog.FileName.EndsWith(MigrationPreset.Extension, StringComparison.OrdinalIgnoreCase) ? dialog.FileName : dialog.FileName + MigrationPreset.Extension;
+                try { MigrationPreset.Write(file, preset.Data); UiDialog.Show(this, "已导出到：" + Environment.NewLine + file, "导出预设", MessageBoxButtons.OK, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1); }
+                catch (Exception error) { UiDialog.Show(this, "导出失败：" + error.Message, "导出预设", MessageBoxButtons.OK, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1); }
+            }
+        }
+        private void Rename()
+        {
+            var preset = Current; if (preset == null) return;
+            string name = MigrationNameDialog.Ask(this, "重命名预设", "新的预设名称：", preset.Name);
+            if (name == null || name == preset.Name) return;
+            string target = MigrationPreset.FileFor(name);
+            if (!string.Equals(target, preset.FilePath, StringComparison.OrdinalIgnoreCase) && File.Exists(target))
+            { UiDialog.Show(this, "已有同名预设“" + name + "”。", "重命名预设", MessageBoxButtons.OK, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1); return; }
+            try
+            {
+                preset.Data["name"] = name; MigrationPreset.Write(target, preset.Data);
+                if (!string.Equals(target, preset.FilePath, StringComparison.OrdinalIgnoreCase)) File.Delete(preset.FilePath);
+                Reload(target);
+            }
+            catch (Exception error) { UiDialog.Show(this, "重命名失败：" + error.Message, "重命名预设", MessageBoxButtons.OK, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1); }
+        }
+        private void Remove()
+        {
+            var preset = Current; if (preset == null) return;
+            if (UiDialog.Show(this, "删除预设“" + preset.Name + "”？" + Environment.NewLine + "只删除预设文件，不影响任何工作簿。", "删除预设", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            try { File.Delete(preset.FilePath); Reload(null); }
+            catch (Exception error) { UiDialog.Show(this, "删除失败：" + error.Message, "删除预设", MessageBoxButtons.OK, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1); }
+        }
+        private void Apply() { if (Current == null) return; Chosen = Current; DialogResult = DialogResult.OK; }
+    }
+    internal static class MigrationPresetManagerNative
+    {
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
+        internal static void Cue(TextBox box, string text) { try { SendMessage(box.Handle, 0x1501, (IntPtr)1, text); } catch (Exception) { } }
     }
 
     // Read-only snapshot of one worksheet, read straight from the .xlsx/.xlsm

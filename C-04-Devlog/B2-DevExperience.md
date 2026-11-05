@@ -596,6 +596,8 @@ AnnualPreview 逐公司年度生成来源路径清单，默认检查存在性并
 
 　　备份与日志都在工作簿内：执行前 `Worksheet.Copy(Type.Missing, sheet)` 取 `ActiveSheet` 即副本，改名为 `备份_单体汇总_时间戳` 并隐藏，重跑不删旧备份；还原按该批备份逐列回写，只动目标区间。日志表用 `UsedRange.Row + UsedRange.Rows.Count` 作起始行追加，重跑不会重头覆盖。整段写入包在 `HostQuiet` 与 `Calculation = xlCalculationManual` 里，结束后读回校验表头与首列公式，再恢复事件、刷新与重算方式。
 
+迁移预设的命名、管理和缺失工作簿定位窗口须使用各自的稳定尺寸 ID，同时接入 DialogCatalog、预览工厂和迁移窗口下的尺寸树。构造预览时不读取用户预设库；登记探针同时盘点 Migration 开头的非 Form 后缀窗口，避免 Dialog/Manager 命名漏检。共享登记改动应同时编译和核验两产品。
+
 ## 8. 文本与公式结果转换
 
 六个转换入口使用 CellConversionEngine、ComConversionHost 与纯数据 ConversionRequest。共用业务位于 Operations/_Shared，参数窗通过 ConversionInteraction 登记宿主会话，ConversionWindowThread 的独立 STA 仅接收字符串、枚举、票据及不可变预览数据。InputBox(Type=8) 始终在宿主线程运行，选择期间隐藏参数窗，取消或异常恢复原输入；关闭、卸载和重复票据不提交。预览只读首个区域左上格，打开、手输地址停止 250 毫秒及选区确认后刷新，同地址重新框选也刷新；会话与请求版本丢弃过期响应。执行时重新采集全批快照，不复用预览作为提交数据。

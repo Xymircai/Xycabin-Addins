@@ -40,6 +40,10 @@ namespace Excel_Iterate
         // 只写数值: formulas in the source are read as their calculated values
         // and written as constants; no formula translation or names involved.
         internal bool ValuesOnly;
+        // 逐行重算: before reading, copy TriggerFrom into TriggerCell in the
+        // source's own read copy and recalculate; TriggerNameCell must still
+        // read TriggerExpect (the name the target was matched by).
+        internal string TriggerCell = "", TriggerFrom = "", TriggerNameCell = "", TriggerExpect = "";
         internal int NonEmptyCells, FormulaCells;
         internal List<MigrationTarget> Targets = new List<MigrationTarget>();
     }
@@ -310,12 +314,21 @@ namespace Excel_Iterate
         internal IEnumerable<MigrationProgress> Preview(MigrationRequest input)
         {
             Check(); request = input; cells.Clear(); merges.Clear();
+            // A host may run several 逐行重算 passes on one source copy.
+            if (watch != null) { watch.Dispose(); watch = null; }
             MigrationWindowScope.RequireVisibleHost(app);
             CheckFile(input.SourcePath); area = MigrationArea.Parse(input.SourceRange);
             // A bounded snapshot makes accidental whole-sheet selection actionable.
             if ((long)area.Rows * area.Columns > 100000) throw new InvalidOperationException("单批最多迁移 100000 个单元格，请缩小源区域分批处理。");
             sourceHash = Digest(input.SourcePath);
             source = ResolveOriginal(input.SourcePath, input.SourceSheet); Saved(source); ValidateOriginal(source, sourceHash);
+            if (input.TriggerCell.Length > 0)
+            {
+                yield return new MigrationProgress("填入触发值并重算：" + input.TriggerFrom + " → " + input.TriggerCell + "…", true);
+                var recalc = System.Diagnostics.Stopwatch.StartNew();
+                ApplyTrigger(input);
+                Connect.Log("迁移耗时：逐行重算 " + input.TriggerFrom + " " + recalc.ElapsedMilliseconds + " ms");
+            }
             watch = Watch(source.Book,"迁移来源");
             packagePreservation = MigrationPackagePreservation.Capture(input.SourcePath, input.SourceSheet, area);
             sourceNames = ReadNames(source.Book); sourceLinks = ExternalFiles(source.Book, out sourceAmbiguous);
@@ -874,6 +887,49 @@ namespace Excel_Iterate
                 dynamic names = bag.Own(((dynamic)book).Names);
                 string label = name.Scope.Length == 0 ? name.Name : "'" + name.Scope.Replace("'", "''") + "'!" + name.Name;
                 bag.Own(names.Add(label, name.Formula, name.Visible));
+            }
+        }
+        // Only ever on our own read copy: the user's original is never edited.
+        private void ApplyTrigger(MigrationRequest input)
+        {
+            string original, copy;
+            bool owned = originalPaths.TryGetValue(source, out original) && readCopies.TryGetValue(original, out copy) && string.Equals(copy, source.Path, StringComparison.OrdinalIgnoreCase);
+            if (!owned) throw new InvalidOperationException("逐行重算需要先保存并关闭源工作簿，程序只在副本中改动触发单元格：" + input.SourcePath);
+            Quiet(delegate
+            {
+                using (var bag = new ComBag())
+                {
+                    dynamic sheet = source.Sheet;
+                    if (input.TriggerNameCell.Length > 0)
+                    {
+                        dynamic nameCell = bag.Own(sheet.Range[input.TriggerNameCell]);
+                        string actual = (Convert.ToString(nameCell.Value2) ?? "").Trim();
+                        if (!string.Equals(actual, input.TriggerExpect.Trim(), StringComparison.Ordinal))
+                            throw new InvalidOperationException("触发值所在行的文件名已变化（" + input.TriggerNameCell + "：" + actual + "），请重新预检。");
+                    }
+                    dynamic from = bag.Own(sheet.Range[input.TriggerFrom]);
+                    object value = from.Value2;
+                    if (value == null || Convert.ToString(value).Trim().Length == 0) throw new InvalidOperationException("触发值为空：" + input.TriggerFrom);
+                    dynamic to = bag.Own(sheet.Range[input.TriggerCell]);
+                    to.Value2 = value;
+                    ((dynamic)app).Calculate();
+                }
+            });
+            WaitCalculated();
+        }
+        // Calculate() is normally synchronous; when the host reports a
+        // pending or running calculation, wait for it to finish.
+        private void WaitCalculated()
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            while (true)
+            {
+                int state;
+                try { state = Convert.ToInt32(((dynamic)app).CalculationState); }
+                catch (Exception) { return; }
+                if (state == 0) return; // xlDone
+                if (clock.ElapsedMilliseconds > 120000) throw new TimeoutException("触发值重算超过 2 分钟仍未完成。");
+                Thread.Sleep(50); Check();
             }
         }
         private static HashSet<string> LinkSet(object book)

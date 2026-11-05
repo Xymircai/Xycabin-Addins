@@ -53,6 +53,9 @@ namespace Excel_Iterate
             new DialogDefinition("company.workbooks", "按公司生成工作簿", "数据 / 审计工具箱 / 批量生成过程表 / 按公司生成工作簿",1180,900,950,680),
             new DialogDefinition("summary.single", "单体汇总表生成", "数据 / 审计工具箱 / 批量生成过程表 / 单体汇总表生成",1180,760,900,600),
             new DialogDefinition("migration.data", "批量迁移数据", "数据 / 审计工具箱 / 批量迁移数据",1180,760,900,560),
+            new DialogDefinition("migration.preset.name", "预设名称", "数据 / 审计工具箱 / 批量迁移数据 / 预设",460,170,380,170),
+            new DialogDefinition("migration.preset.manager", "预设管理", "数据 / 审计工具箱 / 批量迁移数据 / 预设",980,600,720,440),
+            new DialogDefinition("migration.preset.relocate", "定位缺失的工作簿", "数据 / 审计工具箱 / 批量迁移数据 / 预设",860,460,620,360),
             new DialogDefinition("elimination.receivable", "往来抵消", "数据 / 合并抵消 / 往来抵消",1180,700,900,580),
             new DialogDefinition("elimination.revenuecost", "收入成本抵消", "数据 / 合并抵消 / 收入成本抵消",1180,700,900,580),
 #endif

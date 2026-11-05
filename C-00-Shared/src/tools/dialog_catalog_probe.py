@@ -1,4 +1,4 @@
-﻿"""Read-only gate: every add-in-owned dialog construction has a registered size identity."""
+"""Read-only gate: every add-in-owned dialog construction has a registered size identity."""
 from pathlib import Path
 import json
 import re
@@ -48,16 +48,17 @@ def self_test():
 def main():
  project=json.loads((ROOT/'project.json').read_text(encoding='utf-8-sig'))
  expected={'AgentDocumentForm','DeveloperPasswordForm','UiMessageForm','DialogSizesForm','CommandCustomizationForm','RequirementsForm','PdfToolsForm'}
- expected |= {'LinkViewForm'} if project['host']=='Word' else {'TrackerForm','ErrorSourceForm','ColumnFilterForm','FormulaOptionsForm','CustomFunctionForm','CellConversionForm','LinkAssistantForm','OrganizeFilesForm','RenameFilesForm','FileNamesForm','OcrPrefixesForm','OcrFieldsForm','MergeHeadersForm','SingleSummaryForm','CompanyWorkbookForm','DataMigrationForm','EliminationForm'}
+ expected |= {'LinkViewForm'} if project['host']=='Word' else {'TrackerForm','ErrorSourceForm','ColumnFilterForm','FormulaOptionsForm','CustomFunctionForm','CellConversionForm','LinkAssistantForm','OrganizeFilesForm','RenameFilesForm','FileNamesForm','OcrPrefixesForm','OcrFieldsForm','MergeHeadersForm','SingleSummaryForm','CompanyWorkbookForm','DataMigrationForm','MigrationNameDialog','MigrationRelocateDialog','MigrationPresetManager','EliminationForm'}
  found=set()
  for name in project['sources']:
   text=source_path(name, addin=True).read_text(encoding='utf-8-sig')
   found.update(re.findall(r'class\s+(\w+Form)\s*:\s*(?:Form|FileToolForm)\b',text))
+  found.update(re.findall(r'class\s+(Migration\w+)\s*:\s*Form\b',text))
  found.discard('FileToolForm')
  if found!=expected:raise ValueError('弹窗登记需要复核：'+str(found^expected))
  checks={'AgentDocumentForm.cs':['agent.user','agent.developer','agent.developerpassword'],'UiKit.cs':['message.ok','message.yesno','message.okcancel'], 'DialogSizeEditor.cs':['agent.dialogsizes','agent.developerpassword'], 'AgentCustomization.cs':['agent.notes','agent.'], 'DialogFormatting.cs':['agent.format'],'PdfToolsForm.cs':['file.pdf.']}
  if project['host']=='Word':checks['LinkViewForm.cs']=['word.links']
- else:checks.update({'TrackerForm.cs':['trace.precedents','trace.dependents'],'ErrorSourceForm.cs':['trace.errorsources'],'ColumnFilterForm.cs':['columns.filter'],'FormulaOptionsForm.cs':['"formula." + operation.ToString().ToLowerInvariant()'],'CustomFunctionForm.cs':['formula.custom'],'CellConversionForm.cs':['conversion.text','formula.references'],'LinkAssistant.cs':['links.assistant'],'FileToolForms.cs':['file.organize','file.rename'],'Connect.FileNames.cs':['file.names'],'MergeHeadersForm.cs':['merge.headers'],'SingleSummaryForm.cs':['summary.single'],'CompanyWorkbookForm.cs':['company.workbooks'],'DataMigrationForm.cs':['migration.data'],'EliminationForm.cs':['elimination.receivable','elimination.revenuecost']})
+ else:checks.update({'TrackerForm.cs':['trace.precedents','trace.dependents'],'ErrorSourceForm.cs':['trace.errorsources'],'ColumnFilterForm.cs':['columns.filter'],'FormulaOptionsForm.cs':['"formula." + operation.ToString().ToLowerInvariant()'],'CustomFunctionForm.cs':['formula.custom'],'CellConversionForm.cs':['conversion.text','formula.references'],'LinkAssistant.cs':['links.assistant'],'FileToolForms.cs':['file.organize','file.rename'],'Connect.FileNames.cs':['file.names'],'MergeHeadersForm.cs':['merge.headers'],'SingleSummaryForm.cs':['summary.single'],'CompanyWorkbookForm.cs':['company.workbooks'],'DataMigrationForm.cs':['migration.data','migration.preset.name','migration.preset.manager','migration.preset.relocate'],'EliminationForm.cs':['elimination.receivable','elimination.revenuecost']})
  for name,tokens in checks.items():
   text=source_text(name)
   if any(token not in text for token in tokens):raise ValueError('缺少稳定尺寸标识：'+name)

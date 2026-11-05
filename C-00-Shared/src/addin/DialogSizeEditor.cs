@@ -69,6 +69,11 @@ namespace Excel_Iterate
                         var errorSources=DialogCatalog.Find("trace.errorsources");
                         node.Children.Add(new DialogTreeNode {Id=errorSources.Id,Tab=tab,Group=group,Label=errorSources.Name,DialogId=errorSources.Id,Parent=node,Depth=node.Depth+1});
                     }
+                    if(window=="migration.data")foreach(string dialogId in new[]{"migration.preset.name","migration.preset.manager","migration.preset.relocate"})
+                    {
+                        var presetWindow=DialogCatalog.Find(dialogId);
+                        node.Children.Add(new DialogTreeNode {Id=dialogId,Tab=tab,Group=group,Label=presetWindow.Name,DialogId=dialogId,Parent=node,Depth=node.Depth+1});
+                    }
                     if(window=="file.names")foreach(string dialogId in new[]{"file.ocrprefixes","file.ocrfields"})
                     {
                         var nestedWindow=DialogCatalog.Find(dialogId);

@@ -61,6 +61,19 @@ namespace Excel_Iterate.TestHarness
             var d = Context(99, 2); d.AmbiguousFiles.Add("北京");
             Check(DataMigrationEngine.Translate("=A1+'[第三方.xlsx]明细'!A1", d, "源表").Text == "=C100+'C:\\third\\[第三方.xlsx]明细'!A1", "an unused same-name link no longer blocks migration");
             Reject(delegate { DataMigrationEngine.Translate("='[北京]明细'!A1", d, "源表"); }, "a formula that uses a same-name link is still blocked");
+            // 逐行重算: target names match only the added targets, exactly after
+            // normalisation, otherwise as a fuzzy match that needs confirming.
+            Check(DataMigrationForm.NormalizeName("！00-芜湖市繁昌区乡村振兴发展集团有限公司（合并）.xlsx") == DataMigrationForm.NormalizeName("！00-芜湖市繁昌区乡村振兴发展集团有限公司(合并)")
+                && DataMigrationForm.NormalizeName("03-01-繁花乡 文化.xlsx") == "繁花乡文化" && DataMigrationForm.NormalizeName("2024年报") == "2024年报", "names normalise extension, width, numbering, ！ and spaces only");
+            var pool = new[] { @"D:\目标\！00-芜湖市繁昌区乡村振兴发展集团有限公司（合并）.xlsx", @"D:\目标\！01-芜湖市繁昌区乡村振兴发展集团有限公司.xlsx", @"D:\目标\！03-01-芜湖市繁昌区繁花乡韵文化传媒有限公司.xlsx", @"D:\目标\！02-芜湖市繁昌区五华鸡产业发展有限公司.xlsx" };
+            var exact = new MigrationTriggerRow { Row = 2, Value = "x", Name = "！00-芜湖市繁昌区乡村振兴发展集团有限公司（合并）" }; DataMigrationForm.MatchRow(exact, pool);
+            Check(exact.Kind == "精确" && exact.Path == pool[0] && exact.Ready, "an exact name picks its workbook even when a near name exists");
+            var fuzzy = new MigrationTriggerRow { Row = 3, Value = "x", Name = "繁昌区繁花乡韵文化传媒有限公司" }; DataMigrationForm.MatchRow(fuzzy, pool);
+            Check(fuzzy.Kind == "模糊" && fuzzy.Path == pool[2] && !fuzzy.Ready, "a partial name is a fuzzy match that is not used until confirmed");
+            var missing = new MigrationTriggerRow { Row = 4, Value = "x", Name = "完全无关的单位" }; DataMigrationForm.MatchRow(missing, pool);
+            Check(missing.Kind == "缺失" && missing.Path.Length == 0, "an unrelated name matches nothing rather than the closest file");
+            var twins = new MigrationTriggerRow { Row = 5, Value = "x", Name = "乡村振兴" }; DataMigrationForm.MatchRow(twins, new[] { @"D:\a\乡村振兴甲.xlsx", @"D:\a\乡村振兴乙.xlsx" });
+            Check(twins.Kind == "多个候选" && twins.Path.Length == 0, "equally close candidates require a choice");
             c.Names.Add(new MigrationName { Name = "Relative", Formula = "=源表!A1" });
             Reject(delegate { DataMigrationEngine.RequiredNames(new[] { DataMigrationEngine.Translate("=Relative", c, "源表") }, c); }, "relative defined name fails closed");
             c.Names.Add(new MigrationName { Name = "Cycle1", Formula = "=Cycle2" }); c.Names.Add(new MigrationName { Name = "Cycle2", Formula = "=Cycle1" });
@@ -473,8 +486,8 @@ namespace Excel_Iterate.TestHarness
             {
                 if(args.Length==1 && args[0]=="--target-picker-ui") { Console.WriteLine("PICKER_BEGIN"); HostDialogService.Register(); var picked=MigrationTargetPicker.Show(null); foreach(string path in picked)Console.WriteLine("PICKED: "+path); Console.WriteLine("PICKER_END count="+picked.Length+"\n"+UiDiagnostics.Text); Directory.Delete(root,true); return 0; }
                 FormulaChecks(); PackageChecks(root); FidelityChecks(root); WatchChecks(); PickerChecks(root); TargetSelectionChecks(root); SelectionPopupChecks(root); PumpChecks(); HostChecks(root); TransactionChecks(root); QuietReplaceChecks(root); SnapshotRaceChecks(root);
-                using (var form = new DataMigrationForm()) Check(!form.Visible && form.Mappings.Count == 0 && form.Sources.Columns.Count == 6 && form.Targets.Columns.Count == 6 && form.Sources.Columns.Contains("pick"), "production form constructs without host access");
-                LayoutChecks();
+                using (var form = new DataMigrationForm()) Check(!form.Visible && form.Mappings.Count == 0 && form.Sources.Columns.Count == 7 && form.Targets.Columns.Count == 6 && form.Sources.Columns.Contains("pick") && form.Sources.Columns.Contains("trigger") && !form.Targets.Columns.Contains("trigger"), "production form constructs without host access");
+                LayoutChecks(); PresetChecks();
                 if (args.Length == 2 && args[0] == "--render") Render(Path.GetFullPath(args[1]));
                 Console.WriteLine("PASS: DataMigrationProbe " + count + " assertions; managed fixtures only, no WPS connection");
                 Directory.Delete(root, true); return 0;
@@ -552,6 +565,41 @@ namespace Excel_Iterate.TestHarness
                 source.Range = "A1:B3"; Check(second.Source.Range == "A1:B3", "editing a shared source range changes every mapping that uses it");
                 form.ShowPage(2); Check(!form.SidebarAvailable, "the range panel cannot be opened from 映射");
                 form.ShowPage(0); Check(form.SidebarAvailable, "the range panel toggle returns on the range pages");
+            }
+        }
+        // Presets keep the setup only: shared sources, 逐行重算, write modes and
+        // relocated paths survive a save/apply round trip; newer formats are refused.
+        private static void PresetChecks()
+        {
+            var parsed = (Dictionary<string, object>)MigrationJson.Parse(MigrationJson.Write(MigrationJson.Obj("text", "引号\"反斜杠\\换行\n", "list", new List<object> { 1L, 2.5, true, null })));
+            var items = (List<object>)parsed["list"];
+            Check((string)parsed["text"] == "引号\"反斜杠\\换行\n" && (long)items[0] == 1 && (double)items[1] == 2.5 && (bool)items[2] && items[3] == null, "preset JSON round-trips text, numbers, flags and null");
+            using (var form = new DataMigrationForm())
+            {
+                var source = new MigrationSide { Sheet = "表", Range = "C5:C29" }; source.Books.Add(@"D:\预设\源.xlsx");
+                form.AddSide(false, source); form.AddMappingRow();
+                var t1 = new MigrationSide { Sheet = "Notes", Range = "H944" }; t1.Books.Add(@"D:\预设\目标一.xlsx");
+                var t2 = new MigrationSide { Sheet = "Notes", Range = "H970" }; t2.Books.Add(@"D:\预设\子目录\目标二.xlsx");
+                form.AddSide(true, t1); form.AddSide(true, t2);
+                form.SetTrigger(source, new MigrationTrigger { Cell = "B2", Values = "G2:G30", NameColumn = "H" });
+                source.Trigger.Chosen[9] = @"D:\预设\子目录\目标二.xlsx";
+                form.PairItems()[1].ValuesOnly = true; form.PairItems()[1].Enabled = false;
+                var data = form.CapturePreset("测试预设");
+                var preset = MigrationPreset.From((Dictionary<string, object>)MigrationJson.Parse(MigrationJson.Write(data)), null);
+                Check(preset.Name == "测试预设" && preset.Sources == 1 && preset.Targets == 2 && preset.Mappings == 2 && MigrationJson.Str(data, "root") == @"D:\预设", "a preset lists a shared source once and records the common folder");
+                Check(preset.Relative(@"D:\预设\子目录\目标二.xlsx") == @"子目录\目标二.xlsx", "workbooks keep their path relative to the common folder for relocation");
+                using (var other = new DataMigrationForm())
+                {
+                    other.ApplyPresetData(preset.Data, new Dictionary<string, string> { { @"D:\预设\子目录\目标二.xlsx", @"E:\别处\目标二.xlsx" } });
+                    var rows = other.PairItems();
+                    Check(rows.Count == 2 && rows[0].Source == rows[1].Source && rows[0].Source.Trigger != null && rows[0].Source.Trigger.Cell == "B2" && rows[0].Source.Trigger.Values == "G2:G30"
+                        && rows[0].Source.Trigger.Chosen[9] == @"E:\别处\目标二.xlsx", "applying restores the shared source, 逐行重算 and relocated choices");
+                    Check(rows[1].Target.Books[0] == @"E:\别处\目标二.xlsx" && rows[1].Target.Range == "H970" && !rows[1].Enabled && rows[1].ValuesOnly && other.Mappings.Count == 2, "applying restores targets, modes and enabled state with relocated paths");
+                }
+                data["version"] = 99L;
+                Reject(delegate { MigrationPreset.From(data, null); }, "a preset from a newer format version is refused with a clear reason");
+                data["version"] = 1L; data["format"] = "something-else";
+                Reject(delegate { MigrationPreset.From(data, null); }, "a JSON file that is not a migration preset is refused");
             }
         }
         private static void Render(string path)

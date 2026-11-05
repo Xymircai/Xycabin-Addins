@@ -72,6 +72,9 @@ namespace Excel_Iterate
                     case "company.workbooks":form=new CompanyWorkbookForm();break;
                     case "summary.single":form=new SingleSummaryForm();break;
                     case "migration.data":form=new DataMigrationForm();break;
+                    case "migration.preset.name":form=new MigrationNameDialog("保存为预设", "预设名称：", "示例预设");break;
+                    case "migration.preset.manager":form=new MigrationPresetManager(null);break;
+                    case "migration.preset.relocate":form=new MigrationRelocateDialog(new MigrationPreset(),new List<string>());break;
                     case "elimination.receivable":form=new EliminationForm(EliminationKind.Receivable);break;
                     case "elimination.revenuecost":form=new EliminationForm(EliminationKind.RevenueCost);break;
 #endif

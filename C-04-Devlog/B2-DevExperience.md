@@ -596,6 +596,8 @@ AnnualPreview 逐公司年度生成来源路径清单，默认检查存在性并
 
 　　备份与日志都在工作簿内：执行前 `Worksheet.Copy(Type.Missing, sheet)` 取 `ActiveSheet` 即副本，改名为 `备份_单体汇总_时间戳` 并隐藏，重跑不删旧备份；还原按该批备份逐列回写，只动目标区间。日志表用 `UsedRange.Row + UsedRange.Rows.Count` 作起始行追加，重跑不会重头覆盖。整段写入包在 `HostQuiet` 与 `Calculation = xlCalculationManual` 里，结束后读回校验表头与首列公式，再恢复事件、刷新与重算方式。
 
+迁移预设的命名、管理和缺失工作簿定位窗口须使用各自的稳定尺寸 ID，同时接入 DialogCatalog、预览工厂和迁移窗口下的尺寸树。构造预览时不读取用户预设库；登记探针同时盘点 Migration 开头的非 Form 后缀窗口，避免 Dialog/Manager 命名漏检。共享登记改动应同时编译和核验两产品。
+
 # 三. WordUpdater 专属开发经验
 
 ## 1. LINK字段与表格选区

@@ -41,6 +41,13 @@ namespace Excel_Iterate
         internal bool Visible = true;
         internal string Key { get { return Scope + "\u001f" + Name; } }
     }
+    // A formula refers to a sheet the target workbook does not have. The host
+    // can then paste that cell's calculated value instead (after asking).
+    internal sealed class MigrationMissingSheetException : InvalidOperationException
+    {
+        internal readonly string Sheet;
+        internal MigrationMissingSheetException(string sheet) : base("目标缺少内部引用工作表：" + sheet) { Sheet = sheet; }
+    }
     internal sealed class MigrationFormulaContext
     {
         internal string SourcePath = "", SourceSheet = "", TargetSheet = "";
@@ -54,7 +61,7 @@ namespace Excel_Iterate
         internal string MapSheet(string name)
         {
             string mapped = string.Equals(name, SourceSheet, StringComparison.OrdinalIgnoreCase) ? TargetSheet : name;
-            if (!TargetSheets.Contains(mapped)) throw new InvalidOperationException("目标缺少内部引用工作表：" + mapped);
+            if (!TargetSheets.Contains(mapped)) throw new MigrationMissingSheetException(mapped);
             return mapped;
         }
         internal MigrationName FindName(string name, string scope)

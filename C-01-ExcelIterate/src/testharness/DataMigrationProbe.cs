@@ -39,6 +39,9 @@ namespace Excel_Iterate.TestHarness
             };
             foreach (var pair in examples) Check(DataMigrationEngine.Translate(pair.Key, c, "源表").Text == pair.Value, "formula " + pair.Key);
             Reject(delegate { DataMigrationEngine.Translate("=缺表!A1", c, "源表"); }, "missing internal sheet blocks migration");
+            string missingSheet = null;
+            try { DataMigrationEngine.Translate("=缺表!A1", c, "源表"); } catch (MigrationMissingSheetException error) { missingSheet = error.Sheet; }
+            Check(missingSheet == "缺表", "a sheet the target lacks is reported as such, so that cell can be pasted as a value");
             Reject(delegate { DataMigrationEngine.Translate("=A1", Context(-1, 0), "源表"); }, "negative row blocks migration");
             Reject(delegate { DataMigrationEngine.Translate("=A1", Context(0, -1), "源表"); }, "negative column blocks migration");
             c.MaxRow = 65536; Reject(delegate { DataMigrationEngine.Translate("=A65536", c, "源表"); }, "legacy target row limit enforced");
@@ -74,6 +77,8 @@ namespace Excel_Iterate.TestHarness
             Check(missing.Kind == "缺失" && missing.Path.Length == 0, "an unrelated name matches nothing rather than the closest file");
             var twins = new MigrationTriggerRow { Row = 5, Value = "x", Name = "乡村振兴" }; DataMigrationForm.MatchRow(twins, new[] { @"D:\a\乡村振兴甲.xlsx", @"D:\a\乡村振兴乙.xlsx" });
             Check(twins.Kind == "多个候选" && twins.Path.Length == 0, "equally close candidates require a choice");
+            var spare = new MigrationPlan(); spare.Unused.Add(@"D:\a\多余.xlsx");
+            Check(DataMigrationForm.PlanSummary(spare).Contains("1 个目标工作簿没有触发行匹配，不会写入"), "added targets no trigger row matched are reported, not written");
             c.Names.Add(new MigrationName { Name = "Relative", Formula = "=源表!A1" });
             Reject(delegate { DataMigrationEngine.RequiredNames(new[] { DataMigrationEngine.Translate("=Relative", c, "源表") }, c); }, "relative defined name fails closed");
             c.Names.Add(new MigrationName { Name = "Cycle1", Formula = "=Cycle2" }); c.Names.Add(new MigrationName { Name = "Cycle2", Formula = "=Cycle1" });
@@ -442,6 +447,21 @@ namespace Excel_Iterate.TestHarness
                 Drain(host.Preview(Request(source.FullName, stale))); app.Workbooks.Find(stale.Path).Saved = false; Drain(host.Execute());
                 Check(stale.Status == "失败" && stale.Output.Length == 0, "new unsaved edits prevent delivery"); app.Workbooks.Find(stale.Path).Saved = true;
             }
+            // One target, two source ranges: read once, written into one copy, saved once.
+            using (var host = new DataMigrationHost(app) { HoldTargets = true })
+            {
+                var left = new MigrationTarget { Path = targets[0].Path, Sheet = "目标表", Start = "B100" };
+                var right = new MigrationTarget { Path = targets[0].Path, Sheet = "目标表", Start = "E100" };
+                Drain(host.Preview(Request(source.FullName, left))); host.Keep();
+                Drain(host.Preview(Request(source.FullName, right))); host.Keep();
+                Check(host.KeptTargets == 2, "batched passes keep what they read");
+                Drain(host.ExecuteKept());
+                Check(left.Status == "成功" && right.Status == "成功" && left.Output.Length > 0 && left.Output == right.Output, "two source ranges for one target are delivered as one result");
+                var output = app.Workbooks.Open(left.Output, 0, true); var sheet = output.Sheets[0];
+                Check(Convert.ToDouble(sheet.Cell("B101").Value2) == 12.5 && Convert.ToDouble(sheet.Cell("E101").Value2) == 12.5, "both ranges survive the single save and reopen"); output.Close(false);
+                File.Delete(left.Output);
+            }
+            Check(!Directory.GetFiles(root, ".xy-migration-read-*").Any() && app.Workbooks.Items.All(b => !Path.GetFileName(b.FullName).StartsWith(".xy-migration-")), "held target read copies are closed and deleted after a batched run");
             using (var host = new DataMigrationHost(app))
             {
                 var cancelled = new MigrationTarget { Path = targets[0].Path, Sheet = "目标表", Start = "B100" }; Drain(host.Preview(Request(source.FullName, cancelled)));
@@ -523,6 +543,7 @@ namespace Excel_Iterate.TestHarness
                 var s2 = new MigrationSide { Sheet = "表", Range = "C1:D2" }; s2.Books.Add(@"D:\a.xlsx");
                 var t1 = new MigrationSide { Sheet = "表", Range = "E1" }; t1.Books.Add(@"D:\b.xlsx");
                 var p1 = form.AddSide(false, s1); var p2 = form.AddSide(false, s2); var p3 = form.AddSide(true, t1);
+                Check(p1.ValuesOnly && p2.ValuesOnly, "rows created in the window paste values by default");
                 Check(p3 == p1 && form.PairItems().Count == 2 && form.Sources.Rows.Count == 2 && form.Targets.Rows.Count == 1 && form.Mappings.Count == 2, "a new target fills the first row without one instead of shifting pairs");
                 form.SwapSides(0, 1, true);
                 Check(p2.Target == t1 && !p1.Target.Used && p1.Source == s1 && p2.Source == s2, "dragging a side in 映射 swaps only that side between two rows");

@@ -64,6 +64,9 @@ namespace Excel_Iterate
                     if (form.Running) return;
                     string address = null; Exception failure = null;
                     form.Hide();
+                    // Give WPS the focus first; otherwise the first click only
+                    // activates its window and the user has to click again.
+                    MigrationForeground.Bring(GetHostWindowHandle());
                     try { using (var host = new DataMigrationHost(_app)) address = host.PickSourceRange(path, sheet, current, null, target ? "目标" : "源"); }
                     catch (Exception error) { failure = error; Log("迁移框选区域：" + error); }
                     finally { form.Show(); form.Activate(); }
@@ -111,9 +114,16 @@ namespace Excel_Iterate
         // on, which is what gives each target its partial save.
         private static IEnumerable<MigrationProgress> RunPlan(DataMigrationForm form, MigrationPlan plan, bool execute)
         {
-            // Consecutive 逐行重算 passes of one source share a host, so the
-            // source copy is opened once and only its trigger cell changes.
+            // Passes share one host, so each source copy is opened once (for
+            // 逐行重算 only its trigger cell changes between rows).
             DataMigrationHost host = null; string hostSource = null;
+            // Execution opens and saves each target workbook once, after every
+            // source has been read: all passes are prechecked first, then
+            // written per target. Only when a target is also a source of the
+            // plan does the order matter, and then passes run one by one.
+            var sourcePaths = new HashSet<string>(plan.Passes.Select(p => Path.GetFullPath(p.Request.SourcePath)), StringComparer.OrdinalIgnoreCase);
+            bool chain = plan.Passes.SelectMany(p => p.Request.Targets).Any(t => sourcePaths.Contains(Path.GetFullPath(t.Path)));
+            bool batch = execute && !chain;
             try
             {
                 for (int index = 0; index < plan.Passes.Count; index++)
@@ -121,32 +131,51 @@ namespace Excel_Iterate
                     var pass = plan.Passes[index];
                     string label = "[" + (index + 1) + "/" + plan.Passes.Count + "] " + pass.Source.Label + " " + pass.Request.SourceSheet + "!" + pass.Request.SourceRange + "：";
                     if (_planCancelled) { MarkPass(pass, "已取消", "已取消，未执行"); continue; }
-                    bool reuse = host != null && pass.Request.TriggerCell.Length > 0 && string.Equals(hostSource, pass.Request.SourcePath, StringComparison.OrdinalIgnoreCase);
+                    // One host for the whole run: every source is opened (as its
+                    // read copy) once and closed at the end, never saved. A
+                    // source the user has open in WPS is read in place and
+                    // left open. A failed pass starts a fresh host.
+                    bool reuse = host != null && (hostSource != null || batch);
                     if (!reuse)
                     {
                         if (host != null) { _migrationHost = null; try { host.Dispose(); } catch (Exception error) { Log("迁移会话释放：" + error); } }
-                        host = new DataMigrationHost(_app); hostSource = pass.Request.TriggerCell.Length > 0 ? pass.Request.SourcePath : null;
+                        host = new DataMigrationHost(_app) { HoldTargets = !chain }; hostSource = pass.Request.SourcePath;
                     }
                     _migrationHost = host;
                     Exception failure;
                     MigrationProgress step;
-                    // Execution re-checks each target right before writing,
-                    // because an earlier pass may just have updated it.
+                    // Execution re-checks each target right before writing.
                     var preview = host.Preview(pass.Request).GetEnumerator();
                     try { while (Advance(preview, out step, out failure)) yield return new MigrationProgress(label + step.Message, step.Pause); }
                     finally { preview.Dispose(); }
                     if (failure != null)
                     {
                         MarkPass(pass, failure is OperationCanceledException ? "已取消" : "失败", "源区域预检：" + failure.Message);
-                        // A failed pass may leave the host half way; start clean.
-                        hostSource = null; continue;
+                        // A failed pass may leave the host half way; start clean
+                        // (a batched run keeps its host: it holds the passes read so far).
+                        if (!batch) hostSource = null;
+                        continue;
                     }
                     if (!execute || !pass.Request.Targets.Any(t => t.Ready)) continue;
+                    // Batched: keep what was read; every target is written once below.
+                    if (batch) { host.Keep(); continue; }
                     var run = host.Execute().GetEnumerator();
                     try { while (Advance(run, out step, out failure)) yield return new MigrationProgress(label + step.Message, step.Pause); }
                     finally { run.Dispose(); }
                     if (failure != null) { MarkPass(pass, failure is OperationCanceledException ? "已取消" : "失败", "执行：" + failure.Message); hostSource = null; }
                     if (!plan.OutputCopies) foreach (var target in pass.Request.Targets) if (target.Status == "成功") form.RecordRestorePoint(target.Path, target.Backup);
+                    if (host.Cancelled) _planCancelled = true;
+                }
+                if (batch && host != null && host.KeptTargets > 0)
+                {
+                    _migrationHost = host;
+                    if (_planCancelled) host.Cancelled = true;
+                    Exception failure; MigrationProgress step;
+                    var run = host.ExecuteKept().GetEnumerator();
+                    try { while (Advance(run, out step, out failure)) yield return step; }
+                    finally { run.Dispose(); }
+                    if (failure != null) foreach (var pass in plan.Passes) MarkPass(pass, failure is OperationCanceledException ? "已取消" : "失败", "执行：" + failure.Message);
+                    if (!plan.OutputCopies) foreach (var target in plan.Passes.SelectMany(p => p.Request.Targets)) if (target.Status == "成功") form.RecordRestorePoint(target.Path, target.Backup);
                     if (host.Cancelled) _planCancelled = true;
                 }
             }
@@ -184,6 +213,17 @@ namespace Excel_Iterate
                 + (overwrite > 0 ? "目标区域已有数据：" + filled + " 处写入中共有 " + overwrite + " 个单元格已有内容，执行后将被源数据覆盖（源中为空的单元格会清空目标）。" + line : "")
                 + saving + line + (overwrite > 0 ? "是否覆盖原数据？" : "是否执行？");
             if (UiDialog.Show(text, overwrite > 0 ? "确认覆盖原数据" : "确认执行迁移", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            // Formulas that refer to sheets a target lacks are pasted as
+            // values there, but only with the user's consent.
+            var fallback = ready.Where(m => m.Result.ValueFallbacks > 0).ToList();
+            if (fallback.Count > 0)
+            {
+                string list = string.Join(Environment.NewLine, fallback.Take(10).Select(m => "· " + Path.GetFileName(m.TargetPath) + "：缺少工作表“" + string.Join("”“", m.Result.MissingSheets.ToArray()) + "”，" + m.Result.ValueFallbacks + " 个公式单元格").ToArray())
+                    + (fallback.Count > 10 ? Environment.NewLine + "…… 共 " + fallback.Count + " 处" : "");
+                string warn = "以下目标缺少源公式引用的工作表：" + Environment.NewLine + Environment.NewLine + list + Environment.NewLine + Environment.NewLine
+                    + "这些单元格将改为粘贴源中的当前计算结果（数值），其他单元格照常迁移。" + Environment.NewLine + Environment.NewLine + "是否继续？";
+                if (UiDialog.Show(warn, "目标缺少工作表", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) { form.Message("已取消执行：可为目标补上缺少的工作表，或把映射改为“只写数值”。"); return; }
+            }
             var plan = form.ExecutionPlan(previewed);
             if (plan.OutputCopies) PrepareOutputCopies(plan);
             _migrationPlan = null; _planCancelled = false;
@@ -309,5 +349,16 @@ namespace Excel_Iterate
             if (form != null) { form.Dispose(); } ResetMigration();
         }
         public IPictureDisp GetImage_btnDataMigration(object control) { return GetButtonImageCore("btnDataMigration"); }
+    }
+    internal static class MigrationForeground
+    {
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
+        internal static void Bring(IntPtr window)
+        {
+            if (window == IntPtr.Zero) return;
+            try { if (IsIconic(window)) ShowWindow(window, 9); SetForegroundWindow(window); } catch (Exception) { }
+        }
     }
 }

@@ -24,7 +24,7 @@ namespace Excel_Iterate
         internal readonly List<string> Warnings=new List<string>();
     }
     internal static class FileNameEngine {
-        internal static bool IsChinese(int code) {return code>=0x3400&&code<=0x4dbf||code>=0x4e00&&code<=0x9fff||code>=0xf900&&code<=0xfaff||code>=0x20000&&code<=0x323af;}
+        internal static bool IsChinese(int code) {return CellCharacterClassifier.IsChinese(code);}
         internal static string ExtractName(string name,int mode) {
             var result=new StringBuilder();for(int i=0;i<name.Length;i++) {
                 int code=char.IsHighSurrogate(name[i])&&i+1<name.Length&&char.IsLowSurrogate(name[i+1])?char.ConvertToUtf32(name[i],name[i+1]):name[i];

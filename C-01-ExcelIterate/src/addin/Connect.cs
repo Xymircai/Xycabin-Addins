@@ -65,6 +65,7 @@ namespace Excel_Iterate
                 if (!ReferenceEquals(_app, value))
                 {
                     FormulaInteraction.Shutdown();
+                    ConversionInteraction.Shutdown();
                     CloseDataMigrationForm();
                     CloseCompanyWorkbookForm();
                     RestoreFormulaStatus();

@@ -288,9 +288,17 @@ BUTTONS = [
         ],
     },
     {
+        "type": "menu", "id": "menuOneClickConversion", "group": ("grpAction", "操作"),
+        "label": "一键转换", "size": "large", "builtin_icon": "update",
+        "screentip": "按字符类型提取或过滤选区文字",
+        "children": [{"id": "btnTextExtractFilter", "label": "文本提取与过滤", "builtin_icon": "filter",
+                      "action": "feature", "callback": "OnTextExtractFilter",
+                      "supertip": "选择区域，自由组合空格、英文、中文、数字和其他；提取保留所选类型，过滤删除所选类型。结果按文本原位写回。"}],
+    },
+    {
         "type": "menu", "id": "menuOneClickFormula", "group": ("grpAction", "操作"),
         "label": "一键公式", "size": "large", "builtin_icon": "formula",
-        "screentip": "封装或移除当前选区公式的最外层函数",
+        "screentip": "封装、计算、引用方式及公式与数值转换",
         "supertip": "仅点击最终选项才修改公式；支持连续选区和 Ctrl 多选。",
         "children": [
             {
@@ -384,6 +392,19 @@ BUTTONS = [
                                  'builtin_icon': 'formula',
                                  'action': 'feature',
                                  'callback': 'OnCustomCalculateDivide'}]}]},
+            {"id": "btnReferenceStyleConversion", "label": "相对-绝对转换", "builtin_icon": "formula",
+             "action": "feature", "callback": "OnReferenceStyleConversion",
+             "supertip": "选择区域，将公式中的真实单元格引用统一设为行列绝对、行绝对、列绝对或行列相对。"},
+            {"type": "menu", "id": "menuFormulaValueConversion", "label": "公式-数值转换", "builtin_icon": "formula",
+             "children": [
+                 {"type": "menu", "id": "menuFormulaFormat", "label": "转公式格式", "builtin_icon": "formula",
+                  "children": [
+                      {"id": "btnFormulaAsText", "label": "转为公式文本", "builtin_icon": "formula", "action": "feature", "callback": "OnFormulaAsText", "supertip": "将当前选区的公式保存为文字，直接显示完整的 =…，保留原数字格式。"},
+                      {"id": "btnRestoreTextFormula", "label": "还原文本公式", "builtin_icon": "formula", "action": "feature", "callback": "OnRestoreTextFormula", "supertip": "将当前选区以 = 开头的公式文本还原为可计算公式，并立即计算；原文本格式改为常规，其他数字格式保留。"},
+                  ]},
+                 {"id": "btnResultAsText", "label": "转文本格式", "builtin_icon": "document", "action": "feature", "callback": "OnResultAsText", "supertip": "将当前选区的计算结果及已有常量按显示文字转为文本，保留日期和前导零；空白格仅设置文本格式。"},
+                 {"id": "btnValuesOnly", "label": "仅保留数值", "builtin_icon": "table", "action": "feature", "callback": "OnValuesOnly", "supertip": "将当前选区公式替换为当前计算结果，保留值类型及原数字格式，已有常量保持原样。"},
+             ]},
         ],
     },
     {'type': 'menu', 'id': 'menuFileOperations', 'group': ('grpAction', '操作'), 'label': '文件操作', 'size': 'large', 'builtin_icon': 'document', 'screentip': '整理文件、批量重命名及 PDF 转换、水印、拆分与合并', 'supertip': '批量处理保留原功能；PDF 支持当前文档、混合批量转换、水印、拆分和合并。', 'children': [{'type': 'menu', 'id': 'menuBatchProcessing', 'label': '批量处理', 'builtin_icon': 'document', 'children': [{'id': 'btnOrganizeFiles', 'label': '文件批量整理', 'builtin_icon': 'document', 'action': 'feature', 'callback': 'OnOrganizeFiles', 'supertip': '把子目录文件移到第一层；可分类、处理同名或按类型送入回收站。'}, {'id': 'btnRenameFiles', 'label': '文件批量命名', 'builtin_icon': 'document', 'action': 'feature', 'callback': 'OnRenameFiles', 'supertip': '扫描文件夹第一层文件，填写清单第三列后执行替换。'}, {'id': 'btnFileNames', 'label': '文件提取名称', 'builtin_icon': 'document', 'action': 'feature', 'callback': 'OnFileNames', 'supertip': '扫描并预览文件清单；OCR可设置多个前缀，逐项核对后按顺序用短横线组合结果。'}]}, {'type': 'menu', 'id': 'menuFileConversion', 'label': '文件转换与 PDF 工具', 'builtin_icon': 'document', 'children': [{'id': 'btnCurrentPdf', 'label': '当前文档转 PDF', 'builtin_icon': 'document', 'action': 'feature', 'callback': 'OnCurrentPdf', 'supertip': '先保存当前文档，再按选择的范围导出为新的 PDF。'}, {'id': 'btnConvertPdf', 'label': '批量文件转 PDF', 'builtin_icon': 'document', 'action': 'feature', 'callback': 'OnConvertPdf', 'supertip': '将 Word、Excel 和图片批量转换为 PDF。'}, {'id': 'btnWatermarkPdf', 'label': 'PDF 添加水印', 'builtin_icon': 'document', 'action': 'feature', 'callback': 'OnWatermarkPdf', 'supertip': '为每一页添加文字水印，可调整不透明度、字号和角度。'}, {'id': 'btnSplitPdf', 'label': 'PDF 拆分', 'builtin_icon': 'document', 'action': 'feature', 'callback': 'OnSplitPdf', 'supertip': '按页或指定页码范围拆分 PDF。'}, {'id': 'btnMergePdf', 'label': 'PDF 合并', 'builtin_icon': 'document', 'action': 'feature', 'callback': 'OnMergePdf', 'supertip': '按可调整的列表顺序合并多个 PDF。'}]}]},

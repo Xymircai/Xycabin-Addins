@@ -11,6 +11,8 @@ using System.Runtime.InteropServices;
 [assembly: ComVisible(false)]
 [assembly: Guid("7A4B2E15-9D3F-4A8C-B6E1-2F5D7C9E1A43")]
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("CellConversionProbe")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("ConversionInteractionProbe")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("FormulaProbe")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("FormulaInteractionProbe")]
 

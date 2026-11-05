@@ -197,7 +197,24 @@
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/Connect.CompanyWorkbooks.Entry.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookEngine.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookHost.cs",
-    "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookForm.cs"
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookForm.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickConversion/Connect.OneClickConversion.Entry.cs",
+    "AC-Original Code/ExcelIterate/Operations/_Shared/CellCharacterClassifier.cs",
+    "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionEngine.cs",
+    "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionForm.cs",
+    "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionHost.cs",
+    "AC-Original Code/ExcelIterate/Operations/_Shared/Connect.CellConversion.cs",
+    "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionInteraction.cs",
+    "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionWindowThread.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickConversion/TextExtractFilter/Connect.TextExtractFilter.Entry.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/Connect.FormulaValueConversion.Entry.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/ReferenceStyleConversion/Connect.ReferenceStyleConversion.Entry.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/ReferenceStyleConversion/ReferenceStyleConverter.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/FormulaFormat/FormulaAsText/Connect.FormulaAsText.Entry.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/ResultAsText/Connect.ResultAsText.Entry.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/ValuesOnly/Connect.ValuesOnly.Entry.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/FormulaFormat/Connect.FormulaFormat.Entry.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/FormulaFormat/RestoreTextFormula/Connect.RestoreTextFormula.Entry.cs"
   ],
   "tools": [
     {
@@ -467,6 +484,28 @@
       "additional_sources": [
         "src/testharness/CompanyWorkbookHostChecks.cs"
       ]
+    },
+    {
+      "name": "CellConversionProbe",
+      "source": "src/testharness/CellConversionProbe.cs",
+      "references": [
+        "@addin",
+        "System.Windows.Forms.dll",
+        "System.Drawing.dll",
+        "lib/Interop.Microsoft.Office.Core.dll"
+      ],
+      "offline": true
+    },
+    {
+      "name": "ConversionInteractionProbe",
+      "source": "src/testharness/ConversionInteractionProbe.cs",
+      "references": [
+        "@addin",
+        "System.Windows.Forms.dll",
+        "System.Drawing.dll",
+        "lib/Interop.Microsoft.Office.Core.dll"
+      ],
+      "offline": true
     }
   ],
   "pdf_worker": true,
@@ -961,7 +1000,8 @@
         "AC-Original Code/ExcelIterate/Operations/FileOperations/BatchProcessing/FileNames/FileOcr.cs",
         "AC-Original Code/ExcelIterate/Operations/FileOperations/BatchProcessing/FileNames/FileOcrSelection.cs",
         "AC-Original Code/ExcelIterate/Operations/FileOperations/BatchProcessing/FileNames/CloudOcr.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorkbookSaving.cs"
+        "AC-Original Code/ExcelIterate/_Shared/WorkbookSaving.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellCharacterClassifier.cs"
       ],
       "tests": [
         "src/testharness/FileOperationsProbe.cs",
@@ -1352,6 +1392,103 @@
       "tests": [
         "src/testharness/CompanyWorkbookProbe.cs"
       ]
+    },
+    "btnTextExtractFilter": {
+      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickConversion/TextExtractFilter",
+      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickConversion/TextExtractFilter/Connect.TextExtractFilter.Entry.cs",
+      "implementation": [
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionEngine.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionHost.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellCharacterClassifier.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/Connect.CellConversion.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionForm.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionInteraction.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionWindowThread.cs"
+      ],
+      "tests": [
+        "src/testharness/CellConversionProbe.cs",
+        "src/testharness/ConversionInteractionProbe.cs"
+      ]
+    },
+    "btnReferenceStyleConversion": {
+      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/ReferenceStyleConversion",
+      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/ReferenceStyleConversion/Connect.ReferenceStyleConversion.Entry.cs",
+      "implementation": [
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionEngine.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionHost.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellCharacterClassifier.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/Connect.CellConversion.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionForm.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionInteraction.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionWindowThread.cs",
+        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/ReferenceStyleConversion/ReferenceStyleConverter.cs"
+      ],
+      "tests": [
+        "src/testharness/CellConversionProbe.cs",
+        "src/testharness/ConversionInteractionProbe.cs"
+      ]
+    },
+    "btnFormulaAsText": {
+      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/FormulaFormat/FormulaAsText",
+      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/FormulaFormat/FormulaAsText/Connect.FormulaAsText.Entry.cs",
+      "implementation": [
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionEngine.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionHost.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellCharacterClassifier.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/Connect.CellConversion.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+      ],
+      "tests": [
+        "src/testharness/CellConversionProbe.cs",
+        "src/testharness/ConversionInteractionProbe.cs"
+      ]
+    },
+    "btnResultAsText": {
+      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/ResultAsText",
+      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/ResultAsText/Connect.ResultAsText.Entry.cs",
+      "implementation": [
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionEngine.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionHost.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellCharacterClassifier.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/Connect.CellConversion.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+      ],
+      "tests": [
+        "src/testharness/CellConversionProbe.cs",
+        "src/testharness/ConversionInteractionProbe.cs"
+      ]
+    },
+    "btnValuesOnly": {
+      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/ValuesOnly",
+      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/ValuesOnly/Connect.ValuesOnly.Entry.cs",
+      "implementation": [
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionEngine.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionHost.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellCharacterClassifier.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/Connect.CellConversion.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+      ],
+      "tests": [
+        "src/testharness/CellConversionProbe.cs",
+        "src/testharness/ConversionInteractionProbe.cs"
+      ]
+    },
+    "btnRestoreTextFormula": {
+      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/FormulaFormat/RestoreTextFormula",
+      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/FormulaFormat/RestoreTextFormula/Connect.RestoreTextFormula.Entry.cs",
+      "implementation": [
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionEngine.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionHost.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellCharacterClassifier.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/Connect.CellConversion.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+      ],
+      "tests": [
+        "src/testharness/CellConversionProbe.cs",
+        "src/testharness/ConversionInteractionProbe.cs"
+      ]
     }
   },
   "source_aliases": {
@@ -1649,6 +1786,15 @@
     "btnAgentOcrPlaceholder": "AgentOcrPlaceholder",
     "btnAgentRequirements": "AgentRequirements",
     "btnDataMigration": "DataMigration",
-    "btnCompanyWorkbooks": "CompanyWorkbooks"
+    "btnCompanyWorkbooks": "CompanyWorkbooks",
+    "btnTextExtractFilter": "TextExtractFilter",
+    "btnReferenceStyleConversion": "ReferenceStyleConversion",
+    "btnFormulaAsText": "FormulaAsText",
+    "btnResultAsText": "ResultAsText",
+    "btnValuesOnly": "ValuesOnly",
+    "menuOneClickConversion": "OneClickConversion",
+    "menuFormulaValueConversion": "FormulaValueConversion",
+    "menuFormulaFormat": "FormulaFormat",
+    "btnRestoreTextFormula": "RestoreTextFormula"
   }
 }

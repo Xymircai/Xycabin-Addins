@@ -19,6 +19,9 @@ namespace Excel_Iterate
         public string GetLabel_menuBatchProcessSheets(object control) { return RibbonCustomization.Label("menuBatchProcessSheets"); }
         public string GetLabel_btnCompanyWorkbooks(object control) { return RibbonCustomization.Label("btnCompanyWorkbooks"); }
         public string GetLabel_btnSingleSummary(object control) { return RibbonCustomization.Label("btnSingleSummary"); }
+        public string GetLabel_menuOneClickConversion(object control) { return RibbonCustomization.Label("menuOneClickConversion"); }
+        public string GetContent_menuOneClickConversion(object control) { return RibbonCustomization.Content("menuOneClickConversion"); }
+        public string GetLabel_btnTextExtractFilter(object control) { return RibbonCustomization.Label("btnTextExtractFilter"); }
         public string GetLabel_menuOneClickFormula(object control) { return RibbonCustomization.Label("menuOneClickFormula"); }
         public string GetContent_menuOneClickFormula(object control) { return RibbonCustomization.Content("menuOneClickFormula"); }
         public string GetLabel_menuWrapFormula(object control) { return RibbonCustomization.Label("menuWrapFormula"); }
@@ -44,6 +47,13 @@ namespace Excel_Iterate
         public string GetLabel_menuCalculateDivide(object control) { return RibbonCustomization.Label("menuCalculateDivide"); }
         public string GetLabel_btnCalculateDivide(object control) { return RibbonCustomization.Label("btnCalculateDivide"); }
         public string GetLabel_btnCustomCalculateDivide(object control) { return RibbonCustomization.Label("btnCustomCalculateDivide"); }
+        public string GetLabel_btnReferenceStyleConversion(object control) { return RibbonCustomization.Label("btnReferenceStyleConversion"); }
+        public string GetLabel_menuFormulaValueConversion(object control) { return RibbonCustomization.Label("menuFormulaValueConversion"); }
+        public string GetLabel_menuFormulaFormat(object control) { return RibbonCustomization.Label("menuFormulaFormat"); }
+        public string GetLabel_btnFormulaAsText(object control) { return RibbonCustomization.Label("btnFormulaAsText"); }
+        public string GetLabel_btnRestoreTextFormula(object control) { return RibbonCustomization.Label("btnRestoreTextFormula"); }
+        public string GetLabel_btnResultAsText(object control) { return RibbonCustomization.Label("btnResultAsText"); }
+        public string GetLabel_btnValuesOnly(object control) { return RibbonCustomization.Label("btnValuesOnly"); }
         public string GetLabel_menuFileOperations(object control) { return RibbonCustomization.Label("menuFileOperations"); }
         public string GetContent_menuFileOperations(object control) { return RibbonCustomization.Content("menuFileOperations"); }
         public string GetLabel_menuBatchProcessing(object control) { return RibbonCustomization.Label("menuBatchProcessing"); }

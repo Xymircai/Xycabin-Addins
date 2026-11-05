@@ -15,7 +15,7 @@
 //   网络盘文档的回调代理读不出 control.Id，靠名字才能认对按钮。
 //   新增按钮时记得在 Connect.cs 加对应的一行包装方法（本脚本会校验）。
 //
-// 生成时间：2026-11-05 02:56:28
+// 生成时间：2026-11-05 03:54:14
 // =====================================================================
 using System;
 using System.Collections.Generic;
@@ -79,7 +79,10 @@ namespace Excel_Iterate
           </menu>
         </group>
         <group id=""grpAction"" label=""操作"">
-          <menu id=""menuOneClickFormula"" label=""一键公式"" size=""large"" getImage=""GetImage_menuOneClickFormula"" screentip=""封装或移除当前选区公式的最外层函数"" supertip=""仅点击最终选项才修改公式；支持连续选区和 Ctrl 多选。"" itemSize=""normal"">
+          <menu id=""menuOneClickConversion"" label=""一键转换"" size=""large"" getImage=""GetImage_menuOneClickConversion"" screentip=""按字符类型提取或过滤选区文字"" itemSize=""normal"">
+            <button id=""btnTextExtractFilter"" label=""文本提取与过滤"" getImage=""GetImage_btnTextExtractFilter"" supertip=""选择区域，自由组合空格、英文、中文、数字和其他；提取保留所选类型，过滤删除所选类型。结果按文本原位写回。"" onAction=""OnTextExtractFilter"" />
+          </menu>
+          <menu id=""menuOneClickFormula"" label=""一键公式"" size=""large"" getImage=""GetImage_menuOneClickFormula"" screentip=""封装、计算、引用方式及公式与数值转换"" supertip=""仅点击最终选项才修改公式；支持连续选区和 Ctrl 多选。"" itemSize=""normal"">
             <menu id=""menuWrapFormula"" label=""进行公式封装"" getImage=""GetImage_menuWrapFormula"" itemSize=""normal"">
               <menu id=""menuIFErrorWrap"" label=""IFERROR封装"" getImage=""GetImage_menuIFErrorWrap"" itemSize=""normal"">
                 <button id=""btnWrapIFError"" label=""默认返回空"" getImage=""GetImage_btnWrapIFError"" supertip=""增加 IFERROR(原公式,&quot;&quot;) 一层。"" onAction=""OnWrapIFError"" />
@@ -110,6 +113,15 @@ namespace Excel_Iterate
                 <button id=""btnCalculateDivide"" label=""默认除10000"" getImage=""GetImage_btnCalculateDivide"" onAction=""OnCalculateDivide"" />
                 <button id=""btnCustomCalculateDivide"" label=""自定义计算"" getImage=""GetImage_btnCustomCalculateDivide"" onAction=""OnCustomCalculateDivide"" />
               </menu>
+            </menu>
+            <button id=""btnReferenceStyleConversion"" label=""相对-绝对转换"" getImage=""GetImage_btnReferenceStyleConversion"" supertip=""选择区域，将公式中的真实单元格引用统一设为行列绝对、行绝对、列绝对或行列相对。"" onAction=""OnReferenceStyleConversion"" />
+            <menu id=""menuFormulaValueConversion"" label=""公式-数值转换"" getImage=""GetImage_menuFormulaValueConversion"" itemSize=""normal"">
+              <menu id=""menuFormulaFormat"" label=""转公式格式"" getImage=""GetImage_menuFormulaFormat"" itemSize=""normal"">
+                <button id=""btnFormulaAsText"" label=""转为公式文本"" getImage=""GetImage_btnFormulaAsText"" supertip=""将当前选区的公式保存为文字，直接显示完整的 =…，保留原数字格式。"" onAction=""OnFormulaAsText"" />
+                <button id=""btnRestoreTextFormula"" label=""还原文本公式"" getImage=""GetImage_btnRestoreTextFormula"" supertip=""将当前选区以 = 开头的公式文本还原为可计算公式，并立即计算；原文本格式改为常规，其他数字格式保留。"" onAction=""OnRestoreTextFormula"" />
+              </menu>
+              <button id=""btnResultAsText"" label=""转文本格式"" getImage=""GetImage_btnResultAsText"" supertip=""将当前选区的计算结果及已有常量按显示文字转为文本，保留日期和前导零；空白格仅设置文本格式。"" onAction=""OnResultAsText"" />
+              <button id=""btnValuesOnly"" label=""仅保留数值"" getImage=""GetImage_btnValuesOnly"" supertip=""将当前选区公式替换为当前计算结果，保留值类型及原数字格式，已有常量保持原样。"" onAction=""OnValuesOnly"" />
             </menu>
           </menu>
           <menu id=""menuFileOperations"" label=""文件操作"" size=""large"" getImage=""GetImage_menuFileOperations"" screentip=""整理文件、批量重命名及 PDF 转换、水印、拆分与合并"" supertip=""批量处理保留原功能；PDF 支持当前文档、混合批量转换、水印、拆分和合并。"" itemSize=""normal"">
@@ -283,6 +295,8 @@ namespace Excel_Iterate
             d["menuBatchProcessSheets"] = 16;
             d["btnCompanyWorkbooks"] = 16;
             d["btnSingleSummary"] = 16;
+            d["menuOneClickConversion"] = 32;
+            d["btnTextExtractFilter"] = 16;
             d["menuOneClickFormula"] = 32;
             d["menuWrapFormula"] = 16;
             d["menuIFErrorWrap"] = 16;
@@ -307,6 +321,13 @@ namespace Excel_Iterate
             d["menuCalculateDivide"] = 16;
             d["btnCalculateDivide"] = 16;
             d["btnCustomCalculateDivide"] = 16;
+            d["btnReferenceStyleConversion"] = 16;
+            d["menuFormulaValueConversion"] = 16;
+            d["menuFormulaFormat"] = 16;
+            d["btnFormulaAsText"] = 16;
+            d["btnRestoreTextFormula"] = 16;
+            d["btnResultAsText"] = 16;
+            d["btnValuesOnly"] = 16;
             d["menuFileOperations"] = 32;
             d["menuBatchProcessing"] = 16;
             d["btnOrganizeFiles"] = 16;
@@ -370,6 +391,8 @@ namespace Excel_Iterate
             d["menuBatchProcessSheets"] = BuiltinTable;
             d["btnCompanyWorkbooks"] = BuiltinTable;
             d["btnSingleSummary"] = BuiltinTable;
+            d["menuOneClickConversion"] = BuiltinUpdate;
+            d["btnTextExtractFilter"] = BuiltinFilter;
             d["menuOneClickFormula"] = BuiltinFormula;
             d["menuWrapFormula"] = BuiltinFormula;
             d["menuIFErrorWrap"] = BuiltinFormula;
@@ -394,6 +417,13 @@ namespace Excel_Iterate
             d["menuCalculateDivide"] = BuiltinFormula;
             d["btnCalculateDivide"] = BuiltinFormula;
             d["btnCustomCalculateDivide"] = BuiltinFormula;
+            d["btnReferenceStyleConversion"] = BuiltinFormula;
+            d["menuFormulaValueConversion"] = BuiltinFormula;
+            d["menuFormulaFormat"] = BuiltinFormula;
+            d["btnFormulaAsText"] = BuiltinFormula;
+            d["btnRestoreTextFormula"] = BuiltinFormula;
+            d["btnResultAsText"] = BuiltinDocument;
+            d["btnValuesOnly"] = BuiltinTable;
             d["menuFileOperations"] = BuiltinDocument;
             d["menuBatchProcessing"] = BuiltinDocument;
             d["btnOrganizeFiles"] = BuiltinDocument;

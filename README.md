@@ -137,7 +137,7 @@ Invoke-Checked -Program "gh" -Arguments @("auth", "status", "--hostname", "githu
 
 ### 按门禁清理冗余
 
-只有明确要求清理时才执行，规则以 [B3 第 4 节](<C-04-Devlog/B3-Gate Control.md#4-冗余文件清理>) 为准。范围为三个产品目录；`build`、旧日期、相同摘要或没有搜索到引用，都不能单独作为删除依据。
+只有明确要求清理时才执行，规则以 [B3 第 4 节](<C-04-Devlog/B3-Spec Coding.md#4-冗余文件清理>) 为准。范围为三个产品目录；`build`、旧日期、相同摘要或没有搜索到引用，都不能单独作为删除依据。
 
 1. 先运行 `git status --short --branch`，记录版本、现有改动、各目录字节数和候选文件 SHA-256，并按必要输入、当前产物、有效证据、可删历史、未确认五类盘点。核对静态引用、动态加载、文档链接及恢复用途。
 2. 将保留输入复制到独立临时目录，保留 `C-00-Shared`、三个产品、`C-04-Devlog`、根目录检查器及必要 `lib` 的同级关系；排除全部旧 `build`、生成 EXE/HTML 与字节码缓存。使用原证书，在隔离目录完成联合完整重建、签名、五载荷和独立后台验证。隔离失败时保留诊断，不删除原候选。
@@ -167,7 +167,7 @@ if ($LASTEXITCODE -ne 0) { throw "联合重建或收尾验证失败，停止提�
 
 ### 新增或调整功能
 
-分类约束见 [B3 的 R-30](<C-04-Devlog/B3-Gate Control.md#6-功能源码分类与代码索引>)，代码定位见 [B4-Code Index](<C-04-Devlog/B4-Code Index.md>)。
+分类约束见 [B3 的 R-30](<C-04-Devlog/B3-Spec Coding.md#6-功能源码分类与代码索引>)，代码定位见 [B4-Code Index](<C-04-Devlog/B4-Code Index.md>)。
 
 1. 在对应 AA-Program 配置器的 BUTTONS / EXTRA_TABS 定义菜单与稳定 ID。
 2. 在 project.json 的 code_layout 为新增节点 ID 登记英文 PascalCase 目录名。目录由“选项卡→分组→菜单→末级功能”的真实 ID 路径推导，不能仅修改 features.directory 蒙混通过；显示名称或同层排序变化不要求移动源码。

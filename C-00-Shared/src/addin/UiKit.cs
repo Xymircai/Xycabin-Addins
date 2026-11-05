@@ -318,6 +318,9 @@ namespace Excel_Iterate
                 {
                     foreach (DataGridViewColumn column in Attached(grid))
                     {
+                        // 释放期清列时列已脱离网格，此时读 InheritedStyle 会抛空引用；
+                        // 未挂在本网格上的列一律跳过，正常布局路径不受影响。
+                        if (column.DataGridView != grid) continue;
                         column.HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter;
                         column.HeaderCell.Style.WrapMode = DataGridViewTriState.False;
                         var style = column.HeaderCell.InheritedStyle;

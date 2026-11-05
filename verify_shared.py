@@ -9,7 +9,7 @@ sys.path.insert(0, str(ROOT / 'C-00-Shared'))
 from source_layout import manifest, resolve_source
 
 DOCS = {'B0-Entry.md', 'A-UserGuide.md', 'B1-Project-Files.md',
-        'B2-DevExperience.md', 'B3-Gate Control.md', 'B4-Code Index.md'}
+        'B2-DevExperience.md', 'B3-Spec Coding.md', 'B4-Code Index.md'}
 SHARED_TITLES = ('# 一. Word与Excel共享开发经验', '# 一. Word与Excel共享门禁')
 
 

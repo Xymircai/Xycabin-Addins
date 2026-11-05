@@ -94,7 +94,7 @@ internal static class DisciplineProbe
         // 合理使用工具窗样式，不在本守卫范围。
         HashSet<string> interactiveFiles = new HashSet<string> {
             "EliminationForm.cs", "MergeHeadersForm.cs", "TrackerForm.cs",
-            "LinkAssistantForm.cs", "ColumnFilterForm.cs", "FileToolForm.cs"
+            "LinkAssistantForm.cs", "ColumnFilterForm.cs", "FileToolForm.cs", "CellConversionForm.cs"
         };
         Regex assignRe = new Regex(@"^\s*(?:this\.)?(ShowInTaskbar|MinimizeBox)\s*=\s*false\s*;", RegexOptions.Multiline);
         Regex topMostRe = new Regex(@"^\s*(?:this\.)?TopMost\s*=\s*true\s*;", RegexOptions.Multiline);

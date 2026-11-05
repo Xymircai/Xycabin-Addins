@@ -234,7 +234,7 @@ namespace WpsShared.Tools
             Assert(group.ChildNodes.Count == rowIds.Length, "Native small rows");
             string[] rowSizes = Id.AssemblyName == "Excel_Iterate" ? new string[] { "normal", "normal", "normal", "large" } : new string[] { "normal", "normal", "normal" };
             for (int i = 0; i < rowIds.Length; i++) { XmlElement row = (XmlElement)group.ChildNodes[i]; Assert(row.GetAttribute("id") == rowIds[i] && row.GetAttribute("size") == rowSizes[i], "Native row " + rowIds[i]); }
-            int[] rootCounts = Id.AssemblyName == "Excel_Iterate" ? new int[] { 4, 1 } : new int[] { 2, 1 };
+            int[] rootCounts = Id.AssemblyName == "Excel_Iterate" ? new int[] { 5, 1 } : new int[] { 2, 1 };
             for (int i = 1; i < 3; i++) { Assert(groups[i].ChildNodes.Count == rootCounts[i - 1], "Action/feedback root counts"); foreach (XmlElement item in groups[i].ChildNodes) Assert(item.GetAttribute("size") == "large", "Large action/feedback root"); }
             if (Id.AssemblyName != "Excel_Iterate") Assert(((XmlElement)group.ChildNodes[1]).GetAttribute("label") == "链接Excel", "Word new label");
             foreach (XmlElement menu in document.SelectNodes("//r:menu", ns))
@@ -263,7 +263,7 @@ namespace WpsShared.Tools
                 XmlElement root = (XmlElement)document.SelectSingleNode("//r:menu[@id='menuOneClickFormula']", ns);
                 Assert(root != null && root.GetAttribute("label") == "一键公式" && root.GetAttribute("size") == "large", "Formula root menu");
                 Assert(((XmlElement)root.ParentNode).GetAttribute("id") == "grpAction", "Formula action group");
-                Assert(root.ChildNodes.Count == 3 && root.ChildNodes[0].LocalName == "menu" && root.ChildNodes[1].LocalName == "button", "Formula first level");
+                Assert(root.ChildNodes.Count == 5 && root.ChildNodes[0].LocalName == "menu" && root.ChildNodes[1].LocalName == "button", "Formula first level");
                 Assert(((XmlElement)root.ChildNodes[0]).GetAttribute("label") == "进行公式封装" && ((XmlElement)root.ChildNodes[1]).GetAttribute("label") == "移除公式封装", "Formula first-level labels");
                 XmlElement wrapping = (XmlElement)root.ChildNodes[0];
                 Assert(wrapping.ChildNodes.Count == 4, "Three wrapping functions and custom function");
@@ -295,6 +295,18 @@ namespace WpsShared.Tools
                     Assert(((XmlElement)branch.FirstChild).GetAttribute("onAction") == "OnCalculate" + operators[i] && ((XmlElement)branch.LastChild).GetAttribute("onAction") == "OnCustomCalculate" + operators[i], "Arithmetic leaf wiring");
                     Assert(((XmlElement)branch.LastChild).GetAttribute("label") == "自定义计算", "Custom arithmetic label");
                 }
+                XmlElement conversion = (XmlElement)document.SelectSingleNode("//r:menu[@id='menuOneClickConversion']", ns);
+                Assert(conversion != null && conversion.GetAttribute("label") == "一键转换" && conversion.GetAttribute("size") == "large", "Conversion root menu");
+                Assert(conversion.ParentNode == root.ParentNode && conversion.NextSibling == root, "Conversion sits immediately before formula");
+                Assert(conversion.ChildNodes.Count == 1 && ((XmlElement)conversion.FirstChild).GetAttribute("onAction") == "OnTextExtractFilter", "Text extraction action");
+                Assert(((XmlElement)root.ChildNodes[3]).GetAttribute("label") == "相对-绝对转换" && ((XmlElement)root.ChildNodes[3]).GetAttribute("onAction") == "OnReferenceStyleConversion", "Reference conversion action");
+                XmlElement valueConversion = (XmlElement)root.ChildNodes[4];
+                Assert(valueConversion.GetAttribute("id") == "menuFormulaValueConversion" && valueConversion.ChildNodes.Count == 3 && !valueConversion.HasAttribute("onAction"), "Formula/value submenu");
+                XmlElement formulaFormat = (XmlElement)valueConversion.FirstChild;
+                Assert(formulaFormat.LocalName == "menu" && formulaFormat.GetAttribute("id") == "menuFormulaFormat" && formulaFormat.GetAttribute("label") == "转公式格式" && !formulaFormat.HasAttribute("onAction") && formulaFormat.ChildNodes.Count == 2, "Formula format is an expansion-only submenu");
+                string[] conversionLabels = { "转为公式文本", "还原文本公式" }, conversionActions = { "OnFormulaAsText", "OnRestoreTextFormula" };
+                for (int i = 0; i < 2; i++) Assert(((XmlElement)formulaFormat.ChildNodes[i]).GetAttribute("label") == conversionLabels[i] && ((XmlElement)formulaFormat.ChildNodes[i]).GetAttribute("onAction") == conversionActions[i], "Formula format leaf " + i);
+                Assert(((XmlElement)valueConversion.ChildNodes[1]).GetAttribute("onAction") == "OnResultAsText" && ((XmlElement)valueConversion.ChildNodes[2]).GetAttribute("onAction") == "OnValuesOnly", "Other value conversion callbacks retained");
                 XmlElement filter = (XmlElement)document.SelectSingleNode("//r:menu[@id='menuFilterEnhanced']", ns);
                 Assert(filter.ChildNodes.Count == 2 && ((XmlElement)filter.FirstChild).GetAttribute("onAction") == "OnFilterColumns" && ((XmlElement)filter.LastChild).GetAttribute("onAction") == "OnQuickAdvancedFilter", "Column filter leaf");
             }

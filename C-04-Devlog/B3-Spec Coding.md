@@ -1,4 +1,6 @@
-**共享门禁与网站门禁**
+**编码规范与验收门禁（Spec Coding）**
+
+本文件是项目的工程 Spec，保留 B3 逻辑编号，规定编码、构建、验证及交付约束；R/H/G 编号及执行边界沿用。具体功能行为与使用说明在 A、B1、B2 中维护。
 
 门禁条目分两类：**R-xx** 由门禁自动核对（verify_devlog 注册表与重建门禁）；**H-xx** 由人工核对或作为方法指引，不参与自动门禁。除此之外只保留门禁总览表、规则正文与示意图。G 是执行关口，一个 G 可执行多个 R；H 永不映射 G。
 
@@ -36,7 +38,7 @@
 | G-22 | 缓存提交与运行摘要       | build_cache.commit+两份 summary                         | R-20                          | FAIL              |
 | G-23 | 收尾独立验证          | bat 末尾 validate.py --background                       | R-01–R-30                     | FAIL              |
 
-**R-01** C-04-Devlog 恰好六份：B0-Entry、A-UserGuide、B1-Project-Files、B2-DevExperience、B3-Gate Control、B4-Code Index；三个项目内不得保留文档副本。仓库根 AGENTS.md 只放指向 B0 的指针，B0 只放阅读顺序与按角色分流。
+**R-01** C-04-Devlog 恰好六份：B0-Entry、A-UserGuide、B1-Project-Files、B2-DevExperience、B3-Spec Coding、B4-Code Index；三个项目内不得保留文档副本。仓库根 AGENTS.md 只放指向 B0 的指针，B0 只放阅读顺序与按角色分流。
 
 **R-02** 三个项目只保留 AA-Program（配置器、启动器、正式产物）、AB-Graphic（PNG、SVG、README.txt、.gitkeep）、src 与 build；两个加载项另设 AC-Original Code 专门存放按菜单归类的功能源码，lib 保留必要依赖；AP1-程序、AP2-美工、AP3-说明、icons、src/documentation 出现即失败。
 

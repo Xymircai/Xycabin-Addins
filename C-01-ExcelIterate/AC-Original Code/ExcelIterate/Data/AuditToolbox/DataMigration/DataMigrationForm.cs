@@ -2718,13 +2718,15 @@ namespace Excel_Iterate
         {
             if (Running) { Message("迁移运行期间不能管理预设。"); return; }
             ClosePopups();
-            MigrationPreset chosen;
-            using (var manager = new MigrationPresetManager(null))
-            {
-                if (manager.ShowDialog(this) != DialogResult.OK || manager.Chosen == null) return;
-                chosen = manager.Chosen;
-            }
-            ApplyPreset(chosen);
+            string json = HostDialogService.ShowIsolatedResult<string>(this,
+                delegate { return new MigrationPresetManager(null); },
+                delegate(Form dialog)
+                {
+                    var chosen = ((MigrationPresetManager)dialog).Chosen;
+                    return chosen == null ? null : MigrationJson.Write(chosen.Data);
+                }, null);
+            if (json == null) return;
+            ApplyPreset(MigrationPreset.From((Dictionary<string, object>)MigrationJson.Parse(json), null));
         }
         // Apply: offer to keep the current setup first, relocate workbooks
         // missing on this computer, then restore the settings only.
@@ -2740,11 +2742,15 @@ namespace Excel_Iterate
             var missing = preset.Files().Where(f => !File.Exists(f)).ToList();
             var remap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             if (missing.Count > 0)
-                using (var dialog = new MigrationRelocateDialog(preset, missing))
-                {
-                    if (dialog.ShowDialog(this) != DialogResult.OK) { Message("已取消应用预设，当前设置未改变。"); return; }
-                    foreach (var pair in dialog.Found) remap[pair.Key] = pair.Value;
-                }
+            {
+                string json = MigrationJson.Write(preset.Data);
+                string[] paths = missing.ToArray();
+                string[] located = HostDialogService.ShowIsolatedResult<string[]>(this,
+                    delegate { return new MigrationRelocateDialog(MigrationPreset.From((Dictionary<string, object>)MigrationJson.Parse(json), null), new List<string>(paths)); },
+                    delegate(Form dialog) { return ((MigrationRelocateDialog)dialog).Found.SelectMany(pair => new[] { pair.Key, pair.Value }).ToArray(); }, null);
+                if (located == null) { Message("已取消应用预设，当前设置未改变。"); return; }
+                for (int i = 0; i < located.Length; i += 2) remap[located[i]] = located[i + 1];
+            }
             try { ApplyPresetData(preset.Data, remap); }
             catch (Exception error) { Message("应用预设失败：" + error.Message); return; }
             int unresolved = missing.Count(m => !remap.ContainsKey(m));
@@ -3105,8 +3111,9 @@ namespace Excel_Iterate
         }
         internal static string Ask(IWin32Window owner, string title, string prompt, string value)
         {
-            using (var dialog = new MigrationNameDialog(title, prompt, value))
-                return dialog.ShowDialog(owner) == DialogResult.OK ? dialog.Input.Text.Trim() : null;
+            return HostDialogService.ShowIsolatedResult<string>(owner,
+                delegate { return new MigrationNameDialog(title, prompt, value); },
+                delegate(Form dialog) { return ((MigrationNameDialog)dialog).Input.Text.Trim(); }, null);
         }
     }
 
@@ -3176,29 +3183,25 @@ namespace Excel_Iterate
         }
         private void PickFolder()
         {
-            using (var dialog = new FolderBrowserDialog { Description = "选择存放这些工作簿的文件夹", ShowNewFolderButton = false })
+            string folder = HostDialogService.Folder(this, "选择存放这些工作簿的文件夹", false);
+            if (folder == null) return;
+            int before = Found.Count;
+            foreach (string path in missing)
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                int before = Found.Count;
-                foreach (string path in missing)
-                {
-                    if (Found.ContainsKey(path)) continue;
-                    string relative = preset.Relative(path), name = Path.GetFileName(path);
-                    foreach (string candidate in new[] { Path.Combine(dialog.SelectedPath, relative), Path.Combine(dialog.SelectedPath, name) })
-                        if (File.Exists(candidate)) { Found[path] = Path.GetFullPath(candidate); break; }
-                }
-                Fill();
-                if (Found.Count == before) UiDialog.Show(this, "这个文件夹里没有找到缺失的工作簿。", "定位缺失的工作簿", MessageBoxButtons.OK, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1);
+                if (Found.ContainsKey(path)) continue;
+                string relative = preset.Relative(path), name = Path.GetFileName(path);
+                foreach (string candidate in new[] { Path.Combine(folder, relative), Path.Combine(folder, name) })
+                    if (File.Exists(candidate)) { Found[path] = Path.GetFullPath(candidate); break; }
             }
+            Fill();
+            if (Found.Count == before) UiDialog.Show(this, "这个文件夹里没有找到缺失的工作簿。", "定位缺失的工作簿", MessageBoxButtons.OK, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1);
         }
         private void PickOne()
         {
             if (grid.CurrentRow == null) return; string path = (string)grid.CurrentRow.Tag;
-            using (var dialog = new OpenFileDialog { Title = "指定 " + Path.GetFileName(path), Filter = DataMigrationForm.FileFilter, FileName = Path.GetFileName(path) })
-            {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                Found[path] = Path.GetFullPath(dialog.FileName); Fill();
-            }
+            string[] files = HostDialogService.OpenFiles(this, DataMigrationForm.FileFilter, "指定 " + Path.GetFileName(path), false, Path.GetFileName(path));
+            if (files.Length == 0) return;
+            Found[path] = Path.GetFullPath(files[0]); Fill();
         }
     }
 
@@ -3322,33 +3325,29 @@ namespace Excel_Iterate
         }
         private void Import()
         {
-            using (var dialog = new OpenFileDialog { Title = "导入预设", Filter = "迁移预设 (*" + MigrationPreset.Extension + ")|*" + MigrationPreset.Extension + "|JSON 文件 (*.json)|*.json", Multiselect = true })
-            {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                var failures = new List<string>(); string last = null;
-                foreach (string file in dialog.FileNames)
-                    try
-                    {
-                        var preset = MigrationPreset.Read(file);
-                        string target = MigrationPreset.UniqueFile(preset.Name);
-                        preset.Data["name"] = Path.GetFileName(target).Replace(MigrationPreset.Extension, "");
-                        MigrationPreset.Write(target, preset.Data); last = target;
-                    }
-                    catch (Exception error) { failures.Add(Path.GetFileName(file) + "：" + error.Message); }
-                Reload(last);
-                if (failures.Count > 0) UiDialog.Show(this, "以下文件未能导入：" + Environment.NewLine + string.Join(Environment.NewLine, failures.ToArray()), "导入预设", MessageBoxButtons.OK, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1);
-            }
+            string[] files = HostDialogService.OpenFiles(this, "迁移预设 (*" + MigrationPreset.Extension + ")|*" + MigrationPreset.Extension + "|JSON 文件 (*.json)|*.json", "导入预设", true, "");
+            if (files.Length == 0) return;
+            var failures = new List<string>(); string last = null;
+            foreach (string file in files)
+                try
+                {
+                    var preset = MigrationPreset.Read(file);
+                    string target = MigrationPreset.UniqueFile(preset.Name);
+                    preset.Data["name"] = Path.GetFileName(target).Replace(MigrationPreset.Extension, "");
+                    MigrationPreset.Write(target, preset.Data); last = target;
+                }
+                catch (Exception error) { failures.Add(Path.GetFileName(file) + "：" + error.Message); }
+            Reload(last);
+            if (failures.Count > 0) UiDialog.Show(this, "以下文件未能导入：" + Environment.NewLine + string.Join(Environment.NewLine, failures.ToArray()), "导入预设", MessageBoxButtons.OK, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1);
         }
         private void Export()
         {
             var preset = Current; if (preset == null) return;
-            using (var dialog = new SaveFileDialog { Title = "导出预设", Filter = "迁移预设 (*" + MigrationPreset.Extension + ")|*" + MigrationPreset.Extension, FileName = Path.GetFileName(preset.FilePath), OverwritePrompt = true })
-            {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-                string file = dialog.FileName.EndsWith(MigrationPreset.Extension, StringComparison.OrdinalIgnoreCase) ? dialog.FileName : dialog.FileName + MigrationPreset.Extension;
-                try { MigrationPreset.Write(file, preset.Data); UiDialog.Show(this, "已导出到：" + Environment.NewLine + file, "导出预设", MessageBoxButtons.OK, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1); }
-                catch (Exception error) { UiDialog.Show(this, "导出失败：" + error.Message, "导出预设", MessageBoxButtons.OK, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1); }
-            }
+            string chosen = HostDialogService.SaveFile(this, "导出预设", "迁移预设 (*" + MigrationPreset.Extension + ")|*" + MigrationPreset.Extension, Path.GetFileName(preset.FilePath));
+            if (chosen == null) return;
+            string file = chosen.EndsWith(MigrationPreset.Extension, StringComparison.OrdinalIgnoreCase) ? chosen : chosen + MigrationPreset.Extension;
+            try { MigrationPreset.Write(file, preset.Data); UiDialog.Show(this, "已导出到：" + Environment.NewLine + file, "导出预设", MessageBoxButtons.OK, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1); }
+            catch (Exception error) { UiDialog.Show(this, "导出失败：" + error.Message, "导出预设", MessageBoxButtons.OK, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1); }
         }
         private void Rename()
         {

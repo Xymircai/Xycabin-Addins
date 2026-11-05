@@ -91,6 +91,18 @@ namespace Excel_Iterate
             }, DialogResult.Cancel);
         }
 
+        // Creation, result extraction and disposal all belong to the UI STA.
+        // Callers return only values (for example JSON or paths), never controls
+        // or COM objects, and apply the result on their original host thread.
+        internal static T ShowIsolatedResult<T>(IWin32Window owner, Func<Form> create, Func<Form,T> read, T cancelled)
+        {
+            return Run(owner, delegate(IWin32Window uiOwner)
+            {
+                using (var dialog = create())
+                    return dialog.ShowDialog(uiOwner) == DialogResult.OK ? read(dialog) : cancelled;
+            }, cancelled);
+        }
+
         internal static IntPtr ValidateOwner(IntPtr handle, bool requireVisible = true)
         {
             if (handle == IntPtr.Zero || !IsWindow(handle)) return IntPtr.Zero;
@@ -188,12 +200,22 @@ namespace Excel_Iterate
         internal static string[] OpenFiles(IWin32Window owner)
         { return OpenFiles(owner, "Excel 工作簿 (*.xlsx)|*.xlsx"); }
         internal static string[] OpenFiles(IWin32Window owner, string filter)
+        { return OpenFiles(owner, filter, "", true, ""); }
+        internal static string[] OpenFiles(IWin32Window owner, string filter, string title, bool multiple, string filename)
         {
             return Run(owner, delegate(IWin32Window uiOwner)
             {
-                using (var picker = new OpenFileDialog { Filter = filter, Multiselect = true, CheckFileExists = true })
+                using (var picker = new OpenFileDialog { Filter = filter, Title = title, Multiselect = multiple, CheckFileExists = true, FileName = filename })
                     return picker.ShowDialog(uiOwner) == DialogResult.OK ? picker.FileNames : new string[0];
             }, new string[0]);
+        }
+        internal static string SaveFile(IWin32Window owner, string title, string filter, string filename)
+        {
+            return Run(owner, delegate(IWin32Window uiOwner)
+            {
+                using (var picker = new SaveFileDialog { Title = title, Filter = filter, FileName = filename, OverwritePrompt = true })
+                    return picker.ShowDialog(uiOwner) == DialogResult.OK ? picker.FileName : null;
+            }, (string)null);
         }
         internal static int? PdfColor(IWin32Window owner, int color)
         {

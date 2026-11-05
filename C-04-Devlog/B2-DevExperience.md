@@ -259,6 +259,8 @@ UiDialog.Show保留DialogResult/默认值与样式；宿主提示、确认经Hos
 
 取消/Esc/关闭零写入，破坏性确认不绑Enter；中断全部链接保留两次确认。若应用和取消均导致Ribbon立即收起/无法键入，查消息循环、Owner启用、焦点/捕获与释放，保留首异常证据，不直接认定算法或窗口样式是唯一根因。
 
+预设命名、管理和缺失文件定位使用 HostDialogService.ShowIsolatedResult<T>：工厂在隔离 STA 创建窗口，同线程读取纯数据结果并释放；宿主仅接收 JSON 字符串或路径数组，再在原线程恢复迁移配置及读取 COM。取消不提取或应用结果，读取异常按取消处理并恢复 Owner。管理窗内部的文件夹、打开和保存选择同样经隔离服务，已在工作线程时复用该线程；不得从宿主捕获窗体控件交给工作线程。HostDialogProbe 用不可见真实消息循环检查创建/读取/释放线程、取消、异常及嵌套选择，宿主模态扫描门禁保持不变。
+
 ### (3). 尺寸登记与真实安全预览
 
 新增自有Form接入五处：DialogCatalog稳定ID/默认与最小96 DPI客户区→DialogSizing.Prepare→DialogPreviewFactory真实Form+固定样例→DialogTree实际Ribbon叶子映射→ThisAddIn退出清理。系统选择器、浏览器、安装器不登记。构造/Load不能自动读真实宿主或执行业务，预览注入样例并禁业务/跳转/高亮清理。

@@ -318,7 +318,9 @@ namespace Excel_Iterate
                 + (save.Count == 0 ? "" : line + line + "有未保存修改（将保存，不关闭）：" + line + string.Join(line, save.Select(p => "· " + Path.GetFileName(p)).ToArray()))
                 + (close.Count == 0 ? "" : line + line + "要更新原文件的目标（将保存并关闭，完成后可重新打开）：" + line + string.Join(line, close.Select(p => "· " + Path.GetFileName(p)).ToArray()))
                 + line + line + "保存会把你在这些工作簿中尚未保存的修改一并写入文件。" + line + (close.Count == 0 ? "是否保存后继续？" : "是否保存并关闭后继续？");
-            if (UiDialog.Show(form, text, "工作簿被占用", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1) != DialogResult.Yes)
+            // Saving alone is done for the user and reported; only closing a
+            // target the user has open still asks first.
+            if (close.Count > 0 && UiDialog.Show(form, text, "工作簿被占用", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1) != DialogResult.Yes)
             { form.Message(execute ? "已取消：请保存并关闭要更新的目标工作簿后再执行。" : "已取消：请先保存这些工作簿再预检。"); return false; }
             var failures = new List<string>();
             foreach (string path in save.Concat(close))
@@ -347,7 +349,7 @@ namespace Excel_Iterate
                 form.Message("未能处理：" + string.Join("；", failures.ToArray()) + "。请手动保存" + (execute ? "或关闭" : "") + "后再试。");
                 return false;
             }
-            form.Message(close.Count == 0 ? "已保存 " + save.Count + " 个工作簿（未关闭），继续" + (execute ? "执行" : "预检") + "。" : "已保存 " + save.Count + " 个、保存并关闭 " + close.Count + " 个工作簿，继续执行。");
+            form.Message(close.Count == 0 ? "已替你保存 " + save.Count + " 个有未保存修改的工作簿（未关闭）：" + string.Join("、", save.Select(p => Path.GetFileName(p)).ToArray()) + "，继续" + (execute ? "执行" : "预检") + "。" : "已保存 " + save.Count + " 个、保存并关闭 " + close.Count + " 个工作簿，继续执行。");
             return true;
         }
         private static void MigrationAction(DataMigrationForm form, Action action)

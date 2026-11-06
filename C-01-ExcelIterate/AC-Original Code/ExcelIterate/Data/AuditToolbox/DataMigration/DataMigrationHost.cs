@@ -35,6 +35,10 @@ namespace Excel_Iterate
         // calculated value is pasted instead (the user is asked first).
         internal readonly HashSet<string> MissingSheets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         internal int ValueFallbacks;
+        // Precheck: how long opening this target took (for 预计耗时); when
+        // the last attempt ended (for the log).
+        internal long OpenMilliseconds;
+        internal DateTime Finished;
     }
     internal sealed class MigrationRequest
     {
@@ -44,11 +48,17 @@ namespace Excel_Iterate
         // 只写数值: formulas in the source are read as their calculated values
         // and written as constants; no formula translation or names involved.
         internal bool ValuesOnly;
+        // 数值+格式 / 公式+格式: copy the source cell formats too. Without it
+        // the target keeps its own formats (merges still follow the source).
+        internal bool KeepFormat;
         // 逐行重算: before reading, copy TriggerFrom into TriggerCell in the
         // source's own read copy and recalculate; TriggerNameCell must still
         // read TriggerExpect (the name the target was matched by).
         internal string TriggerCell = "", TriggerFrom = "", TriggerNameCell = "", TriggerExpect = "";
         internal int NonEmptyCells, FormulaCells;
+        // Precheck: cells read and how long reading the source took.
+        internal int Cells;
+        internal long ReadMilliseconds;
         internal List<MigrationTarget> Targets = new List<MigrationTarget>();
     }
     internal sealed class MigrationCell
@@ -135,7 +145,13 @@ namespace Excel_Iterate
             using (var bag = new ComBag())
             {
                 dynamic sheets = bag.Own(((dynamic)handle.Book).Worksheets);
-                for (int i = 1; i <= Convert.ToInt32(sheets.Count); i++) using (var item = new ComBag()) { dynamic sheet = item.Own(sheets.Item(i)); result.Add(Convert.ToString(sheet.Name)); }
+                // Very hidden sheets (such as WPS's own WPE_CUSTOM) cannot be chosen.
+                for (int i = 1; i <= Convert.ToInt32(sheets.Count); i++) using (var item = new ComBag())
+                {
+                    dynamic sheet = item.Own(sheets.Item(i)); int visible = -1;
+                    try { visible = Convert.ToInt32(sheet.Visible); } catch (Exception) { }
+                    if (visible != 2) result.Add(Convert.ToString(sheet.Name));
+                }
             }
             RestoreActive(); return result;
         }
@@ -147,14 +163,29 @@ namespace Excel_Iterate
                 var entry = package.GetEntry("xl/workbook.xml");
                 if (entry == null) throw new InvalidOperationException("工作簿缺少工作表目录：" + path);
                 var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 4 * 1024 * 1024 };
-                var result = new List<string>();
+                // Relationship id -> type, to keep worksheets only (chart and
+                // dialog sheets, and WPS's internal WPE_CUSTOM, are not
+                // reachable as worksheets).
+                var types = new Dictionary<string, string>(StringComparer.Ordinal);
+                var rels = package.GetEntry("xl/_rels/workbook.xml.rels");
+                if (rels != null)
+                    using (var xml = XmlReader.Create(rels.Open(), settings))
+                        while (xml.Read())
+                            if (xml.NodeType == XmlNodeType.Element && xml.LocalName == "Relationship")
+                            { string id = xml.GetAttribute("Id"), type = xml.GetAttribute("Type"); if (!string.IsNullOrEmpty(id) && type != null) types[id] = type; }
+                var result = new List<string>(); var all = new List<string>();
                 using (var xml = XmlReader.Create(entry.Open(), settings))
                     while (xml.Read())
                         if (xml.NodeType == XmlNodeType.Element && xml.LocalName == "sheet" &&
                             (xml.NamespaceURI == "http://schemas.openxmlformats.org/spreadsheetml/2006/main" || xml.NamespaceURI == "http://purl.oclc.org/ooxml/spreadsheetml/main"))
                         {
                             string name = xml.GetAttribute("name");
-                            if (string.IsNullOrEmpty(name) || result.Contains(name)) throw new InvalidOperationException("工作表目录包含空名称或重复名称。");
+                            if (string.IsNullOrEmpty(name) || all.Contains(name)) throw new InvalidOperationException("工作表目录包含空名称或重复名称。");
+                            all.Add(name);
+                            if (string.Equals(xml.GetAttribute("state"), "veryHidden", StringComparison.Ordinal)) continue;
+                            string id = xml.GetAttribute("id", "http://schemas.openxmlformats.org/officeDocument/2006/relationships") ?? xml.GetAttribute("id", "http://purl.oclc.org/ooxml/officeDocument/relationships");
+                            string type;
+                            if (id != null && types.TryGetValue(id, out type) && !type.EndsWith("/worksheet", StringComparison.Ordinal)) continue;
                             result.Add(name);
                         }
                 if (result.Count == 0) throw new InvalidOperationException("工作簿没有工作表。");
@@ -163,7 +194,7 @@ namespace Excel_Iterate
         }
         internal static string Digest(string path)
         { using (var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", ""); }
-        internal string PickSourceRange(string path, string sheetName, string current, Func<object, object> picker, string role = "源")
+        internal string PickSourceRange(string path, string sheetName, string current, Func<object, object> picker, string role = "源", Action<Action> ready = null)
         {
             Check(); CheckFile(path);
             if (string.IsNullOrWhiteSpace(sheetName)) throw new InvalidOperationException("请先选择" + role + "工作表。");
@@ -181,6 +212,26 @@ namespace Excel_Iterate
             ((dynamic)handle.Book).Activate(); ((dynamic)handle.Sheet).Activate();
             object initial = Type.Missing;
             if (!string.IsNullOrWhiteSpace(current)) try { initial = MigrationArea.Parse(current).Address; } catch (InvalidOperationException) { }
+            // ready gets a way to put the selection back: the caller clicks
+            // into the sheet once for the user (so the first real click
+            // already selects), which moves the selection to that cell.
+            string restore = initial is string ? (string)initial : null;
+            try
+            {
+                using (var bag = new ComBag())
+                {
+                    if (restore != null) { dynamic range = bag.Own(((dynamic)handle.Sheet).Range[restore]); range.Select(); }
+                    else { dynamic selection = bag.Own(((dynamic)app).Selection); restore = Convert.ToString(selection.Address); }
+                }
+            }
+            catch (Exception) { }
+            if (ready != null)
+                ready(delegate
+                {
+                    if (string.IsNullOrEmpty(restore)) return;
+                    try { using (var bag = new ComBag()) { dynamic range = bag.Own(((dynamic)handle.Sheet).Range[restore]); range.Select(); } }
+                    catch (Exception) { }
+                });
             using (var refs = new ComBag())
             {
                 object chosen = picker != null ? picker(handle.Sheet) : ((dynamic)app).InputBox(
@@ -221,7 +272,9 @@ namespace Excel_Iterate
             if (!ownedReadCopy && !ComFormulaHost.Boolean(((dynamic)handle.Book).Saved, "Saved")) throw new InvalidOperationException("工作簿有未保存修改，请先保存并重新预检：" + handle.Path);
             if (!string.Equals(Path.GetFullPath(Convert.ToString(((dynamic)handle.Book).FullName)), Path.GetFullPath(handle.Path), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("工作簿身份或路径已改变，请重新预检。");
         }
-        private MergeWorkbookHandle ResolveOriginal(string path, string sheet, MergeWorkbookGateway targetGateway = null, bool interactive = false)
+        // copy: read a disposable copy even when the user has the file open
+        // (逐行重算 edits its trigger cell, never in the user's workbook).
+        private MergeWorkbookHandle ResolveOriginal(string path, string sheet, MergeWorkbookGateway targetGateway = null, bool interactive = false, bool copy = false)
         {
             string full = Path.GetFullPath(path), readPath = full; bool alreadyOpen = false;
             using (var bag = new ComBag())
@@ -238,7 +291,7 @@ namespace Excel_Iterate
             // Close(false), even after a read-only open. Never open an unopened
             // original: inspect a same-directory disposable copy instead.
             bool needsDateCopy = alreadyOpen && MigrationPackageCompatibility.HasIsoDates(full);
-            if ((!alreadyOpen || needsDateCopy) && !readCopies.TryGetValue(full, out readPath))
+            if ((!alreadyOpen || needsDateCopy || copy) && !readCopies.TryGetValue(full, out readPath))
             {
                 readPath = Path.Combine(Path.GetDirectoryName(full), ".xy-migration-read-" + Guid.NewGuid().ToString("N") + Path.GetExtension(full));
                 try
@@ -263,9 +316,11 @@ namespace Excel_Iterate
             if (target.Handle != null) ValidateOriginal(target.Handle, target.Fingerprint);
             else if (!File.Exists(target.Path) || Digest(target.Path) != target.Fingerprint)
                 throw new InvalidOperationException("目标文件已变化，请重新预检：" + target.Path);
-            EnsureTargetClosed(target);
+            EnsureTargetClosed(target, true);
         }
-        private void EnsureTargetClosed(MigrationTarget target)
+        // Precheck (writing = false) only needs the target saved: an open target
+        // is read in place. Replacing the file needs it closed.
+        private void EnsureTargetClosed(MigrationTarget target, bool writing)
         {
             using (var references = new ComBag())
             {
@@ -275,7 +330,7 @@ namespace Excel_Iterate
                     dynamic book = references.Own(books.Item(i));
                     if (string.Equals(Path.GetFullPath(Convert.ToString(book.FullName)), Path.GetFullPath(target.Path), StringComparison.OrdinalIgnoreCase))
                     {
-                        if (request.ReplaceTargets) throw new InvalidOperationException("更新原文件前请先保存并关闭该目标工作簿，再重新预检：" + target.Path);
+                        if (request.ReplaceTargets && writing) throw new InvalidOperationException("更新原文件前请先保存并关闭该目标工作簿：" + target.Path);
                         if (!ComFormulaHost.Boolean(book.Saved, "Saved")) throw new InvalidOperationException("目标有未保存修改，请先保存并重新预检：" + target.Path);
                     }
                 }
@@ -283,7 +338,7 @@ namespace Excel_Iterate
             if (!request.ReplaceTargets) return;
             if ((File.GetAttributes(target.Path) & FileAttributes.ReadOnly) != 0)
                 throw new InvalidOperationException("目标文件为只读，不能更新原文件：" + target.Path);
-            using (File.Open(target.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
+            if (writing) using (File.Open(target.Path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
         }
         private void ReleaseTarget(MigrationTarget target)
         {
@@ -357,7 +412,7 @@ namespace Excel_Iterate
             // A bounded snapshot makes accidental whole-sheet selection actionable.
             if ((long)area.Rows * area.Columns > 100000) throw new InvalidOperationException("单批最多迁移 100000 个单元格，请缩小源区域分批处理。");
             sourceHash = Digest(input.SourcePath);
-            source = ResolveOriginal(input.SourcePath, input.SourceSheet); Saved(source); ValidateOriginal(source, sourceHash);
+            source = ResolveOriginal(input.SourcePath, input.SourceSheet, null, false, input.TriggerCell.Length > 0); Saved(source); ValidateOriginal(source, sourceHash);
             if (input.TriggerCell.Length > 0)
             {
                 // Kept passes of this source must not see the trigger edit as a change.
@@ -370,7 +425,7 @@ namespace Excel_Iterate
                 Connect.Log("迁移耗时：逐行重算 " + input.TriggerFrom + " " + recalc.ElapsedMilliseconds + " ms");
             }
             watch = Watch(source.Book,"迁移来源");
-            packagePreservation = MigrationPackagePreservation.Capture(input.SourcePath, input.SourceSheet, area);
+            packagePreservation = MigrationPackagePreservation.Capture(input.SourcePath, input.SourceSheet, area, input.KeepFormat);
             sourceNames = ReadNames(source.Book); sourceLinks = ExternalFiles(source.Book, out sourceAmbiguous);
             using (var bag = new ComBag())
             {
@@ -378,6 +433,7 @@ namespace Excel_Iterate
                 area.Check(Convert.ToInt32(rows.Count), Convert.ToInt32(columns.Count));
             }
             RejectTables(source.Sheet, area);
+            var reading = System.Diagnostics.Stopwatch.StartNew();
             for (int r = 0; r < area.Rows; r++) for (int c = 0; c < area.Columns; c++)
             {
                 Check(); watch.Validate();
@@ -387,11 +443,12 @@ namespace Excel_Iterate
                     if (!input.ValuesOnly) RejectArray(cell);
                     ReadMerge(cell, area, merges);
                     bool follower = IsMergeFollower(cell), formula = !follower && !input.ValuesOnly && ComFormulaHost.Boolean(cell.HasFormula, "HasFormula");
-                    cells.Add(new MigrationCell { IsFormula = formula, Formula = formula ? Formula(cell) : null, Value = formula || follower ? null : (object)cell.Value2, Computed = formula ? (object)cell.Value2 : null, Style = ReadStyle(cell) });
+                    cells.Add(new MigrationCell { IsFormula = formula, Formula = formula ? Formula(cell) : null, Value = formula || follower ? null : (object)cell.Value2, Computed = formula ? (object)cell.Value2 : null, Style = input.KeepFormat ? ReadStyle(cell) : new Dictionary<string, object>() });
                 }
                 yield return new MigrationProgress("读取源区域 " + cells.Count + "/" + ((long)area.Rows * area.Columns));
             }
             watch.Validate(); ValidateOriginal(source, sourceHash);
+            input.Cells = cells.Count; input.ReadMilliseconds = reading.ElapsedMilliseconds;
             input.NonEmptyCells = cells.Count(c => c.IsFormula || c.Value != null);
             input.FormulaCells = cells.Count(c => c.IsFormula);
             if (input.NonEmptyCells == 0 && !input.AllowEmptySource) throw new InvalidOperationException("源区域 " + input.SourceSheet + "!" + area.Address + " 全部为空，未生成结果。请选择有数据的区域；如需清空目标，请明确勾选“允许全空白源区域”。");
@@ -402,8 +459,9 @@ namespace Excel_Iterate
                     Check(); target.Ready = false; target.Error = ""; target.Backup = ""; target.Fingerprint = ""; target.Overwritten = 0; target.Output = ""; target.Samples.Clear(); target.Heights.Clear(); target.Widths.Clear(); target.Status = "预检中";
                     yield return new MigrationProgress("正在打开目标 " + Path.GetFileName(target.Path) + " 预检（文件较大时可能需要较长时间）…", true);
                     Exception failure = null; var opened = System.Diagnostics.Stopwatch.StartNew();
-                    try { PrepareTarget(target); } catch (Exception error) { failure = error; }
+                    try { PrepareTarget(target, false); } catch (Exception error) { failure = error; }
                     Connect.Log("迁移耗时：预检打开 " + Path.GetFileName(target.Path) + " " + opened.ElapsedMilliseconds + " ms" + (failure == null ? "" : "（失败）"));
+                    target.OpenMilliseconds = opened.ElapsedMilliseconds;
                     if (failure != null) { Fail(target, failure); yield return new MigrationProgress(target.Error); continue; }
                     bool stop = false;
                     for (int r = 0; r < area.Rows && !stop; r++) for (int c = 0; c < area.Columns; c++)
@@ -427,7 +485,7 @@ namespace Excel_Iterate
                     {
                         try
                         {
-                            ValidateOriginal(target.Handle, target.Fingerprint); target.Ready = true; target.Status = "可执行";
+                            ValidateOriginal(target.Handle, target.Fingerprint); target.Ready = true; target.Status = "可执行"; target.Finished = DateTime.Now;
                             if (target.ValueFallbacks > 0) target.Error = "缺少工作表“" + string.Join("”“", target.MissingSheets.ToArray()) + "”：" + target.ValueFallbacks + " 个公式单元格将改为粘贴数值（执行前会确认）";
                         }
                         catch (Exception error) { Fail(target, error); }
@@ -443,11 +501,11 @@ namespace Excel_Iterate
             }
             RestoreActive();
         }
-        private void PrepareTarget(MigrationTarget target)
+        private void PrepareTarget(MigrationTarget target, bool writing = true)
         {
             if (string.IsNullOrWhiteSpace(target.Sheet)) throw new InvalidOperationException("请选择该目标中实际存在的工作表。");
             CheckFile(target.Path);
-            EnsureTargetClosed(target);
+            EnsureTargetClosed(target, writing);
             if(packagePreservation!=null)packagePreservation.RequireCompatibleTarget(target.Path);
             if (string.Equals(Path.GetFullPath(target.Path), Path.GetFullPath(request.SourcePath), StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("目标应为其他工作簿，不能选择源文件。");
             var start = MigrationArea.Parse(target.Start); if (start.Rows != 1 || start.Columns != 1) throw new InvalidOperationException("目标起始位置必须是单个单元格。");
@@ -612,7 +670,7 @@ namespace Excel_Iterate
                             {
                                 int index = (merge.Row + r - area.Row) * area.Columns + merge.Column + c - area.Column;
                                 object cell = bag.Own(((dynamic)sheet).Range[MigrationArea.Cell(merge.Row + r + target.Context.RowDelta, merge.Column + c + target.Context.ColumnDelta)]);
-                                WriteStyle(cell, cells[index].Style);
+                                if (cells[index].Style.Count > 0) WriteStyle(cell, cells[index].Style);
                             }
                             RestoreDimensions(sheet, target);
                             // Save with a visible workbook view so the delivered
@@ -679,7 +737,7 @@ namespace Excel_Iterate
                             string output = DataMigrationEngine.OutputPath(target.Path, p => File.Exists(p) || Directory.Exists(p));
                             File.Move(stage, output); target.Output = output;
                         }
-                        diagnosticPaths.Remove(stage); target.Ready = false; target.Status = "成功";
+                        diagnosticPaths.Remove(stage); target.Ready = false; target.Status = "成功"; target.Finished = DateTime.Now;
                     }
                     catch (Exception error) { failure = error; }
                 }
@@ -776,10 +834,13 @@ namespace Excel_Iterate
             Directory.CreateDirectory(DiagnosticDirectory);
             var groups = kept.SelectMany(s => s.Request.Targets.Where(t => t.Ready).Select(t => new BatchEntry { Slice = s, Target = t }))
                 .GroupBy(e => Path.GetFullPath(e.Target.Path), StringComparer.OrdinalIgnoreCase).Select(g => g.ToList()).ToList();
+            // Remaining time from the pace so far (cells written and verified).
+            double totalCells = groups.Sum(x => x.Sum(e => (double)e.Slice.Cells.Count)) + groups.Count * 50.0, doneCells = 0;
+            var runClock = System.Diagnostics.Stopwatch.StartNew();
             for (int g = 0; g < groups.Count && !Cancelled; g++)
             {
                 var group = groups[g];
-                string label = "[目标 " + (g + 1) + "/" + groups.Count + "] ";
+                string label = "[目标 " + (g + 1) + "/" + groups.Count + (doneCells > 0 ? "，剩余约 " + DurationText(runClock.ElapsedMilliseconds / doneCells * (totalCells - doneCells)) : "") + "] ";
                 foreach (var entry in group) entry.Target.Status = "等待写入";
                 while (group.Count > 0)
                 {
@@ -799,6 +860,7 @@ namespace Excel_Iterate
                     if (outcome.Failure is OperationCanceledException) Cancelled = true;
                     break;
                 }
+                doneCells += groups[g].Sum(e => (double)e.Slice.Cells.Count) + 50.0;
             }
             if (Cancelled)
                 foreach (var target in kept.SelectMany(s => s.Request.Targets))
@@ -904,7 +966,7 @@ namespace Excel_Iterate
                         {
                             int index = (merge.Row + r - area.Row) * area.Columns + merge.Column + c - area.Column;
                             object cell = bag.Own(((dynamic)sheet).Range[MigrationArea.Cell(merge.Row + r + target.Context.RowDelta, merge.Column + c + target.Context.ColumnDelta)]);
-                            WriteStyle(cell, cells[index].Style);
+                            if (cells[index].Style.Count > 0) WriteStyle(cell, cells[index].Style);
                         }
                         RestoreDimensions(sheet, target);
                     });
@@ -1008,7 +1070,7 @@ namespace Excel_Iterate
                         File.Move(stage, output);
                     }
                     diagnosticPaths.Remove(stage);
-                    foreach (var entry in group) { var t = entry.Target; t.Backup = backup; t.Output = output; t.Ready = false; t.Status = "成功"; t.Formulas = null; }
+                    foreach (var entry in group) { var t = entry.Target; t.Backup = backup; t.Output = output; t.Ready = false; t.Status = "成功"; t.Formulas = null; t.Finished = DateTime.Now; }
                     mark("提交");
                 }
                 catch (Exception error) { failure = error; culprit = null; }
@@ -1069,13 +1131,13 @@ namespace Excel_Iterate
                     // Refers to a sheet this target lacks: paste the value.
                     object value = sourceCell.Computed;
                     if (value == null) cell.ClearContents();
-                    else { cell.NumberFormat = value is string ? "@" : "General"; cell.Value2 = value; }
+                    else WriteValue(cell, value, request.KeepFormat);
                 }
                 else if (sourceCell.IsFormula)
                 {
                     // A text-formatted destination treats an assigned formula as
                     // text on WPS. Apply a formula-capable format before writing.
-                    cell.NumberFormat = "General";
+                    if (request.KeepFormat || Convert.ToString(cell.NumberFormat) == "@") cell.NumberFormat = "General";
                     try { cell.Formula2 = target.Formulas[index].Text; }
                     catch (Exception error) { if (!ComFormulaHost.Missing(error)) throw; cell.Formula = target.Formulas[index].Text; }
                 }
@@ -1089,15 +1151,22 @@ namespace Excel_Iterate
                 }
                 else
                 {
-                    // The target's existing format must not reinterpret the
-                    // value (a number written into a text cell becomes text).
-                    // Write under a neutral format; WriteStyle then restores
-                    // the source format.
-                    cell.NumberFormat = sourceCell.Value is string ? "@" : "General";
-                    cell.Value2 = sourceCell.Value;
+                    WriteValue(cell, sourceCell.Value, request.KeepFormat);
                 }
-                WriteStyle(cell, sourceCell.Style);
+                if (sourceCell.Style.Count > 0) WriteStyle(cell, sourceCell.Style);
             }
+        }
+        // The target's existing format must not reinterpret the value (a
+        // number written into a text cell becomes text). With formats, write
+        // under a neutral format and let WriteStyle restore the source's.
+        // Without, keep the target's number format unless it would change
+        // the value: text format for numbers, or text WPS would convert.
+        private static void WriteValue(dynamic cell, object value, bool keepFormat)
+        {
+            if (keepFormat) { cell.NumberFormat = value is string ? "@" : "General"; cell.Value2 = value; return; }
+            if (!(value is string) && Convert.ToString(cell.NumberFormat) == "@") cell.NumberFormat = "General";
+            cell.Value2 = value;
+            if (value is string && !SameValue((object)cell.Value2, value)) { cell.NumberFormat = "@"; cell.Value2 = value; }
         }
         private void VerifyCell(object sheet, MigrationTarget target, int index, MigrationFormulaContext context)
         {
@@ -1109,8 +1178,11 @@ namespace Excel_Iterate
                 bool asFormula = expected.IsFormula && target.Formulas[index] != null;
                 object value = expected.IsFormula ? expected.Computed : expected.Value;
                 if (has != asFormula || (has ? !SameDefinition(Formula(cell), target.Formulas[index].Text, context) : !SameValue(follower ? null : (object)cell.Value2, value))) throw new IOException(address + " 保存重开后内容核对失败。");
-                var actual = ReadStyle(cell);
-                foreach (var pair in expected.Style) if (!SameValue(actual[pair.Key], pair.Value)) throw new IOException(address + " 样式核对失败：" + pair.Key);
+                if (expected.Style.Count > 0)
+                {
+                    var actual = ReadStyle(cell);
+                    foreach (var pair in expected.Style) if (!SameValue(actual[pair.Key], pair.Value)) throw new IOException(address + " 样式核对失败：" + pair.Key);
+                }
                 ReadMerge(cell, target.Area, target.ActualMerges);
                 if (index % area.Columns == 0 && Convert.ToDouble(cell.RowHeight) != target.Heights[index / area.Columns]) throw new IOException(address + " 目标行高发生变化：" + cell.RowHeight + "，应为 " + target.Heights[index / area.Columns]);
                 if (index < area.Columns && Convert.ToDouble(cell.ColumnWidth) != target.Widths[index]) throw new IOException(address + " 目标列宽发生变化：" + cell.ColumnWidth + "，应为 " + target.Widths[index]);
@@ -1289,11 +1361,15 @@ namespace Excel_Iterate
             }
         }
         // Only ever on our own read copy: the user's original is never edited.
+        // Trigger cells changed in a source copy, with their original content,
+        // so another 逐行重算 set of the same copy starts from the original.
+        private sealed class TriggerEdit { internal string Copy, Sheet, Cell, Formula; }
+        private readonly List<TriggerEdit> triggerEdits = new List<TriggerEdit>();
         private void ApplyTrigger(MigrationRequest input)
         {
             string original, copy;
             bool owned = originalPaths.TryGetValue(source, out original) && readCopies.TryGetValue(original, out copy) && string.Equals(copy, source.Path, StringComparison.OrdinalIgnoreCase);
-            if (!owned) throw new InvalidOperationException("逐行重算需要先保存并关闭源工作簿，程序只在副本中改动触发单元格：" + input.SourcePath);
+            if (!owned) throw new InvalidOperationException("逐行重算只在源的副本中改动触发单元格，未能创建副本：" + input.SourcePath);
             Quiet(delegate
             {
                 using (var bag = new ComBag())
@@ -1309,7 +1385,16 @@ namespace Excel_Iterate
                     dynamic from = bag.Own(sheet.Range[input.TriggerFrom]);
                     object value = from.Value2;
                     if (value == null || Convert.ToString(value).Trim().Length == 0) throw new InvalidOperationException("触发值为空：" + input.TriggerFrom);
+                    foreach (var edit in triggerEdits.Where(e => string.Equals(e.Copy, source.Path, StringComparison.OrdinalIgnoreCase)
+                        && !(string.Equals(e.Sheet, input.SourceSheet, StringComparison.OrdinalIgnoreCase) && string.Equals(e.Cell, input.TriggerCell, StringComparison.OrdinalIgnoreCase))).ToList())
+                    {
+                        dynamic sheets = bag.Own(((dynamic)source.Book).Worksheets); dynamic other = bag.Own(sheets.Item(edit.Sheet));
+                        dynamic restore = bag.Own(other.Range[edit.Cell]); restore.Formula = edit.Formula;
+                        triggerEdits.Remove(edit);
+                    }
                     dynamic to = bag.Own(sheet.Range[input.TriggerCell]);
+                    if (!triggerEdits.Any(e => string.Equals(e.Copy, source.Path, StringComparison.OrdinalIgnoreCase) && string.Equals(e.Sheet, input.SourceSheet, StringComparison.OrdinalIgnoreCase) && string.Equals(e.Cell, input.TriggerCell, StringComparison.OrdinalIgnoreCase)))
+                        triggerEdits.Add(new TriggerEdit { Copy = source.Path, Sheet = input.SourceSheet, Cell = input.TriggerCell, Formula = Convert.ToString(to.Formula) });
                     to.Value2 = value;
                     ((dynamic)app).Calculate();
                 }
@@ -1375,17 +1460,41 @@ namespace Excel_Iterate
             foreach (string path in LinkSet(book)) if (!allowed.Contains(path)) throw new IOException("副本产生了未计划的外部链接：" + path);
         }
         private static void Fail(MigrationTarget target, Exception error)
-        { string phase = target.Status; target.Ready = false; target.Status = error is OperationCanceledException ? "已取消" : "失败"; target.Error = phase + "：" + error.Message; target.FailureDetails = error.ToString(); }
+        { string phase = target.Status; target.Ready = false; target.Status = error is OperationCanceledException ? "已取消" : "失败"; target.Error = phase + "：" + error.Message; target.FailureDetails = error.ToString(); target.Finished = DateTime.Now; }
+        // "约 2 分 30 秒"-style text for a duration.
+        // 2026-11-5-10:30
+        internal static string Stamp(DateTime time) { return time.ToString("yyyy-M-d-HH:mm", CultureInfo.InvariantCulture); }
+        internal static string DurationText(double milliseconds)
+        {
+            long seconds = Math.Max(1, (long)Math.Round(milliseconds / 1000));
+            if (seconds < 60) return seconds + " 秒";
+            if (seconds < 3600) return seconds / 60 + " 分" + (seconds % 60 == 0 ? "" : " " + seconds % 60 + " 秒");
+            return seconds / 3600 + " 小时" + (seconds % 3600 / 60 == 0 ? "" : " " + seconds % 3600 / 60 + " 分");
+        }
+        // Rough length of executing what was just prechecked: the precheck
+        // again, then per target: copy, open, save and reopen (about three
+        // times its open), and per cell: write, format and verify (about
+        // three times its read).
+        internal static double EstimateMilliseconds(IEnumerable<MigrationRequest> requests, double precheck)
+        {
+            var list = requests.ToList();
+            long read = list.Sum(r => r.ReadMilliseconds); long readCells = list.Sum(r => (long)r.Cells);
+            double perCell = readCells == 0 ? 2 : Math.Max(0.2, (double)read / readCells);
+            var ready = list.SelectMany(r => r.Targets.Where(t => t.Ready).Select(t => new { Request = r, Target = t })).ToList();
+            double opens = ready.GroupBy(x => Path.GetFullPath(x.Target.Path), StringComparer.OrdinalIgnoreCase).Sum(g => g.Max(x => x.Target.OpenMilliseconds)) * 3.0;
+            double cells = ready.Sum(x => (double)x.Request.Cells) * perCell * 3.0;
+            return precheck + opens + cells;
+        }
         private void WriteLog()
         {
-            var lines = new List<string> { "批量迁移数据；" + (request.ReplaceTargets ? "校验后更新目标原文件，替换前版本保留备份" : "另存结果副本，原文件不修改") + (kept.Count > 0 ? "；每个目标只打开、保存一次" : "") };
+            var lines = new List<string> { "记录时间：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), "批量迁移数据；" + (request.ReplaceTargets ? "校验后更新目标原文件，替换前版本保留备份" : "另存结果副本，原文件不修改") + (kept.Count > 0 ? "；每个目标只打开、保存一次" : "") };
             var runs = kept.Count > 0 ? kept.Select(k => new KeyValuePair<MigrationRequest, string>(k.Request, k.Hash)).ToList() : new List<KeyValuePair<MigrationRequest, string>> { new KeyValuePair<MigrationRequest, string>(request, sourceHash) };
             foreach (var run in runs)
             {
                 var item = run.Key;
                 lines.Add("源：" + item.SourcePath); lines.Add("源区域：" + item.SourceSheet + "!" + item.SourceRange + (item.TriggerCell.Length > 0 ? "（逐行重算 " + item.TriggerFrom + " → " + item.TriggerCell + "）" : ""));
                 lines.Add("源非空数：" + item.NonEmptyCells + "；公式数：" + item.FormulaCells); lines.Add("源摘要：" + run.Value);
-                foreach (var target in item.Targets) lines.Add(target.Status + "\t" + target.Path + "\t" + target.Sheet + "!" + target.Start + "\t" + target.Output + "\t备份：" + target.Backup + "\t" + target.Error);
+                foreach (var target in item.Targets) lines.Add((target.Finished == DateTime.MinValue ? "--:--:--" : target.Finished.ToString("yyyy-M-d-HH:mm:ss", CultureInfo.InvariantCulture)) + "\t" + target.Status + "\t" + target.Path + "\t" + target.Sheet + "!" + target.Start + "\t" + target.Output + "\t备份：" + target.Backup + "\t" + target.Error);
             }
             foreach (var target in runs.SelectMany(r => r.Key.Targets).Where(t => t.FailureDetails.Length > 0)) lines.Add("异常详情：" + target.Path + Environment.NewLine + target.FailureDetails);
             lines.AddRange(diagnosticPaths.Select(p => "未交付的临时副本：" + p));

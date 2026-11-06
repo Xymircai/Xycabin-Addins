@@ -31,6 +31,10 @@ namespace Excel_Iterate
         internal readonly List<MigrationArea> ActualMerges = new List<MigrationArea>();
         internal Dictionary<string, string> MacroParts;
         internal List<string> Samples = new List<string>();
+        // Formula cells that refer to sheets this target lacks: their
+        // calculated value is pasted instead (the user is asked first).
+        internal readonly HashSet<string> MissingSheets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        internal int ValueFallbacks;
     }
     internal sealed class MigrationRequest
     {
@@ -52,6 +56,8 @@ namespace Excel_Iterate
         internal bool IsFormula;
         internal object Value;
         internal string Formula;
+        // The formula's calculated value, used when the target lacks a sheet it refers to.
+        internal object Computed;
         internal Dictionary<string, object> Style;
     }
     internal sealed class MigrationProgress
@@ -72,6 +78,12 @@ namespace Excel_Iterate
         private readonly MergeWorkbookGateway gateway;
         private readonly Dictionary<string, string> readCopies = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<MergeWorkbookHandle, string> originalPaths = new Dictionary<MergeWorkbookHandle, string>();
+        // Digest of each original when its read copy was made.
+        private readonly Dictionary<string, string> readDigests = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // HoldTargets: a target's read copy stays open for the target's other
+        // passes in this run (opened once), until ReleaseHeld or Dispose.
+        internal bool HoldTargets;
+        private readonly Dictionary<string, MergeWorkbookGateway> heldTargets = new Dictionary<string, MergeWorkbookGateway>(StringComparer.OrdinalIgnoreCase);
         private SourceChangeWatch watch;
         private SourceChangeWatch copyWatch;
         private MergeWorkbookHandle source;
@@ -232,7 +244,7 @@ namespace Excel_Iterate
                 try
                 {
                     string before = Digest(full);
-                    File.Copy(full, readPath, false); readCopies[full] = readPath;
+                    File.Copy(full, readPath, false); readCopies[full] = readPath; readDigests[full] = before;
                     if (Digest(full) != before || Digest(readPath) != before) throw new IOException("复制读取副本期间原文件已变化，请重新预检。");
                     MigrationPackageCompatibility.NormalizeOwnedCopy(readPath); File.SetAttributes(readPath, File.GetAttributes(readPath) | FileAttributes.Hidden);
                 }
@@ -276,6 +288,14 @@ namespace Excel_Iterate
         private void ReleaseTarget(MigrationTarget target)
         {
             var resolver = target.Gateway; target.Gateway = null;
+            if (HoldTargets)
+            {
+                bool owner = target.Handle != null && target.Handle.OpenedByUs; target.Handle = null;
+                if (resolver == null) return;
+                string key = Path.GetFullPath(target.Path);
+                if (owner && !heldTargets.ContainsKey(key)) { heldTargets[key] = resolver; return; }
+                Quiet(delegate { resolver.Dispose(); }); return;
+            }
             try { if (resolver != null) Quiet(delegate { resolver.Dispose(); }); }
             finally
             {
@@ -284,7 +304,23 @@ namespace Excel_Iterate
                 foreach (var handle in originalPaths.Where(p => string.Equals(p.Value, full, StringComparison.OrdinalIgnoreCase)).Select(p => p.Key).ToArray()) originalPaths.Remove(handle);
                 if (readCopies.TryGetValue(full, out path))
                 {
-                    try { File.Delete(path); readCopies.Remove(full); }
+                    try { File.Delete(path); readCopies.Remove(full); readDigests.Remove(full); }
+                    catch (Exception error) { UiDiagnostics.Record("migration-target-read-cleanup", error); }
+                }
+            }
+        }
+        // Closes a held target read copy and deletes it.
+        private void ReleaseHeld(string full)
+        {
+            MergeWorkbookGateway held;
+            try { if (heldTargets.TryGetValue(full, out held)) { heldTargets.Remove(full); Quiet(delegate { held.Dispose(); }); } }
+            finally
+            {
+                string path;
+                foreach (var handle in originalPaths.Where(p => string.Equals(p.Value, full, StringComparison.OrdinalIgnoreCase)).Select(p => p.Key).ToArray()) originalPaths.Remove(handle);
+                if (readCopies.TryGetValue(full, out path))
+                {
+                    try { File.Delete(path); readCopies.Remove(full); readDigests.Remove(full); }
                     catch (Exception error) { UiDiagnostics.Record("migration-target-read-cleanup", error); }
                 }
             }
@@ -324,6 +360,10 @@ namespace Excel_Iterate
             source = ResolveOriginal(input.SourcePath, input.SourceSheet); Saved(source); ValidateOriginal(source, sourceHash);
             if (input.TriggerCell.Length > 0)
             {
+                // Kept passes of this source must not see the trigger edit as a change.
+                foreach (var slice in kept)
+                    if (slice.Watch != null && string.Equals(Path.GetFullPath(slice.Request.SourcePath), Path.GetFullPath(input.SourcePath), StringComparison.OrdinalIgnoreCase))
+                    { slice.Watch.Dispose(); slice.Watch = null; }
                 yield return new MigrationProgress("填入触发值并重算：" + input.TriggerFrom + " → " + input.TriggerCell + "…", true);
                 var recalc = System.Diagnostics.Stopwatch.StartNew();
                 ApplyTrigger(input);
@@ -347,7 +387,7 @@ namespace Excel_Iterate
                     if (!input.ValuesOnly) RejectArray(cell);
                     ReadMerge(cell, area, merges);
                     bool follower = IsMergeFollower(cell), formula = !follower && !input.ValuesOnly && ComFormulaHost.Boolean(cell.HasFormula, "HasFormula");
-                    cells.Add(new MigrationCell { IsFormula = formula, Formula = formula ? Formula(cell) : null, Value = formula || follower ? null : (object)cell.Value2, Style = ReadStyle(cell) });
+                    cells.Add(new MigrationCell { IsFormula = formula, Formula = formula ? Formula(cell) : null, Value = formula || follower ? null : (object)cell.Value2, Computed = formula ? (object)cell.Value2 : null, Style = ReadStyle(cell) });
                 }
                 yield return new MigrationProgress("读取源区域 " + cells.Count + "/" + ((long)area.Rows * area.Columns));
             }
@@ -385,7 +425,11 @@ namespace Excel_Iterate
                     }
                     if (!stop)
                     {
-                        try { ValidateOriginal(target.Handle, target.Fingerprint); target.Ready = true; target.Status = "可执行"; }
+                        try
+                        {
+                            ValidateOriginal(target.Handle, target.Fingerprint); target.Ready = true; target.Status = "可执行";
+                            if (target.ValueFallbacks > 0) target.Error = "缺少工作表“" + string.Join("”“", target.MissingSheets.ToArray()) + "”：" + target.ValueFallbacks + " 个公式单元格将改为粘贴数值（执行前会确认）";
+                        }
                         catch (Exception error) { Fail(target, error); }
                     }
                     yield return new MigrationProgress(target.Status + "：" + target.Path);
@@ -413,15 +457,20 @@ namespace Excel_Iterate
             target.Fingerprint = fingerprint;
             target.Gateway = new MergeWorkbookGateway(app);
             target.Handle = ResolveOriginal(target.Path, target.Sheet, target.Gateway); Saved(target.Handle); ValidateOriginal(target.Handle, target.Fingerprint);
+            string copied; // A held read copy must still match the file on disk.
+            if (readDigests.TryGetValue(Path.GetFullPath(target.Path), out copied) && copied != target.Fingerprint) throw new InvalidOperationException("目标在预检期间已变化，请重新预检：" + target.Path);
             if (ComFormulaHost.Boolean(((dynamic)target.Handle.Sheet).ProtectContents, "ProtectContents") || ComFormulaHost.Boolean(((dynamic)target.Handle.Book).ProtectStructure, "ProtectStructure")) throw new InvalidOperationException("目标工作表或工作簿结构受保护。");
             RejectTables(target.Handle.Sheet, target.Area);
             var context = Context(target.Handle.Book, target.Sheet, request.SourcePath);
             context.SourceSheet = request.SourceSheet; context.RowDelta = start.Row - area.Row; context.ColumnDelta = start.Column - area.Column; context.Names = sourceNames; context.ExternalFiles = sourceLinks; context.AmbiguousFiles = sourceAmbiguous;
             target.Area.Check(context.MaxRow, context.MaxColumn); target.Context = context;
-            target.Formulas = new List<MigrationFormula>();
+            target.Formulas = new List<MigrationFormula>(); target.MissingSheets.Clear(); target.ValueFallbacks = 0;
             foreach (var cell in cells)
             {
-                MigrationFormula translated = cell.IsFormula ? DataMigrationEngine.Translate(cell.Formula, context, request.SourceSheet) : null;
+                MigrationFormula translated = null;
+                if (cell.IsFormula)
+                    try { translated = DataMigrationEngine.Translate(cell.Formula, context, request.SourceSheet); }
+                    catch (MigrationMissingSheetException missing) { target.MissingSheets.Add(missing.Sheet); target.ValueFallbacks++; }
                 int index = target.Formulas.Count;
                 if (translated != null && DataMigrationEngine.DirectSelfReference(translated.Text, target.Sheet, target.Area.Row + index / area.Columns, target.Area.Column + index % area.Columns))
                     throw new InvalidOperationException(MigrationArea.Cell(target.Area.Row + index / area.Columns, target.Area.Column + index % area.Columns) + " 的公式 " + translated.Text + " 将直接引用自身；请调整目标起点或源公式的锁定引用。");
@@ -652,6 +701,347 @@ namespace Excel_Iterate
                 if (failure is OperationCanceledException) { Cancelled = true; break; }
             }
         }
+        // ---------------- one save per target ----------------
+        // A whole plan in one run: every pass is previewed first and kept,
+        // then each target workbook is copied, opened, written by all of its
+        // passes, saved, reopened, verified and committed exactly once (one
+        // backup). Sources are only read: their copies stay open until the
+        // host is disposed; a source the user has open is read in place.
+        private sealed class SourceSlice
+        {
+            internal MigrationRequest Request;
+            internal MigrationArea Area;
+            internal List<MigrationCell> Cells;
+            internal List<MigrationArea> Merges;
+            internal MergeWorkbookHandle Source;
+            internal string Hash;
+            internal SourceChangeWatch Watch;
+            internal MigrationPackagePreservation Preservation;
+            internal List<MigrationName> Names;
+            internal Dictionary<string, string> Links;
+            internal HashSet<string> Ambiguous;
+        }
+        private sealed class BatchEntry
+        {
+            internal SourceSlice Slice;
+            internal MigrationTarget Target;
+            // A later entry in the same sheet covers part of this area (a
+            // 逐行重算 override the user confirmed): those cells are not verified.
+            internal readonly List<MigrationArea> CoveredBy = new List<MigrationArea>();
+        }
+        private sealed class BatchOutcome
+        {
+            internal Exception Failure;
+            internal BatchEntry Culprit;
+        }
+        private readonly List<SourceSlice> kept = new List<SourceSlice>();
+        // Call right after a successful Preview: keeps what it read for ExecuteKept.
+        internal void Keep()
+        {
+            if (request == null || source == null) return;
+            var slice = new SourceSlice
+            {
+                Request = request, Area = area, Cells = new List<MigrationCell>(cells), Merges = new List<MigrationArea>(merges),
+                Source = source, Hash = sourceHash, Watch = watch, Preservation = packagePreservation,
+                Names = sourceNames, Links = sourceLinks, Ambiguous = sourceAmbiguous
+            };
+            watch = null;
+            // A 逐行重算 copy changes on purpose between rows; it is guarded by
+            // the original's hash instead of change events.
+            if (request.TriggerCell.Length > 0 && slice.Watch != null) { slice.Watch.Dispose(); slice.Watch = null; }
+            kept.Add(slice);
+        }
+        internal int KeptTargets { get { return kept.Sum(s => s.Request.Targets.Count(t => t.Ready)); } }
+        private void Use(SourceSlice slice)
+        {
+            request = slice.Request; area = slice.Area; source = slice.Source; sourceHash = slice.Hash; packagePreservation = slice.Preservation;
+            sourceNames = slice.Names; sourceLinks = slice.Links; sourceAmbiguous = slice.Ambiguous;
+            cells.Clear(); cells.AddRange(slice.Cells); merges.Clear(); merges.AddRange(slice.Merges);
+        }
+        private void ValidateSlice(SourceSlice slice)
+        {
+            if (slice.Watch != null) slice.Watch.Validate();
+            ValidateOriginal(slice.Source, slice.Hash);
+        }
+        private void CloseBatch(object book)
+        {
+            Quiet(delegate { ((dynamic)book).Close(false); });
+            foreach (var slice in kept) if (slice.Watch != null) slice.Watch.ProcessPending();
+        }
+        internal IEnumerable<MigrationProgress> ExecuteKept()
+        {
+            Check();
+            if (watch != null) { watch.Dispose(); watch = null; }
+            DiagnosticDirectory = Path.Combine(DiagnosticRootOverride ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Excel_Iterate", "DataMigration"), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(DiagnosticDirectory);
+            var groups = kept.SelectMany(s => s.Request.Targets.Where(t => t.Ready).Select(t => new BatchEntry { Slice = s, Target = t }))
+                .GroupBy(e => Path.GetFullPath(e.Target.Path), StringComparer.OrdinalIgnoreCase).Select(g => g.ToList()).ToList();
+            for (int g = 0; g < groups.Count && !Cancelled; g++)
+            {
+                var group = groups[g];
+                string label = "[目标 " + (g + 1) + "/" + groups.Count + "] ";
+                foreach (var entry in group) entry.Target.Status = "等待写入";
+                while (group.Count > 0)
+                {
+                    var outcome = new BatchOutcome();
+                    foreach (var step in WriteGroup(group, outcome)) yield return new MigrationProgress(label + step.Message, step.Pause);
+                    if (outcome.Failure == null) break;
+                    // A failure that belongs to one source range: drop that range
+                    // and write the others again, so they are still saved.
+                    if (outcome.Culprit != null && group.Count > 1 && !(outcome.Failure is OperationCanceledException))
+                    {
+                        Fail(outcome.Culprit.Target, outcome.Failure); outcome.Culprit.Target.Formulas = null;
+                        group.Remove(outcome.Culprit);
+                        yield return new MigrationProgress(label + "已跳过失败的一处写入（" + outcome.Culprit.Target.Error + "），其余 " + group.Count + " 处重新写入…");
+                        continue;
+                    }
+                    foreach (var entry in group) { Fail(entry.Target, outcome.Failure); entry.Target.Formulas = null; }
+                    if (outcome.Failure is OperationCanceledException) Cancelled = true;
+                    break;
+                }
+            }
+            if (Cancelled)
+                foreach (var target in kept.SelectMany(s => s.Request.Targets))
+                    if (target.Ready) { target.Ready = false; target.Status = "已取消"; target.Error = "已取消，未执行"; }
+            TryWriteLog(); RestoreActive();
+        }
+        // Writes every entry of one target workbook into one copy. Sets
+        // outcome.Failure (and Culprit when a single entry caused it).
+        private IEnumerable<MigrationProgress> WriteGroup(List<BatchEntry> group, BatchOutcome outcome)
+        {
+            var first = group[0].Target; string file = Path.GetFileName(first.Path);
+            string stage = null; object book = null; ComBag held = new ComBag(); copyReferences = held;
+            Exception failure = null; BatchEntry culprit = null;
+            foreach (var entry in group) entry.CoveredBy.Clear();
+            var sheets = new Dictionary<BatchEntry, object>();
+            var stepTimer = System.Diagnostics.Stopwatch.StartNew(); long lastMark = 0;
+            Action<string> mark = delegate(string step) { Connect.Log("迁移耗时：" + file + "（" + group.Count + " 处写入）" + step + " " + (stepTimer.ElapsedMilliseconds - lastMark) + " ms"); lastMark = stepTimer.ElapsedMilliseconds; };
+            yield return new MigrationProgress("正在处理 " + file + "（" + group.Count + " 处写入）：复核、复制并打开副本（文件较大时可能需要较长时间）…", true);
+            foreach (var entry in group)
+            {
+                if (failure != null) break;
+                var target = entry.Target;
+                try
+                {
+                    Use(entry.Slice);
+                    target.Status = "复核源文件"; ValidateSlice(entry.Slice);
+                    target.Status = "复核目标文件"; ValidateTarget(target);
+                    target.Status = "重新预检目标"; PrepareTarget(target);
+                }
+                catch (Exception error) { failure = error; culprit = entry; }
+                try { ReleaseTarget(target); } catch (Exception error) { if (failure == null) { failure = error; culprit = entry; } }
+                if (failure == null) yield return new MigrationProgress("复核 " + file + " " + (group.IndexOf(entry) + 1) + "/" + group.Count);
+            }
+            try { ReleaseHeld(Path.GetFullPath(first.Path)); } catch (Exception error) { failure = failure ?? error; }
+            if (failure == null)
+            {
+                mark("复核并重新预检");
+                // Later entries win where areas overlap; mark what they cover.
+                for (int i = 0; i < group.Count; i++)
+                    for (int j = i + 1; j < group.Count; j++)
+                        if (string.Equals(group[i].Target.Sheet, group[j].Target.Sheet, StringComparison.OrdinalIgnoreCase) && Overlaps(group[i].Target.Area, group[j].Target.Area))
+                            group[i].CoveredBy.Add(group[j].Target.Area);
+                try
+                {
+                    first.Status = "创建结果副本";
+                    stage = Path.Combine(Path.GetDirectoryName(first.Path), ".xy-migration-" + Guid.NewGuid().ToString("N") + Path.GetExtension(first.Path));
+                    File.Copy(first.Path, stage, false); diagnosticPaths.Add(stage);
+                    if (Digest(stage) != first.Fingerprint || Digest(first.Path) != first.Fingerprint) throw new IOException("复制写入副本期间目标文件已变化，请重新预检。");
+                    MigrationPackageCompatibility.NormalizeOwnedCopy(stage);
+                    mark("复制副本"); book = ownedCopy = held.Own(OpenCopy(stage)); mark("打开副本");
+                    copyWatch = Watch(book, "写入副本 " + file); RestoreActive();
+                }
+                catch (Exception error) { failure = error; }
+            }
+            // Each entry in turn: unmerge, names, cells, merges, dimensions.
+            foreach (var entry in group)
+            {
+                if (failure != null) break;
+                var target = entry.Target; object sheet = null;
+                try
+                {
+                    Use(entry.Slice); target.Status = "定位目标工作表";
+                    sheet = held.Own(Sheet(book, target.Sheet)); sheets[entry] = sheet;
+                    target.ActualMerges.Clear();
+                    Quiet(delegate
+                    {
+                        using (var bag = new ComBag()) { dynamic range = bag.Own(((dynamic)sheet).Range[target.Area.Address]); range.UnMerge(); }
+                        foreach (var name in target.Names) AddName(book, name);
+                    });
+                    target.Status = "写入副本";
+                }
+                catch (Exception error) { failure = error; culprit = entry; break; }
+                int count = cells.Count;
+                for (int i = 0; i < count; )
+                {
+                    try
+                    {
+                        Check(); if (entry.Slice.Watch != null) entry.Slice.Watch.Validate(); copyWatch.Validate(); int start = i;
+                        i = Quiet<int>(delegate
+                        {
+                            var clock = System.Diagnostics.Stopwatch.StartNew(); int index = start;
+                            do { WriteCell(sheet, target, index); index++; }
+                            while (index < count && !Cancelled && clock.ElapsedMilliseconds < WriteSliceMilliseconds);
+                            return index;
+                        });
+                    }
+                    catch (Exception error) { failure = error; culprit = entry; break; }
+                    yield return new MigrationProgress("写入 " + file + " 第 " + (group.IndexOf(entry) + 1) + "/" + group.Count + " 处 " + i + "/" + count);
+                }
+                if (failure != null) break;
+                try
+                {
+                    Quiet(delegate
+                    {
+                        foreach (var merge in merges) using (var bag = new ComBag())
+                        {
+                            var shifted = new MigrationArea { Row = merge.Row + target.Context.RowDelta, Column = merge.Column + target.Context.ColumnDelta, Rows = merge.Rows, Columns = merge.Columns };
+                            dynamic range = bag.Own(((dynamic)sheet).Range[shifted.Address]); range.Merge();
+                        }
+                        // WPS recreates border edges when merging, so apply
+                        // the captured constituent styles after the merge.
+                        foreach (var merge in merges) for (int r = 0; r < merge.Rows; r++) for (int c = 0; c < merge.Columns; c++) using (var bag = new ComBag())
+                        {
+                            int index = (merge.Row + r - area.Row) * area.Columns + merge.Column + c - area.Column;
+                            object cell = bag.Own(((dynamic)sheet).Range[MigrationArea.Cell(merge.Row + r + target.Context.RowDelta, merge.Column + c + target.Context.ColumnDelta)]);
+                            WriteStyle(cell, cells[index].Style);
+                        }
+                        RestoreDimensions(sheet, target);
+                    });
+                }
+                catch (Exception error) { failure = error; culprit = entry; }
+            }
+            if (failure == null)
+            {
+                try
+                {
+                    Check(); copyWatch.Validate(); first.Status = "保存副本";
+                    object view = sheets[group[0]];
+                    Quiet(delegate
+                    {
+                        // Save with a visible workbook view so the delivered
+                        // file does not reopen hidden. Never yield while it
+                        // is visible, and hide again even when Save fails.
+                        MigrationWindowScope.SetOwnedVisible(book, true);
+                        try
+                        {
+                            SetOutputView(book, view, first); ((dynamic)book).Save();
+                            if (!ComFormulaHost.Boolean(((dynamic)book).Saved, "Saved")) throw new IOException("副本保存未完成。");
+                        }
+                        finally { MigrationWindowScope.SetOwnedVisible(book, false); RestoreActive(); }
+                    });
+                    copyWatch.Dispose(); copyWatch = null; mark("写入并保存（一次）");
+                    CloseBatch(book); book = ownedCopy = null; sheets.Clear(); held.Dispose(); held = new ComBag(); copyReferences = held;
+                }
+                catch (Exception error) { failure = error; }
+            }
+            foreach (var entry in group)
+            {
+                if (failure != null || entry.Slice.Preservation == null) continue;
+                try { entry.Target.Status = "重开核验"; entry.Slice.Preservation.Apply(stage, entry.Target); }
+                catch (Exception error) { failure = error; culprit = entry; }
+            }
+            if (failure == null)
+            {
+                try
+                {
+                    book = ownedCopy = held.Own(OpenCopy(stage));
+                    foreach (var entry in group) sheets[entry] = held.Own(Sheet(book, entry.Target.Sheet));
+                    copyWatch = Watch(book, "重开副本 " + file); RestoreActive(); mark("关闭并重开");
+                    VerifyGroupNamesAndLinks(book, group, stage);
+                }
+                catch (Exception error) { failure = error; }
+            }
+            foreach (var entry in group)
+            {
+                if (failure != null) break;
+                var target = entry.Target; MigrationFormulaContext verification = null; object sheet = null;
+                try { Use(entry.Slice); target.Status = "重开核验"; sheet = sheets[entry]; verification = Context(book, target.Sheet, stage); }
+                catch (Exception error) { failure = error; culprit = entry; break; }
+                for (int i = 0; i < cells.Count; i++)
+                {
+                    try
+                    {
+                        Check(); copyWatch.Validate();
+                        int row = target.Area.Row + i / area.Columns, column = target.Area.Column + i % area.Columns;
+                        if (!entry.CoveredBy.Any(a => a.Contains(new MigrationArea { Row = row, Column = column, Rows = 1, Columns = 1 }))) VerifyCell(sheet, target, i, verification);
+                    }
+                    catch (Exception error) { failure = error; culprit = entry; break; }
+                    if (i % 64 == 63 || i == cells.Count - 1) yield return new MigrationProgress("重开核验 " + file + " 第 " + (group.IndexOf(entry) + 1) + "/" + group.Count + " 处 " + (i + 1) + "/" + cells.Count);
+                }
+                if (failure != null) break;
+                try
+                {
+                    if (entry.CoveredBy.Count == 0) VerifyMergeLayout(sheet, target);
+                    ValidateSlice(entry.Slice);
+                }
+                catch (Exception error) { failure = error; culprit = entry; }
+            }
+            try { if (failure == null) ValidateTarget(first); } catch (Exception error) { failure = error; }
+            try { if (copyWatch != null) { copyWatch.Dispose(); copyWatch = null; } if (book != null) { CloseBatch(book); ownedCopy = null; } } catch (Exception error) { failure = failure ?? error; }
+            try { sheets.Clear(); held.Dispose(); copyReferences = null; } catch (Exception error) { failure = failure ?? error; }
+            foreach (var entry in group)
+            {
+                if (failure != null || entry.Slice.Preservation == null) continue;
+                try { entry.Slice.Preservation.Verify(stage, entry.Target); }
+                catch (Exception error) { failure = error; culprit = entry; }
+            }
+            if (failure == null)
+            {
+                try
+                {
+                    Check();
+                    var macros = MacroFingerprints(stage);
+                    if (first.MacroParts.Count != macros.Count || first.MacroParts.Any(p => !macros.ContainsKey(p.Key) || macros[p.Key] != p.Value)) throw new IOException("保存后 VBA 宏载荷发生变化，副本未交付。");
+                    File.SetAttributes(stage, File.GetAttributes(stage) & ~FileAttributes.Hidden);
+                    ValidateTarget(first);
+                    string backup = "", output;
+                    if (group[0].Slice.Request.ReplaceTargets)
+                    {
+                        first.Status = "更新目标原文件";
+                        backup = MigrationOutputTransaction.Commit(stage, first.Path, first.Fingerprint, Path.GetFileName(DiagnosticDirectory));
+                        output = first.Path;
+                    }
+                    else
+                    {
+                        output = DataMigrationEngine.OutputPath(first.Path, p => File.Exists(p) || Directory.Exists(p));
+                        File.Move(stage, output);
+                    }
+                    diagnosticPaths.Remove(stage);
+                    foreach (var entry in group) { var t = entry.Target; t.Backup = backup; t.Output = output; t.Ready = false; t.Status = "成功"; t.Formulas = null; }
+                    mark("提交");
+                }
+                catch (Exception error) { failure = error; culprit = null; }
+            }
+            if (failure != null && stage != null && File.Exists(stage))
+                try
+                {
+                    string retained = Path.Combine(DiagnosticDirectory, Path.GetFileNameWithoutExtension(first.Path) + "_未通过校验_" + Guid.NewGuid().ToString("N").Substring(0, 8) + Path.GetExtension(first.Path));
+                    File.Move(stage, retained); File.SetAttributes(retained, File.GetAttributes(retained) & ~FileAttributes.Hidden);
+                    diagnosticPaths.Remove(stage); diagnosticPaths.Add(retained);
+                }
+                catch (Exception archiveError) { UiDiagnostics.Record("migration-failure-archive", archiveError); }
+            outcome.Failure = failure; outcome.Culprit = failure == null ? null : culprit;
+            TryWriteLog(); RestoreActive();
+            yield return new MigrationProgress(failure == null ? "成功：" + first.Output + "（" + group.Count + " 处写入，保存一次）" : "失败：" + file + "：" + failure.Message);
+        }
+        private static bool Overlaps(MigrationArea a, MigrationArea b)
+        { return a.Row < b.Row + b.Rows && b.Row < a.Row + a.Rows && a.Column < b.Column + b.Columns && b.Column < a.Column + a.Columns; }
+        private void VerifyGroupNamesAndLinks(object book, List<BatchEntry> group, string stage)
+        {
+            var actual = ReadNames(book); var first = group[0].Target; var context = Context(book, first.Sheet, stage);
+            var expected = first.ExistingNames.Concat(group.SelectMany(e => e.Target.Names)).ToList();
+            foreach (var name in expected)
+            {
+                var found = actual.FirstOrDefault(n => string.Equals(n.Key, name.Key, StringComparison.OrdinalIgnoreCase));
+                if (found == null || found.Visible != name.Visible || !SameDefinition(found.Formula, name.Formula, context)) throw new IOException("保存重开后名称核对失败：" + name.Name);
+            }
+            var keys = new HashSet<string>(expected.Select(n => n.Key), StringComparer.OrdinalIgnoreCase);
+            if (actual.Any(n => !keys.Contains(n.Key))) throw new IOException("副本产生了未计划的名称。");
+            var allowed = new HashSet<string>(first.ExistingLinks, StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in group) allowed.UnionWith(entry.Slice.Links.Values);
+            foreach (string path in LinkSet(book)) if (!allowed.Contains(path)) throw new IOException("副本产生了未计划的外部链接：" + path);
+        }
         private object OpenCopy(string path)
         {
             return Quiet<object>(delegate
@@ -674,7 +1064,14 @@ namespace Excel_Iterate
             using (var bag = new ComBag())
             {
                 dynamic cell = bag.Own(((dynamic)sheet).Range[MigrationArea.Cell(target.Area.Row + index / area.Columns, target.Area.Column + index % area.Columns)]);
-                if (sourceCell.IsFormula)
+                if (sourceCell.IsFormula && target.Formulas[index] == null)
+                {
+                    // Refers to a sheet this target lacks: paste the value.
+                    object value = sourceCell.Computed;
+                    if (value == null) cell.ClearContents();
+                    else { cell.NumberFormat = value is string ? "@" : "General"; cell.Value2 = value; }
+                }
+                else if (sourceCell.IsFormula)
                 {
                     // A text-formatted destination treats an assigned formula as
                     // text on WPS. Apply a formula-capable format before writing.
@@ -709,7 +1106,9 @@ namespace Excel_Iterate
             {
                 dynamic cell = bag.Own(((dynamic)sheet).Range[address]);
                 bool follower = IsMergeFollower(cell), has = !follower && ComFormulaHost.Boolean(cell.HasFormula, "HasFormula");
-                if (has != expected.IsFormula || (has ? !SameDefinition(Formula(cell), target.Formulas[index].Text, context) : !SameValue(follower ? null : (object)cell.Value2, expected.Value))) throw new IOException(address + " 保存重开后内容核对失败。");
+                bool asFormula = expected.IsFormula && target.Formulas[index] != null;
+                object value = expected.IsFormula ? expected.Computed : expected.Value;
+                if (has != asFormula || (has ? !SameDefinition(Formula(cell), target.Formulas[index].Text, context) : !SameValue(follower ? null : (object)cell.Value2, value))) throw new IOException(address + " 保存重开后内容核对失败。");
                 var actual = ReadStyle(cell);
                 foreach (var pair in expected.Style) if (!SameValue(actual[pair.Key], pair.Value)) throw new IOException(address + " 样式核对失败：" + pair.Key);
                 ReadMerge(cell, target.Area, target.ActualMerges);
@@ -979,9 +1378,16 @@ namespace Excel_Iterate
         { string phase = target.Status; target.Ready = false; target.Status = error is OperationCanceledException ? "已取消" : "失败"; target.Error = phase + "：" + error.Message; target.FailureDetails = error.ToString(); }
         private void WriteLog()
         {
-            var lines = new List<string> { "批量迁移数据；" + (request.ReplaceTargets ? "校验后更新目标原文件，替换前版本保留备份" : "另存结果副本，原文件不修改"), "源：" + request.SourcePath, "源区域：" + request.SourceSheet + "!" + request.SourceRange, "源非空数：" + request.NonEmptyCells + "；公式数：" + request.FormulaCells, "源摘要：" + sourceHash };
-            foreach (var target in request.Targets) lines.Add(target.Status + "\t" + target.Path + "\t" + target.Sheet + "!" + target.Start + "\t" + target.Output + "\t备份：" + target.Backup + "\t" + target.Error);
-            foreach (var target in request.Targets.Where(t => t.FailureDetails.Length > 0)) lines.Add("异常详情：" + target.Path + Environment.NewLine + target.FailureDetails);
+            var lines = new List<string> { "批量迁移数据；" + (request.ReplaceTargets ? "校验后更新目标原文件，替换前版本保留备份" : "另存结果副本，原文件不修改") + (kept.Count > 0 ? "；每个目标只打开、保存一次" : "") };
+            var runs = kept.Count > 0 ? kept.Select(k => new KeyValuePair<MigrationRequest, string>(k.Request, k.Hash)).ToList() : new List<KeyValuePair<MigrationRequest, string>> { new KeyValuePair<MigrationRequest, string>(request, sourceHash) };
+            foreach (var run in runs)
+            {
+                var item = run.Key;
+                lines.Add("源：" + item.SourcePath); lines.Add("源区域：" + item.SourceSheet + "!" + item.SourceRange + (item.TriggerCell.Length > 0 ? "（逐行重算 " + item.TriggerFrom + " → " + item.TriggerCell + "）" : ""));
+                lines.Add("源非空数：" + item.NonEmptyCells + "；公式数：" + item.FormulaCells); lines.Add("源摘要：" + run.Value);
+                foreach (var target in item.Targets) lines.Add(target.Status + "\t" + target.Path + "\t" + target.Sheet + "!" + target.Start + "\t" + target.Output + "\t备份：" + target.Backup + "\t" + target.Error);
+            }
+            foreach (var target in runs.SelectMany(r => r.Key.Targets).Where(t => t.FailureDetails.Length > 0)) lines.Add("异常详情：" + target.Path + Environment.NewLine + target.FailureDetails);
             lines.AddRange(diagnosticPaths.Select(p => "未交付的临时副本：" + p));
             lines.Add("监听事件："+Environment.NewLine+EventTrace);
             File.WriteAllLines(Path.Combine(DiagnosticDirectory, "migration.log"), lines, new UTF8Encoding(false));
@@ -1010,6 +1416,8 @@ namespace Excel_Iterate
             try
             {
                 if (request != null) foreach (var target in request.Targets) if (target.Gateway != null) ReleaseTarget(target);
+                foreach (var slice in kept) foreach (var target in slice.Request.Targets) if (target.Gateway != null) ReleaseTarget(target);
+                foreach (string key in heldTargets.Keys.ToList()) ReleaseHeld(key);
                 if (copyWatch != null) { copyWatch.Dispose(); copyWatch = null; }
                 if (ownedCopy != null) { Close(ownedCopy); ownedCopy = null; }
                 if (copyReferences != null) { copyReferences.Dispose(); copyReferences = null; }
@@ -1017,14 +1425,18 @@ namespace Excel_Iterate
             }
             finally
             {
-                try { if (watch != null) { watch.Dispose(); watch = null; } }
+                try
+                {
+                    if (watch != null) { watch.Dispose(); watch = null; }
+                    foreach (var slice in kept) if (slice.Watch != null) { try { slice.Watch.Dispose(); } catch (Exception error) { UiDiagnostics.Record("migration-kept-watch", error); } slice.Watch = null; }
+                }
                 finally
                 {
                     try { Quiet(delegate { RestoreActive(); gateway.Dispose(); }); }
                     finally
                     {
                         foreach (string path in readCopies.Values) try { File.Delete(path); } catch (Exception error) { UiDiagnostics.Record("migration-read-copy-cleanup", error); }
-                        readCopies.Clear();
+                        readCopies.Clear(); readDigests.Clear();
                     }
                 }
             }

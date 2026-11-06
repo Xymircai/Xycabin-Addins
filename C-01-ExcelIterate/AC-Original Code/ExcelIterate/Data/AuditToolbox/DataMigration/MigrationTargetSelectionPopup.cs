@@ -411,17 +411,23 @@ namespace Excel_Iterate
         internal string Chosen { get { return chosen; } }
         internal int MatchCount { get { return matching.Count(c => c.Common); } }
 
+        // Same popup for choosing one of the ranges already entered.
+        private readonly bool ranges;
+        internal static MigrationSheetPopup ForRanges(DataGridView grid, IList<string> entered, string current, Action<string> onApply)
+        { return new MigrationSheetPopup(grid, entered, new List<KeyValuePair<string, int>>(), entered.Count, false, current, onApply, "区域", true); }
         internal MigrationSheetPopup(DataGridView grid, IList<string> common, IList<KeyValuePair<string, int>> partial, int scopeCount, bool scopeIsChecked, string current, Action<string> onApply, string noun = "目标")
-            : base(grid, "migrationSheet", "搜索工作表名称", "没有匹配的工作表",
-                grid.Columns.Contains("sheet") ? grid.Columns["sheet"].Width : 0, new Size(300, 340))
+            : this(grid, common, partial, scopeCount, scopeIsChecked, current, onApply, noun, false) { }
+        private MigrationSheetPopup(DataGridView grid, IList<string> common, IList<KeyValuePair<string, int>> partial, int scopeCount, bool scopeIsChecked, string current, Action<string> onApply, string noun, bool forRanges)
+            : base(grid, "migrationSheet", forRanges ? "搜索区域" : "搜索工作表名称", forRanges ? "没有匹配的区域" : "没有匹配的工作表",
+                grid.Columns.Contains(forRanges ? "range" : "sheet") ? grid.Columns[forRanges ? "range" : "sheet"].Width : 0, new Size(300, 340))
         {
-            apply = onApply; total = scopeCount; this.noun = noun;
+            apply = onApply; total = scopeCount; this.noun = noun; ranges = forRanges;
             foreach (string name in common) choices.Add(new SheetChoice { Name = name, Count = scopeCount, Common = true });
             foreach (var pair in partial) choices.Add(new SheetChoice { Name = pair.Key, Count = pair.Value });
             chosen = common.FirstOrDefault(n => string.Equals(n, current, StringComparison.OrdinalIgnoreCase));
 
             scope.Font = Font;
-            scope.Text = scopeCount == 0 ? "没有可读取工作表的目标" : "应用到 " + scopeCount + " 个" + (scopeIsChecked ? "已勾选" : "") + noun;
+            scope.Text = ranges ? "已输入的区域" : scopeCount == 0 ? "没有可读取工作表的目标" : "应用到 " + scopeCount + " 个" + (scopeIsChecked ? "已勾选" : "") + noun;
             Strip.Controls.Add(scope);
             Strip.Layout += delegate { scope.SetBounds(P(6), 0, Math.Max(0, Strip.Width - P(12)), Strip.Height); };
 
@@ -495,7 +501,7 @@ namespace Excel_Iterate
         {
             if (IsDisposed) return;
             int commons = choices.Count(c => c.Common);
-            CountLabel.Text = chosen != null ? "已选“" + chosen + "”" : commons == 0 ? "没有共同工作表" : "共同工作表 " + commons + " 个";
+            CountLabel.Text = chosen != null ? "已选“" + chosen + "”" : ranges ? "区域 " + commons + " 个" : commons == 0 ? "没有共同工作表" : "共同工作表 " + commons + " 个";
         }
         private void DrawChoice(object sender, DrawItemEventArgs e)
         {

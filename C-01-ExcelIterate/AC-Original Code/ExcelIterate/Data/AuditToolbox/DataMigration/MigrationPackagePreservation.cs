@@ -59,7 +59,7 @@ namespace Excel_Iterate
             return new Format { Id = id, Code = custom == null ? null : custom.GetAttribute("formatCode") };
         }
         private static int Style(XmlElement cell) { return cell == null || cell.GetAttribute("s").Length == 0 ? 0 : int.Parse(cell.GetAttribute("s"), CultureInfo.InvariantCulture); }
-        internal static MigrationPackagePreservation Capture(string path, string sheetName, MigrationArea range)
+        internal static MigrationPackagePreservation Capture(string path, string sheetName, MigrationArea range, bool keepFormat = true)
         {
             using (var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
             {
@@ -74,7 +74,9 @@ namespace Excel_Iterate
                     foreach (XmlElement col in sheet.SelectNodes("//s:cols/s:col[@style]", Ns(sheet)))
                         for (int c = int.Parse(col.GetAttribute("min")); c <= int.Parse(col.GetAttribute("max")) && c <= 16384; c++) columns[c] = int.Parse(col.GetAttribute("style"));
                     var formatCache = new Dictionary<int, Format>();
-                    for (int r = range.Row; r < range.Row + range.Rows; r++) for (int c = range.Column; c < range.Column + range.Columns; c++)
+                    // Content-only modes still preserve data beneath merged cells,
+                    // but must not reapply source number formats after saving.
+                    if (keepFormat) for (int r = range.Row; r < range.Row + range.Rows; r++) for (int c = range.Column; c < range.Column + range.Columns; c++)
                     {
                         string address = MigrationArea.Cell(r, c); XmlElement cell; cells.TryGetValue(address, out cell); int style;
                         if (cell != null && cell.HasAttribute("s")) style = Style(cell);

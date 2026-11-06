@@ -673,6 +673,7 @@ namespace Excel_Iterate.TestHarness
                 form.AddSide(true, t1); form.AddSide(true, t2);
                 form.SetTrigger(source, new MigrationTrigger { Cell = "B2", Values = "G2:G30", NameColumn = "H" });
                 source.Trigger.Chosen[9] = @"D:\预设\子目录\目标二.xlsx";
+                source.Trigger.Extra.Add(new MigrationCondition { Cell = "C2", Value = "2025" }); source.Trigger.Extra.Add(new MigrationCondition { Cell = "D2", Column = "I" });
                 form.PairItems()[1].ValuesOnly = true; form.PairItems()[1].Enabled = false;
                 var data = form.CapturePreset("测试预设");
                 var preset = MigrationPreset.From((Dictionary<string, object>)MigrationJson.Parse(MigrationJson.Write(data)), null);
@@ -684,6 +685,8 @@ namespace Excel_Iterate.TestHarness
                     var rows = other.PairItems();
                     Check(rows.Count == 2 && rows[0].Source == rows[1].Source && rows[0].Source.Trigger != null && rows[0].Source.Trigger.Cell == "B2" && rows[0].Source.Trigger.Values == "G2:G30"
                         && rows[0].Source.Trigger.Chosen[9] == @"E:\别处\目标二.xlsx", "applying restores the shared source, 逐行重算 and relocated choices");
+                    Check(rows[0].Source.Trigger.Extra.Count == 2 && rows[0].Source.Trigger.Extra[0].Cell == "C2" && rows[0].Source.Trigger.Extra[0].Value == "2025" && rows[0].Source.Trigger.Extra[1].Column == "I",
+                        "a preset keeps the extra 逐行重算 conditions (fixed value and per-row column)");
                     Check(rows[1].Target.Books[0] == @"E:\别处\目标二.xlsx" && rows[1].Target.Range == "H970" && !rows[1].Enabled && rows[1].ValuesOnly && other.Mappings.Count == 2, "applying restores targets, modes and enabled state with relocated paths");
                 }
                 data["version"] = 99L;

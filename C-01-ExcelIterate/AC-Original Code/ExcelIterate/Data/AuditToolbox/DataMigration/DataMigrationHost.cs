@@ -40,6 +40,12 @@ namespace Excel_Iterate
         internal long OpenMilliseconds;
         internal DateTime Finished;
     }
+    // 附加条件 of one 逐行重算 row: Cell gets the value at From (same source
+    // sheet), or the fixed Value when From is empty.
+    internal sealed class MigrationTriggerSet
+    {
+        internal string Cell = "", From = "", Value = "";
+    }
     internal sealed class MigrationRequest
     {
         internal string SourcePath = "", SourceSheet = "", SourceRange = "";
@@ -55,6 +61,7 @@ namespace Excel_Iterate
         // source's own read copy and recalculate; TriggerNameCell must still
         // read TriggerExpect (the name the target was matched by).
         internal string TriggerCell = "", TriggerFrom = "", TriggerNameCell = "", TriggerExpect = "";
+        internal readonly List<MigrationTriggerSet> TriggerExtra = new List<MigrationTriggerSet>();
         internal int NonEmptyCells, FormulaCells;
         // Precheck: cells read and how long reading the source took.
         internal int Cells;
@@ -1385,8 +1392,9 @@ namespace Excel_Iterate
                     dynamic from = bag.Own(sheet.Range[input.TriggerFrom]);
                     object value = from.Value2;
                     if (value == null || Convert.ToString(value).Trim().Length == 0) throw new InvalidOperationException("触发值为空：" + input.TriggerFrom);
+                    var cellsNow = new HashSet<string>(input.TriggerExtra.Select(x => x.Cell).Concat(new[] { input.TriggerCell }), StringComparer.OrdinalIgnoreCase);
                     foreach (var edit in triggerEdits.Where(e => string.Equals(e.Copy, source.Path, StringComparison.OrdinalIgnoreCase)
-                        && !(string.Equals(e.Sheet, input.SourceSheet, StringComparison.OrdinalIgnoreCase) && string.Equals(e.Cell, input.TriggerCell, StringComparison.OrdinalIgnoreCase))).ToList())
+                        && !(string.Equals(e.Sheet, input.SourceSheet, StringComparison.OrdinalIgnoreCase) && cellsNow.Contains(e.Cell))).ToList())
                     {
                         dynamic sheets = bag.Own(((dynamic)source.Book).Worksheets); dynamic other = bag.Own(sheets.Item(edit.Sheet));
                         dynamic restore = bag.Own(other.Range[edit.Cell]); restore.Formula = edit.Formula;
@@ -1396,6 +1404,18 @@ namespace Excel_Iterate
                     if (!triggerEdits.Any(e => string.Equals(e.Copy, source.Path, StringComparison.OrdinalIgnoreCase) && string.Equals(e.Sheet, input.SourceSheet, StringComparison.OrdinalIgnoreCase) && string.Equals(e.Cell, input.TriggerCell, StringComparison.OrdinalIgnoreCase)))
                         triggerEdits.Add(new TriggerEdit { Copy = source.Path, Sheet = input.SourceSheet, Cell = input.TriggerCell, Formula = Convert.ToString(to.Formula) });
                     to.Value2 = value;
+                    // 附加条件: a value from the same row, or a fixed one (a
+                    // number when it reads as one, so formulas compare it as such).
+                    foreach (var extra in input.TriggerExtra)
+                    {
+                        dynamic cell = bag.Own(sheet.Range[extra.Cell]);
+                        if (!triggerEdits.Any(e => string.Equals(e.Copy, source.Path, StringComparison.OrdinalIgnoreCase) && string.Equals(e.Sheet, input.SourceSheet, StringComparison.OrdinalIgnoreCase) && string.Equals(e.Cell, extra.Cell, StringComparison.OrdinalIgnoreCase)))
+                            triggerEdits.Add(new TriggerEdit { Copy = source.Path, Sheet = input.SourceSheet, Cell = extra.Cell, Formula = Convert.ToString(cell.Formula) });
+                        object given;
+                        if (extra.From.Length > 0) { dynamic fromCell = bag.Own(sheet.Range[extra.From]); given = fromCell.Value2; }
+                        else { double number; given = double.TryParse(extra.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out number) ? (object)number : extra.Value; }
+                        if (given == null) cell.ClearContents(); else cell.Value2 = given;
+                    }
                     ((dynamic)app).Calculate();
                 }
             });
@@ -1492,7 +1512,7 @@ namespace Excel_Iterate
             foreach (var run in runs)
             {
                 var item = run.Key;
-                lines.Add("源：" + item.SourcePath); lines.Add("源区域：" + item.SourceSheet + "!" + item.SourceRange + (item.TriggerCell.Length > 0 ? "（逐行重算 " + item.TriggerFrom + " → " + item.TriggerCell + "）" : ""));
+                lines.Add("源：" + item.SourcePath); lines.Add("源区域：" + item.SourceSheet + "!" + item.SourceRange + (item.TriggerCell.Length > 0 ? "（逐行重算 " + item.TriggerFrom + " → " + item.TriggerCell + string.Concat(item.TriggerExtra.Select(x => "，" + (x.From.Length > 0 ? x.From : x.Value) + " → " + x.Cell).ToArray()) + "）" : ""));
                 lines.Add("源非空数：" + item.NonEmptyCells + "；公式数：" + item.FormulaCells); lines.Add("源摘要：" + run.Value);
                 foreach (var target in item.Targets) lines.Add((target.Finished == DateTime.MinValue ? "--:--:--" : target.Finished.ToString("yyyy-M-d-HH:mm:ss", CultureInfo.InvariantCulture)) + "\t" + target.Status + "\t" + target.Path + "\t" + target.Sheet + "!" + target.Start + "\t" + target.Output + "\t备份：" + target.Backup + "\t" + target.Error);
             }

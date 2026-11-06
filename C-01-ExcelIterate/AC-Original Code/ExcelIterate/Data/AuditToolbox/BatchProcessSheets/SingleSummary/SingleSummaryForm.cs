@@ -8,7 +8,7 @@ using System.Windows.Forms;
 namespace Excel_Iterate
 {
     // =====================================================================
-    // 单体汇总表生成 —— 界面
+    // 单体汇总批量链接 —— 界面
     //
     // 只做参数收集与结果呈现；COM 一律经事件抛回 Connect，在 Ribbon 宿主线程执行。
     // 沿用「执行 → 取消操作 / 确认操作」二段式：执行后保留备份表，可整段还原。
@@ -32,15 +32,15 @@ namespace Excel_Iterate
         private readonly TextBox sheetHeaderRow = new TextBox { Width = 56, Text = "1", Name = "sheetHeaderRowBox" };
         private readonly TextBox templateColumn = new TextBox { Width = 56, Text = "D", Name = "templateColumnBox" };
         private readonly TextBox placeholderBox = new TextBox { Width = 90, Text = SummaryHeaders.Placeholder, Name = "placeholderBox" };
-        private readonly TextBox sourceFile = new TextBox { Width = 280, Name = "sourceFileBox" };
+        private readonly ComboBox sourceFile = new ComboBox { Width = 280, DropDownWidth = 600, DropDownStyle = ComboBoxStyle.DropDown, Name = "sourceFileBox" };
         internal readonly CheckBox AnnualMode = new CheckBox { Text = "按年度展开公司列", AutoSize = true, Name = "summaryAnnualMode" };
         internal readonly NumericUpDown FirstYear = new NumericUpDown { Minimum = 1900, Maximum = 9999, Value = DateTime.Now.Year, Width = 80, Name = "summaryFirstYear" };
         internal readonly NumericUpDown LastYear = new NumericUpDown { Minimum = 1900, Maximum = 9999, Value = DateTime.Now.Year, Width = 80, Name = "summaryLastYear" };
         internal readonly NumericUpDown YearRow = new NumericUpDown { Minimum = 0, Maximum = 1048576, Value = 0, Width = 80, Name = "summaryYearRow" };
         internal readonly CheckBox DescendingYears = new CheckBox { Text = "年度倒序", AutoSize = true, Checked = true, Name = "summaryYearDescending" };
-        internal readonly CheckBox CheckYearFiles = new CheckBox { Text = "检查年度来源文件是否存在", AutoSize = true, Checked = true, Name = "summaryCheckYearFiles" };
+        internal readonly CheckBox CheckYearFiles = new CheckBox { Text = "检查年度来源文件是否存在", AutoSize = true, Checked = false, Name = "summaryCheckYearFiles" };
         internal readonly TextBox YearPathPattern = new TextBox { Width = 310, Name = "summaryYearPathPattern" };
-        private readonly FlowLayoutPanel annualOptions = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Top, Visible = false };
+        private readonly TableLayoutPanel annualOptions = new TableLayoutPanel { AutoSize = true, ColumnCount = 1, RowCount = 2, Dock = DockStyle.Top, Visible = false };
         private readonly Label hostLabel = Ui.Label("", 9, false);
         private readonly Label hint = Ui.Label("", 9, true);
         private readonly RichTextBox logView = new RichTextBox
@@ -50,13 +50,20 @@ namespace Excel_Iterate
         internal readonly ResultGrid Companies = new ResultGrid();
         internal readonly RoundedButton Refresh, Preview, Execute, Undo, Confirm, CopyLog, CloseButton;
 
+        internal BatchProgressSession ProgressSession;
+        internal BatchProgressSession OpenProgress()
+        { if (ProgressSession != null) ProgressSession.Close(); ProgressSession = new BatchProgressSession("单体汇总批量链接"); return ProgressSession; }
         private bool busy;
+        private BatchPresetBar presetBar;
         private bool canUndo;
         private bool previewOk;
         private bool suspendInvalidate;
         private readonly List<string> pendingLog = new List<string>();
 
         internal event Action SheetsRequested;
+        internal event Action<string> SelectionRequested;
+        internal event Action<string> RangeRequested;
+        private readonly List<Control> selectionButtons = new List<Control>();
         internal event Action WorkbooksRequested, BrowseRequested, CurrentRequested;
         internal event Action<string> WorkbookRequested;
         internal event Action PreviewRequested;
@@ -66,16 +73,17 @@ namespace Excel_Iterate
 
         internal SingleSummaryForm()
         {
-            Text = "单体汇总表生成";
+            Text = "单体汇总批量链接";
+            Disposed += delegate { if (ProgressSession != null) ProgressSession.Close(); };
             DialogSizing.Prepare(this, "summary.single", "table", Ui.Blue);
             KeyPreview = true;
 
             root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(16) };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // 0 参数区
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 50));    // 0 可滚动参数区
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // 1 提示
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 52));   // 2 名单
-            root.RowStyles.Add(new RowStyle(SizeType.Percent, 48));   // 3 日志
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 26));   // 2 名单
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 24));   // 3 日志
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // 4 按钮
 
             // ---- 参数区 ----
@@ -94,22 +102,15 @@ namespace Excel_Iterate
                 if (!settingWorkbooks && !busy && !canUndo && choice != null && WorkbookRequested != null) WorkbookRequested(choice.Path);
             };
             // 两行放参数：Lead 的三项一行，汇总表的三项一行（1180 宽下不至于挤成一条）
-            TableLayoutPanel rowA = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, Name = "leadRow" };
-            rowA.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 0; i < 3; i++) rowA.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            rowA.Controls.Add(Ui.Grip(leadSheet, "Lead 工作表"), 0, 0);
-            rowA.Controls.Add(Ui.Grip(headerRow, "Lead 表头行"), 1, 0);
-            rowA.Controls.Add(Ui.Grip(sheetHeaderRow, "汇总表表头行"), 2, 0);
-            rowA.ColumnCount = 4;
-            rowA.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            rowA.Controls.Add(Ui.Grip(TargetSheet, "汇总工作表"), 3, 0);
-
-            TableLayoutPanel rowB = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 3, Name = "templateRow" };
-            rowB.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            for (int i = 0; i < 3; i++) rowB.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            rowB.Controls.Add(Ui.Grip(templateColumn, "模板列"), 0, 0);
-            rowB.Controls.Add(Ui.Grip(placeholderBox, "占位名"), 1, 0);
-            rowB.Controls.Add(Ui.Grip(sourceFile, "模板公司全称"), 2, 0);
+            var rowA = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Name = "leadRow" };
+            rowA.Controls.Add(Ui.Grip(leadSheet, "Lead 工作表"));
+            rowA.Controls.Add(SelectionParameter(headerRow, "Lead 表头行", "lead"));
+            rowA.Controls.Add(Ui.Grip(TargetSheet, "汇总工作表"));
+            rowA.Controls.Add(SelectionParameter(sheetHeaderRow, "汇总表表头行", "header"));
+            var rowB = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, WrapContents = true, Name = "templateRow" };
+            rowB.Controls.Add(SelectionParameter(templateColumn, "模板列", "column"));
+            rowB.Controls.Add(Ui.Grip(placeholderBox, "占位名（可读取）"));
+            rowB.Controls.Add(Ui.Grip(sourceFile, "模板公司文件名（可识别或选择）"));
 
             TableLayoutPanel row2 = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Name = "targetRow" };
             row2.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -117,24 +118,31 @@ namespace Excel_Iterate
             row2.Controls.Add(workbookLabel, 0, 0);
             row2.Controls.Add(hostLabel, 0, 1);
 
-            FlowLayoutPanel paramsPanel = new FlowLayoutPanel
-            { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Name = "paramPanel" };
-            paramsPanel.Controls.Add(picker);
-            paramsPanel.Controls.Add(row2);
-            paramsPanel.Controls.Add(rowA);
-            paramsPanel.Controls.Add(rowB);
-            paramsPanel.Controls.Add(AnnualMode);
+            TableLayoutPanel paramsPanel = new TableLayoutPanel
+            { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 7, Name = "paramPanel" };
+            paramsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            for (int i = 0; i < 7; i++) paramsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            paramsPanel.Controls.Add(picker, 0, 0);
+            presetBar = new BatchPresetBar("summary", CapturePreset, ApplyPreset,
+                delegate { return !busy && !canUndo; }, AppendLog);
+            paramsPanel.Controls.Add(presetBar, 0, 6);
+            paramsPanel.Controls.Add(row2, 0, 1);
+            paramsPanel.Controls.Add(rowA, 0, 2);
+            paramsPanel.Controls.Add(rowB, 0, 3);
+            paramsPanel.Controls.Add(AnnualMode, 0, 4);
             var years = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
             years.Controls.Add(Ui.Grip(FirstYear, "开始年度")); years.Controls.Add(Ui.Grip(LastYear, "结束年度"));
-            years.Controls.Add(Ui.Grip(YearRow, "年度表头行（必填）")); years.Controls.Add(DescendingYears);
+            years.Controls.Add(SelectionParameter(YearRow, "年度表头行（必填）", "year")); years.Controls.Add(DescendingYears);
             var paths = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Dock = DockStyle.Top };
             paths.Controls.Add(Ui.Grip(YearPathPattern, "年度目录段（留空自动识别，手填含 {yyyy}）")); paths.Controls.Add(CheckYearFiles);
-            annualOptions.Controls.Add(years); annualOptions.Controls.Add(paths); paramsPanel.Controls.Add(annualOptions);
+            annualOptions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            annualOptions.RowStyles.Add(new RowStyle(SizeType.AutoSize)); annualOptions.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            annualOptions.Controls.Add(years, 0, 0); annualOptions.Controls.Add(paths, 0, 1); paramsPanel.Controls.Add(annualOptions, 0, 5);
             // 参数区按内容高度撑开：Dock=Fill 放在 AutoSize 行里会把这一行压扁，
             // 表现就是参数行被裁掉半截（渲染截图实测）。改为 Dock=Top + AutoSize。
             UiCard paramCard = new UiCard
             {
-                Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Dock = DockStyle.Fill, AutoSize = false, AutoScroll = true,
                 Padding = new Padding(12), Margin = new Padding(0, 0, 0, 8)
             };
             paramCard.Controls.Add(paramsPanel);
@@ -156,7 +164,7 @@ namespace Excel_Iterate
             // ---- 按钮 ----
             Refresh = Ui.Button("刷新工作表", 112);
             Preview = Ui.Button("读取 Lead 并预检", 150); Ui.StylePrimary(Preview);
-            Execute = Ui.Button("执行生成", 108);
+            Execute = Ui.Button("执行链接", 108);
             Undo = Ui.Button("取消操作", 104);
             Confirm = Ui.Button("确认操作", 104);
             CopyLog = Ui.Button("复制日志", 100);
@@ -212,6 +220,42 @@ namespace Excel_Iterate
             RefreshActions();
         }
 
+        private Control SelectionParameter(Control field, string title, string kind)
+        {
+            var panel = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+            var button = Ui.Button("读取当前选区", 120); button.Name = "summaryPick_" + kind;
+            button.Click += delegate { if (!busy && !canUndo && SelectionRequested != null) SelectionRequested(kind); };
+            selectionButtons.Add(button);
+            panel.Controls.Add(Ui.Grip(field, title)); panel.Controls.Add(button);
+            var pick = Ui.Button("在表中选择…", 116); pick.Name = "summaryRange_" + kind;
+            pick.Click += delegate { if (!busy && !canUndo && RangeRequested != null) RangeRequested(kind); };
+            selectionButtons.Add(pick); panel.Controls.Add(pick);
+            return panel;
+        }
+        internal void ApplySelection(string kind, int row, int column, string description, string title)
+        {
+            if (kind == "lead") headerRow.Text = row.ToString(CultureInfo.InvariantCulture);
+            else if (kind == "header") sheetHeaderRow.Text = row.ToString(CultureInfo.InvariantCulture);
+            else if (kind == "year") YearRow.Value = row;
+            else if (kind == "column") templateColumn.Text = SummaryColumns.Letter(column);
+            if ((kind == "column" || kind == "header") && !string.IsNullOrWhiteSpace(title)) SetPlaceholder(title.Trim());
+            InvalidatePreview(this, EventArgs.Empty);
+            hint.Text = description;
+            AppendLog(description + "；请重新预检。手动输入仍可使用。");
+        }
+        internal void SetSourceCandidates(IEnumerable<string> candidates)
+        {
+            string prior = sourceFile.Text;
+            sourceFile.Items.Clear();
+            foreach (string candidate in candidates) sourceFile.Items.Add(candidate);
+            sourceFile.Text = prior;
+        }
+        internal void SetYearPattern(string pattern)
+        {
+            suspendInvalidate = true;
+            try { YearPathPattern.Text = pattern ?? ""; }
+            finally { suspendInvalidate = false; }
+        }
         private void BuildGrid()
         {
             Companies.Dock = DockStyle.Fill;
@@ -233,6 +277,8 @@ namespace Excel_Iterate
             Companies.Columns.Add(pick);
             MakeColumn("code", "编码&简称", 160, 320);
             MakeColumn("name", "全称", 260, 420);
+            MakeColumn("sourceFileName", "实际来源文件名", 250, 450);
+            MakeColumn("sourceMapping", "映射依据", 140, 200);
             MakeColumn("leadRow", "Lead 行", 80, 120);
             MakeColumn("prior", "原选用值", 100, 0);
             Companies.Columns[Companies.Columns.Count - 1].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
@@ -275,7 +321,7 @@ namespace Excel_Iterate
         internal void ClearWorkbookContext()
         {
             SetContext("", new List<string>(), "", "", "");
-            sourceFile.Clear(); Companies.Rows.Clear();
+            sourceFile.Items.Clear(); sourceFile.Text = ""; Companies.Rows.Clear();
             YearPathPattern.Clear();
         }
         /// <summary>Only the explicitly selected workbook supplies this context.</summary>
@@ -284,7 +330,7 @@ namespace Excel_Iterate
             if (IsDisposed) return;
             previewOk = false;
             if (!string.Equals(workbookPath, workbook ?? "", StringComparison.OrdinalIgnoreCase))
-            { Companies.Rows.Clear(); sourceFile.Clear(); }
+            { Companies.Rows.Clear(); sourceFile.Items.Clear(); sourceFile.Text = ""; }
             workbookPath = workbook ?? "";
             workbookLabel.Text = "工作簿：" + (string.IsNullOrEmpty(workbook) ? "（尚未选择）" : workbook);
             leadSheet.Items.Clear();
@@ -353,6 +399,7 @@ namespace Excel_Iterate
             foreach (SummaryCompany company in list)
             {
                 int index = Companies.Rows.Add(company.Selected, company.Code, company.Name,
+                    company.FileName, string.IsNullOrWhiteSpace(company.SourceFileName) ? "全称.xlsx（回退）" : "Lead 来源文件名",
                     company.Row.ToString(CultureInfo.InvariantCulture),
                     company.PriorSelection.Length == 0 ? "（空）" : company.PriorSelection);
                 Companies.Rows[index].Tag = company;
@@ -395,11 +442,12 @@ namespace Excel_Iterate
         /// <summary>宿主信息（版本等），空工作簿时用来告诉用户到底连到了谁。</summary>
         internal void SetHint(string text) { if (!IsDisposed) hostLabel.Text = text ?? ""; }
 
-        internal void SetLog(string text) { logView.Clear(); logView.AppendText(text ?? ""); }
+        internal void SetLog(string text) { logView.Clear(); logView.AppendText(text ?? ""); if (ProgressSession != null) ProgressSession.State.Log(text ?? ""); }
 
         internal void AppendLog(string text)
         {
             if (IsDisposed) return;
+            if (ProgressSession != null) ProgressSession.State.Log(text);
             // 句柄没建时 BeginInvoke 排不上队，日志会被静默丢掉——先缓存，OnHandleCreated 再刷出
             if (!IsHandleCreated) { pendingLog.Add(text); return; }
             BeginInvoke((MethodInvoker)delegate
@@ -419,6 +467,36 @@ namespace Excel_Iterate
         }
 
         internal void SetBusy(bool value) { busy = value; RefreshActions(); }
+        private Dictionary<string, Control> PresetFields()
+        {
+            return new Dictionary<string, Control> {
+                { "lead", leadSheet }, { "header", headerRow }, { "target", TargetSheet },
+                { "targetHeader", sheetHeaderRow }, { "column", templateColumn }, { "placeholder", placeholderBox },
+                { "sourceFile", sourceFile }, { "annual", AnnualMode }, { "firstYear", FirstYear },
+                { "lastYear", LastYear }, { "yearRow", YearRow }, { "descending", DescendingYears },
+                { "checkFiles", CheckYearFiles }, { "yearPattern", YearPathPattern }
+            };
+        }
+        internal BatchPreset CapturePreset()
+        { ValidateChildren(); return new BatchPreset { Feature = "summary", Context = workbookPath, Values = BatchPresetStore.Capture(PresetFields()) }; }
+        internal void ApplyPreset(BatchPreset preset)
+        {
+            if (busy || canUndo) throw new InvalidOperationException("执行期间或有待还原结果时不能应用预设。");
+            BatchPresetStore.Validate(preset, "summary");
+            var fields = PresetFields(); var values = preset.Values; BatchPresetStore.ValidateFields(fields, values);
+            if (workbookPath.Length == 0) throw new InvalidOperationException("请先选择工作簿；原文件位置：" + preset.Context);
+            if (!leadSheet.Items.Contains(values["lead"]) || !TargetSheet.Items.Contains(values["target"])) throw new InvalidOperationException("当前工作簿缺少预设中的 Lead 或汇总工作表。");
+            int n;
+            foreach (string key in new[] { "header", "targetHeader" })
+                if (!int.TryParse(values[key], out n) || n < 1 || n > 1048576) throw new InvalidOperationException("预设表头行无效：" + key);
+            if (!SummaryColumns.TryParse(values["column"], out n)) throw new InvalidOperationException("预设模板列无效。");
+            suspendInvalidate = true;
+            try { BatchPresetStore.Apply(fields, values); }
+            finally { suspendInvalidate = false; }
+            annualOptions.Visible = AnnualMode.Checked; Companies.Rows.Clear();
+            InvalidatePreview(this, EventArgs.Empty);
+            AppendLog("预设未携带公司名单；请刷新公司列表并重新预检。当前文件：" + workbookPath + "；保存时文件：" + preset.Context);
+        }
         internal void SetUndoAvailable(bool value) { canUndo = value; RefreshActions(); }
         internal void MarkUndone() { canUndo = false; RefreshActions(); }
         internal bool IsBusy { get { return busy; } }
@@ -426,9 +504,11 @@ namespace Excel_Iterate
         private void RefreshActions()
         {
             bool idle = !busy && !canUndo;
+            if (presetBar != null) presetBar.Enabled = idle;
             Workbooks.Enabled = BrowseWorkbook.Enabled = CurrentWorkbook.Enabled = RefreshWorkbooks.Enabled = idle;
             TargetSheet.Enabled = idle && workbookPath.Length > 0;
             AnnualMode.Enabled = annualOptions.Enabled = idle;
+            foreach (Control button in selectionButtons) button.Enabled = idle && workbookPath.Length > 0;
             leadSheet.Enabled = headerRow.Enabled = sheetHeaderRow.Enabled = templateColumn.Enabled = placeholderBox.Enabled = sourceFile.Enabled = idle;
             Companies.ReadOnly = !idle;
             Refresh.Enabled = idle && workbookPath.Length > 0;

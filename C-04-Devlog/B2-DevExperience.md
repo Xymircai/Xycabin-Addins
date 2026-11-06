@@ -574,13 +574,13 @@ AnnualPreview 逐公司年度生成来源路径清单，默认检查存在性并
 
 公司工作簿命名统一经 NamingStem：先按来源原文移除用户指定的末尾字符数，再按显式 Excel 后缀白名单循环清理，最后添加模板扩展名。只处理末尾，保留其他点号；字符裁剪用 StringInfo 防止切断代理对或组合字符。ValidateRecords 在处理后校验空值、保留名称、路径、碰撞和既有输出，保留 CompanyWorkbookRecord.Name 原值与来源行绑定，不改 Lead 字段。独立“预览文件名”走相同命名路径但不校验 Lead、不生成工作簿；界面展示原值与实际 OutputPath 文件名，改选项使旧预览失效，生成前再次完整校验。命名顺序必须在界面明确，避免把用户输入的“去除 5 个字符”误用在已剥离后缀的公司主体上。
 
-按公司生成工作簿的进度由 CompanyWorkbookProgress 按已收尾任务计数，分开保存成功、失败及剩余；百分比向下保留一位小数，最后一项前不显示 100%。CompanyWorkbookForm 用 Stopwatch 记录生成阶段耗时，按已处理数量计算平均每项耗时及预计剩余；首项未完成时不估计，取消后保留比例并移除预计剩余，新批次和预检失败重置状态。当前文件及计数在下一次 COM 调用前 Refresh 绘制，不使用 DoEvents、消息泵嵌套或按时间增长的假进度。预检期间单独提示，生成前禁用取消按钮；关闭请求等待预检或当前文件收尾。
+单体模板生成的进度由 CompanyWorkbookProgress 按已收尾任务计数，分开保存成功、失败及剩余；百分比向下保留一位小数，最后一项前不显示 100%。CompanyWorkbookForm 用 Stopwatch 记录生成阶段耗时，按已处理数量计算平均每项耗时及预计剩余；首项未完成时不估计，取消后保留比例并移除预计剩余，新批次和预检失败重置状态。当前文件及计数在下一次 COM 调用前 Refresh 绘制，不使用 DoEvents、消息泵嵌套或按时间增长的假进度。预检期间单独提示，生成前禁用取消按钮；关闭请求等待预检或当前文件收尾。
 
 单体汇总表的工作簿入口采用显式选择：SingleSummaryForm 列出 SummaryWorkbookChoice 的文件名和完整路径，初始无选择，另有浏览文件、使用当前工作簿和刷新列表。SummaryWorkbookBinding 只在用户选择时持有工作簿引用；RequireBook 每次核对 Workbooks 集合中的路径与 COM 对象身份，关闭、同路径重开或另存为均拒绝回退。汇总工作表独立下拉选择，初始留空；换簿清空名单、源文件名和预检结果。预检会话记录绑定版本，执行及还原复核同一版本，宿主参数取自绑定对象；确认窗口内显示实际文件路径。待还原批次禁止更换选择，失败还原保留此状态及备份提示。
 
 浏览未打开文件时禁事件、刷新、链接更新和宏执行，finally 独立恢复全部设置；已打开文件复用，只读文件拒绝。这里打开的是用户选定的实际目标工作簿，生成不自动保存，因此释放绑定引用时不自动关闭工作簿。选择器仍经 HostDialogService 在独立 STA 运行，COM 留在原宿主线程。SummaryWorkbookBindingChecks 用托管对象覆盖选择、活动窗口切换、关闭重开、只读拒绝、打开失败与状态恢复；SingleSummaryProbe 同时核对空选择、表名联动、预检失效和待还原选择锁定，不冒充真实宿主点击验收。
 
-“按公司生成工作簿”独立叶子位于 `BatchProcessSheets/CompanyWorkbooks`。CompanyWorkbookRequest 收集显式来源范围和 Lead 唯一写入行；CompanyWorkbookRules 校验字段、文件名、重复和既有输出；CompanyWorkbookHost 在宿主 STA 创建不可变磁盘快照及另一个只读读取副本，生成始终复制前者，防止旧格式只读打开改变复制依据。读取文件名带随机标识，避免 Excel 同名工作簿冲突；原模板不打开、不保存。CompanyWorkbookForm 用防重入计时器逐文件运行，取消保留已完成文件；Connect.CompanyWorkbooks.Entry 负责接线及宿主切换清理。Lead 更新通过独立委托传入副本生成事务，为后续填写规则保留入口。
+“单体模板生成”独立叶子位于 `BatchProcessSheets/CompanyWorkbooks`。CompanyWorkbookRequest 收集显式来源范围和 Lead 唯一写入行；CompanyWorkbookRules 校验字段、文件名、重复和既有输出；CompanyWorkbookHost 在宿主 STA 创建不可变磁盘快照及另一个只读读取副本，生成始终复制前者，防止旧格式只读打开改变复制依据。读取文件名带随机标识，避免 Excel 同名工作簿冲突；原模板不打开、不保存。CompanyWorkbookForm 用防重入计时器逐文件运行，取消保留已完成文件；Connect.CompanyWorkbooks.Entry 负责接线及宿主切换清理。Lead 更新通过独立委托传入副本生成事务，为后续填写规则保留入口。
 
 行号与末行均由用户确认，字段从所选工作表/表头行加载；默认缺失时不擅自选其他表。只复制模式不要求 Lead 配置；更新模式按来源记录而非输出文件名关联，只写两个目标单元格，临时文本格式防止公式样式字符串被执行，随后恢复原数字格式。保存重开核对值及工作表清单后 File.Move 不覆盖发布；异常关闭自有簿并清理未发布副本。CompanyWorkbookQuiet 在更改前读取刷新、事件、提示、更新链接与宏安全状态，逐项还原并报告失败，恢复活动工作簿/表，不创建其他 Excel 进程。CompanyWorkbookProbe 和 CompanyWorkbookHostChecks 为离线规则与托管动态宿主夹具，覆盖复制字节、逐行关联、保存失败、文件竞争和状态恢复；不能证明实际 Excel/WPS 保存保真或 VSTO 点击通过。
 
@@ -617,6 +617,10 @@ AnnualPreview 逐公司年度生成来源路径清单，默认检查存在性并
 还原后的写入核对允许宿主对函数与名称的大小写归一，双引号字符串必须逐字一致；采用核验后的宿主公式进行计算后复核。设置事件与屏幕刷新状态后、首次写入前再次核验全批保护状态，防止初检后保护发生变化。
 
 B3-Spec Coding.md 为 B3 工程规范入口。改名需要同时修改 verify_devlog 的文档集合、章节范围与规则读取分支、verify_shared、公共 project_support、网站 document_assets 和 layout/document_assets 夹具，并复核所有本地链接；仅改磁盘文件名会使构建视为缺少规定文档。历史证据保留，生成资源由标准构建重新产生。
+
+模板长期读取副本打开后复用 MigrationWindowScope.SetOwnedVisible 隐藏自有窗口，避免重新选模板时占据操作页面。选区副本仍独立打开，准备阶段经纯数据回调驱动独立进度窗，进入原生选区框前关闭进度窗；取消在安全边界生效，异常沿原有 finally 关闭副本并恢复宿主活动表。离线托管测试核对读取窗口隐藏及准备回调顺序，实际宿主焦点与大文件耗时仍须本地验证。
+
+两项单体功能的命名预设由 BatchProcessSheets/_Shared/BatchPresets.cs 提供。交互参考迁移模块的本机预设库、显式应用及导入导出，独立版本化格式防止迁移映射被误用于单体参数；复用 HostDialogService 隔离系统文件对话框。存储采用 LocalCustomization 同目录临时文件、独占锁与 File.Replace 思路，失败保留原件；不直接复用迁移专用模型，也不复制其删除旧文件后 Move 的覆盖方式。窗口各自白名单捕获参数，应用前校验数字、表名与字段，不序列化控件或 COM；不恢复确认、公司实际数据及还原状态。首次打开不自动绑定文件，预设应用后强制重新预检，有待还原批次或正在执行时禁止应用。库在 LocalApplicationData/程序集名/单体预设 下，支持测试根目录覆盖；预设包含用户路径，导出前由用户自行核对内容。
 
 # 三. WordUpdater 专属开发经验
 
@@ -726,3 +730,4 @@ SOUND默认正弦640Hz/70ms、gain0.40/max1.0，仅可信主动按钮click、100
 xy-home-audio version2将旧百分比除2仅迁移一次、支持小数，旧sound开关保留；用户静音/0/曲目优先，删曲回默认、畸形或禁存储不阻本次。加载试自动播放，suspended静默；若autoplay与play_on_first_interaction都开，首次可信普通导航/指南/主题click补一次，键盘可信click也可，模拟click/音频控件/搜索输入/音量面板排除。音效开关不阻补播，可信事件内先resume、再异步解码，复用未完resume避免多源。
 
 暂停/静音/背景0/换曲/pagehide以代次令牌取消未完播放和补播资格，不能由后续普通点击恢复；手动播放可重试，旧源/调度器释放，手动解码失败显示普通状态仍可用其他网页功能。AudioProbe是隔离DOM/AudioContext状态回归、不发声；真实效果依系统音量/压缩器/录音，不能将增益倍数承诺为听感倍数。
+

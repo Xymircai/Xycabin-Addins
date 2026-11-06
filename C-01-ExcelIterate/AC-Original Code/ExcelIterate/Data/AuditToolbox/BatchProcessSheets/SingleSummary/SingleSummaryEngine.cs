@@ -5,13 +5,49 @@ using System.Text;
 
 namespace Excel_Iterate
 {
+    internal static class SummaryFormulaShift
+    {
+        internal static string Shift(string formula, int delta)
+        {
+            if (string.IsNullOrEmpty(formula) || delta == 0) return formula;
+            var text = new System.Text.StringBuilder(formula);
+            var spans = FormulaRefRewriter.Scan(formula);
+            for (int i = spans.Count - 1; i >= 0; i--)
+            {
+                var span = spans[i];
+                // Freeze every external source address, including range endpoints.
+                if (span.Kind != RefKind.Local) continue;
+                string replacement = Cell(span.Column1, span.Row1, span.Column1Absolute, span.Row1Absolute, span.IsWholeColumn, delta);
+                if (span.IsRange) replacement += ":" + Cell(span.Column2, span.Row2, span.Column2Absolute, span.Row2Absolute, span.IsWholeColumn, delta);
+                text.Remove(span.Start, span.Length); text.Insert(span.Start, replacement);
+            }
+            return text.ToString();
+        }
+        private static string Cell(int column, int row, bool absoluteColumn, bool absoluteRow, bool wholeColumn, int delta)
+        {
+            long shifted = absoluteColumn ? column : (long)column + delta;
+            if (shifted < 1 || shifted > FormulaRefRewriter.MaxColumn) throw new InvalidOperationException("内部公式引用平移后超出工作表列范围，请调整模板列或生成数量。");
+            return (absoluteColumn ? "$" : "") + FormulaRefRewriter.ColumnLetters((int)shifted)
+                + (wholeColumn ? "" : (absoluteRow ? "$" : "") + row.ToString(CultureInfo.InvariantCulture));
+        }
+    }
+    internal static class SummarySelectionRules
+    {
+        internal static void Validate(int row, int column, int rows, int columns, bool columnMode, object merged)
+        {
+            if (row < 1 || column < 1 || rows < 1 || columns < 1) throw new InvalidOperationException("选区坐标无效。");
+            if (merged == null || merged == DBNull.Value || Convert.ToBoolean(merged)) throw new InvalidOperationException("请选择不含合并单元格的区域，或手动填写行号、列字母。");
+            if (columnMode ? columns != 1 : rows != 1)
+                throw new InvalidOperationException(columnMode ? "模板列只接受一个单元格、单列区域或一个整列，不接受跨列选区。" : "表头行只接受一个单元格、单行区域或一个整行，不接受跨行选区。");
+        }
+    }
     internal sealed class SummaryWorkbookChoice
     {
         internal string Path, Name;
         public override string ToString() { return Name + "  [" + Path + "]"; }
     }
     // =====================================================================
-    // 单体汇总表生成 —— 纯逻辑层（不碰 COM，可离线核对）
+    // 单体汇总批量链接 —— 纯逻辑层（不碰 COM，可离线核对）
     //
     // 职责：
     //   · 列字母 ↔ 列号（模板列定位）
@@ -26,11 +62,47 @@ namespace Excel_Iterate
         internal int Row;                    // Lead 表中的行号（回写「选用」用）
         internal string Code = "";           // 编码&简称 → 写进该列表头
         internal string Name = "";           // 全称 → 换链目标文件名主体
+        internal string SourceFileName = ""; // Lead 可选来源文件名；空值沿用全称.xlsx
         internal bool Selected = true;       // 确认窗勾选状态（默认全勾）
         internal string PriorSelection = ""; // 「选用」列原值，仅作展示
 
         /// <summary>换链目标文件名：全称 + ".xlsx"。含「（合并）」的公司同样只有这一条规则。</summary>
-        internal string FileName { get { return Name + ".xlsx"; } }
+        internal string FileName { get { return string.IsNullOrWhiteSpace(SourceFileName) ? Name + ".xlsx" : SourceFileName; } }
+    }
+    internal static class SummaryFileMapping
+    {
+        internal const string Header = "来源文件名";
+        internal static void Validate(IEnumerable<SummaryCompany> companies)
+        {
+            foreach (var company in companies)
+            {
+                if (string.IsNullOrWhiteSpace(company.SourceFileName)) continue;
+                string value = company.SourceFileName;
+                try
+                {
+                    CompanyWorkbookRules.FileName(value);
+                    if (!SummaryLinkRewriter.IsLinkFile(value) || value.IndexOfAny(new[] { '[', ']' }) >= 0)
+                        throw new InvalidOperationException("只填写一个 .xlsx 文件名，不含路径或方括号。");
+                }
+                catch (InvalidOperationException error) { throw new InvalidOperationException("Lead 第 " + company.Row + " 行「来源文件名」无效：" + error.Message); }
+            }
+        }
+        internal static List<string> Describe(IList<SummaryCompany> companies)
+        {
+            var lines = new List<string>();
+            var shared = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var company in companies)
+            {
+                lines.Add("来源映射：Lead 第 " + company.Row + " 行｜" + company.Name + " → " + company.FileName
+                    + (string.IsNullOrWhiteSpace(company.SourceFileName) ? "（来源文件名未填，沿用全称.xlsx）" : "（读取来源文件名）"));
+                List<string> names;
+                if (!shared.TryGetValue(company.FileName, out names)) shared.Add(company.FileName, names = new List<string>());
+                names.Add(company.Name);
+            }
+            foreach (var item in shared) if (item.Value.Count > 1)
+                lines.Add("共享来源提示：" + string.Join("、", item.Value.ToArray()) + " 共用 " + item.Key + "；工作表及取数地址相同时，数据也相同。");
+            return lines;
+        }
     }
 
     /// <summary>一次生成的完整请求（全部来自弹窗，不含 COM）。</summary>
@@ -44,7 +116,7 @@ namespace Excel_Iterate
         internal int TemplateColumn;         // 模板列列号（1 起，D=4）
         internal string SourceFile = "";     // 模板公司文件名，如 "示例有限公司.xlsx"
         internal string Placeholder = SummaryHeaders.Placeholder;  // 模板列的表头占位名，默认「大合并」，可改；留空=不校验
-        internal bool Annual, DescendingYears = true, CheckYearFiles = true;
+        internal bool Annual, DescendingYears = true, CheckYearFiles = false;
         internal int FirstYear = DateTime.Now.Year, LastYear = DateTime.Now.Year, YearHeaderRow;
         internal string YearPathPattern = "";
         internal int TemplateYear;
@@ -78,6 +150,7 @@ namespace Excel_Iterate
         }
         internal SummaryRewrite Rewrite(string formula, SummaryYearColumn column)
         {
+            formula = SummaryFormulaShift.Shift(formula, column.Column - TemplateColumn);
             return Annual ? SummaryAnnualLinks.Rewrite(formula, SourceFile, column.Company.FileName, YearPathPattern, column.Year)
                 : SummaryLinkRewriter.Replace(formula, SourceFile, column.Company.FileName);
         }
@@ -105,6 +178,7 @@ namespace Excel_Iterate
             if (SourceFile.Trim().Length == 0) return "请填写模板公司全称（换链源文件名，如 示例有限公司.xlsx）。";
             if (!SummaryLinkRewriter.IsLinkFile(SourceFile)) return "模板公司全称需拼成「全称.xlsx」的样式。";
             List<SummaryCompany> chosen = Chosen();
+            try { SummaryFileMapping.Validate(chosen); } catch (InvalidOperationException error) { return error.Message; }
             if (chosen.Count == 0) return "没有勾选任何公司（N=0），已阻断，未改动工作表。";
             if (TemplateColumn + (long)chosen.Count * YearCount - 1 > 16384)
                 return "勾选 " + chosen.Count.ToString(CultureInfo.InvariantCulture)

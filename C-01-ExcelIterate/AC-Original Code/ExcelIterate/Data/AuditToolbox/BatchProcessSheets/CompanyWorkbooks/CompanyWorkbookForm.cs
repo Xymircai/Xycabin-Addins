@@ -57,11 +57,11 @@ namespace Excel_Iterate
                 delegate { return !Running && !ticking && !preparing && (CanRun == null || CanRun()); }, Append));
             AddRow("来源工作表", source, Label("表头行"), header, PickButton("sourceHeader"));
             AddRow("来源数据行", Label("起始（必填）"), first, Label("结束（必填，含此行）"), last, PickButton("data"));
-            AddRow("文件命名字段", naming, PickButton("naming"));
+            AddRow("命名名称", naming, PickButton("naming"));
             AddRow("名称处理", Label("从原文末尾去除"), RemoveTailCharacters, Label("个字符，再"), StripExcelSuffix);
             AddRow("命名顺序", Label("先去除指定字符，再去掉 Excel 后缀，最后统一添加模板后缀；默认去除 0 个字符。"));
             AddRow("生成方式", update);
-            AddRow("公司来源字段", Label("编码"), code, PickButton("code"), Label("全称"), full, PickButton("full"));
+            AddRow("目标表中替换字段", Label("编码"), code, PickButton("code"), Label("全称"), full, PickButton("full"));
             AddRow("目标工作表", target, Label("表头行"), leadHeader, PickButton("targetHeader"));
             AddRow("目标字段", Label("编码"), targetCode, PickButton("targetCode"), Label("全称"), targetName, PickButton("targetName"));
             AddRow("Lead 写入行", leadRow, PickButton("leadRow"), Label("必填：仅替换该行两个字段，其他行保留"));
@@ -285,20 +285,26 @@ namespace Excel_Iterate
         private void AddRow(string title, params Control[] controls)
         {
             var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Padding(0, 3, 0, 3) };
-            row.Controls.Add(new Label { Text = title, AutoSize = true, MinimumSize = new Size(105, 0), MaximumSize = new Size(105, 0), Margin = new Padding(3, 6, 3, 3) });
+            row.Controls.Add(new Label { Text = title, AutoSize = true, UseMnemonic = false, Tag = "companyRowTitle", MinimumSize = new Size(105, 0), Margin = new Padding(3, 6, 3, 3) });
             row.Controls.AddRange(controls); inputs.Controls.Add(row);
         }
         private void FitInputRows()
         {
             int width = Math.Max(1, inputs.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - inputs.Padding.Horizontal);
+            int titleWidth = 105;
+            foreach (Control row in inputs.Controls)
+                foreach (Control control in row.Controls)
+                    if (Equals(control.Tag, "companyRowTitle"))
+                        titleWidth = Math.Max(titleWidth, TextRenderer.MeasureText(control.Text, control.Font, Size.Empty, TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix).Width + 4);
             foreach (Control row in inputs.Controls)
             {
                 row.MaximumSize = new Size(width, 0);
                 row.Width = width;
                 foreach (Control control in row.Controls)
                 {
-                    if (control is BatchPresetBar) control.MaximumSize = new Size(Math.Max(240, width - 125), 0);
-                    if (control is Label) control.MaximumSize = new Size(Math.Min(control.MinimumSize.Width > 0 ? control.MinimumSize.Width : width - 12, width), 0);
+                    if (control is BatchPresetBar) control.MaximumSize = new Size(Math.Max(240, width - titleWidth - 20), 0);
+                    if (Equals(control.Tag, "companyRowTitle")) control.MinimumSize = control.MaximumSize = new Size(titleWidth, 0);
+                    else if (control is Label) control.MaximumSize = new Size(Math.Min(control.MinimumSize.Width > 0 ? control.MinimumSize.Width : width - 12, width), 0);
                 }
             }
         }

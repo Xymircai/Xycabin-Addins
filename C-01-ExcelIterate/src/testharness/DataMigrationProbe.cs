@@ -302,6 +302,16 @@ namespace Excel_Iterate.TestHarness
             }
             var snapshot=MigrationPackagePreservation.Capture(source,"源表",MigrationArea.Parse("A1:B2"));var destination=new MigrationTarget{Sheet="源表",Area=MigrationArea.Parse("A1:B2")};
             bool rejected=false;try{snapshot.Verify(target,destination);}catch(IOException){rejected=true;}Check(rejected,"package-level audit rejects the date-format and merged-hidden-data differences");
+            string contentOnly = Path.Combine(root, "content-only.xlsx"); File.Copy(target, contentOnly);
+            var contentSnapshot = MigrationPackagePreservation.Capture(source, "源表", MigrationArea.Parse("A1:B2"), false);
+            contentSnapshot.Apply(contentOnly, destination); contentSnapshot.Verify(contentOnly, destination);
+            using (var file = File.OpenRead(contentOnly)) using (var zip = new ZipArchive(file, ZipArchiveMode.Read))
+            {
+                var styles = new System.Xml.XmlDocument(); using (var xml = zip.GetEntry("xl/styles.xml").Open()) styles.Load(xml);
+                Check(styles.GetElementsByTagName("numFmt")[0].Attributes["formatCode"].Value == "yyyy/mm/dd", "content-only package preservation retains the target number format instead of restoring the source format");
+                var sheet = new System.Xml.XmlDocument(); using (var xml = zip.GetEntry("xl/worksheets/sheet1.xml").Open()) sheet.Load(xml);
+                Check(contentSnapshot.HasHiddenValues && sheet.GetElementsByTagName("c").Cast<System.Xml.XmlElement>().Any(c => c.GetAttribute("r") == "B2" && c.InnerText == "hidden text"), "content-only package preservation still restores merged hidden values");
+            }
             snapshot.Apply(target,destination);snapshot.Verify(target,destination);Check(snapshot.HasHiddenValues,"raw hidden merged values and original number-format code are restored and verified");Check(hash==DataMigrationHost.Digest(source),"fidelity restoration never edits the source file");
         }
         private static void TransactionChecks(string root)
@@ -362,7 +372,14 @@ namespace Excel_Iterate.TestHarness
             Check(!Directory.GetFiles(folder, "*_迁移结果*").Any() && !Directory.GetFiles(folder, ".xy-migration-*").Any(), "successful and failed processing leave no result-suffix or reader files in the working directory");
             var open = app.Workbooks.Open(targets[0].Path, 0, false); var blocked = new MigrationTarget { Path = targets[0].Path, Sheet = "目标表", Start = "B100" };
             request = Request(source.FullName, blocked); request.ReplaceTargets = true;
-            using (var host = new DataMigrationHost(app)) { Drain(host.Preview(request)); Check(!blocked.Ready && blocked.Error.Contains("关闭"), "opened target is rejected with save-and-close guidance instead of changing the user document"); }
+            string openedHash = DataMigrationHost.Digest(blocked.Path);
+            using (var host = new DataMigrationHost(app))
+            {
+                Drain(host.Preview(request));
+                Check(blocked.Ready && app.Workbooks.Items.Contains(open) && DataMigrationHost.Digest(blocked.Path) == openedHash, "preflight reads a saved open target without closing or changing it");
+                Drain(host.Execute());
+                Check(!blocked.Ready && blocked.Error.Contains("关闭") && blocked.Output.Length == 0 && blocked.Backup.Length == 0 && app.Workbooks.Items.Contains(open) && DataMigrationHost.Digest(blocked.Path) == openedHash, "execution rejects an open replacement target with save-and-close guidance and leaves the original unchanged");
+            }
             open.Close(false);
             var cancelled = new MigrationTarget { Path = targets[2].Path, Sheet = "目标表", Start = "B100" };
             request = Request(source.FullName, cancelled); request.ReplaceTargets = true; string before = DataMigrationHost.Digest(cancelled.Path);
@@ -507,7 +524,7 @@ namespace Excel_Iterate.TestHarness
                 if(args.Length==1 && args[0]=="--target-picker-ui") { Console.WriteLine("PICKER_BEGIN"); HostDialogService.Register(); var picked=MigrationTargetPicker.Show(null); foreach(string path in picked)Console.WriteLine("PICKED: "+path); Console.WriteLine("PICKER_END count="+picked.Length+"\n"+UiDiagnostics.Text); Directory.Delete(root,true); return 0; }
                 FormulaChecks(); PackageChecks(root); FidelityChecks(root); WatchChecks(); PickerChecks(root); TargetSelectionChecks(root); SelectionPopupChecks(root); PumpChecks(); HostChecks(root); TransactionChecks(root); QuietReplaceChecks(root); SnapshotRaceChecks(root);
                 using (var form = new DataMigrationForm()) Check(!form.Visible && form.Mappings.Count == 0 && form.Sources.Columns.Count == 7 && form.Targets.Columns.Count == 6 && form.Sources.Columns.Contains("pick") && form.Sources.Columns.Contains("trigger") && !form.Targets.Columns.Contains("trigger"), "production form constructs without host access");
-                LayoutChecks(); PresetChecks();
+                LayoutChecks(); RecalculationTargetChecks(root); PresetChecks();
                 if (args.Length == 2 && args[0] == "--render") Render(Path.GetFullPath(args[1]));
                 Console.WriteLine("PASS: DataMigrationProbe " + count + " assertions; managed fixtures only, no WPS connection");
                 Directory.Delete(root, true); return 0;
@@ -544,6 +561,17 @@ namespace Excel_Iterate.TestHarness
                 var t1 = new MigrationSide { Sheet = "表", Range = "E1" }; t1.Books.Add(@"D:\b.xlsx");
                 var p1 = form.AddSide(false, s1); var p2 = form.AddSide(false, s2); var p3 = form.AddSide(true, t1);
                 Check(p1.ValuesOnly && p2.ValuesOnly, "rows created in the window paste values by default");
+                Check(!p1.KeepFormat && DataMigrationForm.ModeText(true, false) == "只写数值" && DataMigrationForm.ModeText(true, true) == "数值+格式" && DataMigrationForm.ModeText(false, false) == "只写公式" && DataMigrationForm.ModeText(false, true) == "公式+格式", "new rows write values without formats; four write modes");
+                var toggleMode = (Action<int>)typeof(MigrationMappingBoard).GetField("ModeToggled", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(form.Mappings);
+                foreach (string expected in new[] { "数值+格式", "只写公式", "公式+格式", "只写数值" })
+                {
+                    toggleMode(0);
+                    Check(DataMigrationForm.ModeText(p1.ValuesOnly, p1.KeepFormat) == expected, "mapping mode click cycles to " + expected);
+                }
+                p1.Source.Trigger = new MigrationTrigger();
+                toggleMode(0); Check(p1.ValuesOnly && p1.KeepFormat, "recalculation mode click enables formats while keeping values-only output");
+                toggleMode(0); Check(p1.ValuesOnly && !p1.KeepFormat, "recalculation mode click returns to values without entering formula modes");
+                p1.Source.Trigger = null;
                 Check(p3 == p1 && form.PairItems().Count == 2 && form.Sources.Rows.Count == 2 && form.Targets.Rows.Count == 1 && form.Mappings.Count == 2, "a new target fills the first row without one instead of shifting pairs");
                 form.SwapSides(0, 1, true);
                 Check(p2.Target == t1 && !p1.Target.Used && p1.Source == s1 && p2.Source == s2, "dragging a side in 映射 swaps only that side between two rows");
@@ -590,6 +618,47 @@ namespace Excel_Iterate.TestHarness
         }
         // Presets keep the setup only: shared sources, 逐行重算, write modes and
         // relocated paths survive a save/apply round trip; newer formats are refused.
+        private static void RecalculationTargetChecks(string root)
+        {
+            string source = Path.Combine(root, "trigger-targets.xlsx");
+            using (var file = File.Create(source)) using (var zip = new ZipArchive(file, ZipArchiveMode.Create))
+            {
+                var parts = new Dictionary<string, string> {
+                    { "xl/workbook.xml", "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"表\" sheetId=\"1\" r:id=\"r1\"/></sheets></workbook>" },
+                    { "xl/_rels/workbook.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"r1\" Target=\"worksheets/sheet1.xml\"/></Relationships>" },
+                    { "xl/worksheets/sheet1.xml", "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData><row r=\"2\"><c r=\"G2\" t=\"inlineStr\"><is><t>触发值</t></is></c><c r=\"H2\" t=\"inlineStr\"><is><t>目标甲</t></is></c></row></sheetData></worksheet>" }
+                };
+                foreach (var part in parts) using (var writer = new StreamWriter(zip.CreateEntry(part.Key).Open())) writer.Write(part.Value);
+            }
+            using (var form = new DataMigrationForm())
+            {
+                string first = Path.Combine(root, "目标甲.xlsx"); string other = Path.Combine(root, "目标乙.xlsx"); string unused = Path.Combine(root, "未使用.xlsx");
+                foreach (string path in new[] { first, other, unused }) form.AddBook(true, path, new[] { "表" });
+                var src = new MigrationSide { Sheet = "表", Range = "A1", Trigger = new MigrationTrigger { Values = "G2:G2" } }; src.Books.Add(source);
+                var recalc = form.AddPair(new MigrationPair { Source = src, Target = new MigrationSide { Sheet = "表", Range = "D1" }, ValuesOnly = true });
+                var plain = src.Copy(); plain.Trigger = null;
+                var redundant = new MigrationSide { Sheet = "表", Range = "E1" }; redundant.Books.Add(first);
+                var duplicate = form.AddPair(new MigrationPair { Source = plain, Target = redundant });
+                var kept = new MigrationSide { Sheet = "表", Range = "F1" }; kept.Books.Add(other);
+                var independent = form.AddPair(new MigrationPair { Source = plain.Copy(), Target = kept });
+                var gap = new MigrationSide { Sheet = "表", Range = "G1" }; gap.Books.Add(unused); form.AddSide(true, gap);
+                form.RefreshResults();
+                Check(src.Trigger.Error.Length == 0 && src.Trigger.Rows.Count == 1 && src.Trigger.Rows[0].Path == first, "recalculation source names resolve to the added target workbook");
+                var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                typeof(DataMigrationForm).GetMethod("DropUnmatchedTargets", flags).Invoke(form, new object[0]);
+                typeof(DataMigrationForm).GetMethod("RebuildViews", flags).Invoke(form, new object[0]);
+                Check(!duplicate.Target.Used && !form.PairItems().Any(p => p.Target == gap) && form.Targets.Rows.Count == 2, "applying recalculation removes redundant and unpaired ordinary target rows");
+                Check(independent.Target == kept && kept.Used && form.TargetBooks.Select(b => b.Path).OrderBy(p => p).SequenceEqual(new[] { first, other }.OrderBy(p => p)), "target cleanup preserves an independent ordinary mapping and its workbook");
+                src.Trigger.Chosen[2] = other; src.Trigger.Signature = ""; form.RefreshResults();
+                Check(src.Trigger.Rows[0].Path == other && src.Trigger.Rows[0].Kind == "已确认" && form.Targets.Rows.Cast<System.Windows.Forms.DataGridViewRow>().Count(r => r.Tag == recalc) == 1
+                    && form.Targets.Rows.Cast<System.Windows.Forms.DataGridViewRow>().Any(r => r.Tag == recalc && Convert.ToString(r.Cells["book"].Value) == Path.GetFileName(other)), "manual trigger target override shows the chosen workbook in the by-name row");
+                typeof(DataMigrationForm).GetMethod("SplitByFile", flags).Invoke(form, new object[] { src });
+                Check(recalc.Target.Books.Count == 1 && recalc.Target.Books[0] == other && recalc.Target.Range == "D1" && form.PairItems().Count(p => p.Source == src) == 1,
+                    "applying recalculation turns the by-name row into an ordinary row per matched workbook, keeping its sheet and range");
+                src.Trigger.Chosen[2] = ""; src.Trigger.Signature = ""; form.RefreshResults();
+                Check(src.Trigger.Rows[0].Kind == "跳过" && src.Trigger.Rows[0].Path.Length == 0 && independent.Target == kept, "skipping a trigger target leaves the independent ordinary mapping intact");
+            }
+        }
         private static void PresetChecks()
         {
             var parsed = (Dictionary<string, object>)MigrationJson.Parse(MigrationJson.Write(MigrationJson.Obj("text", "引号\"反斜杠\\换行\n", "list", new List<object> { 1L, 2.5, true, null })));
@@ -604,6 +673,7 @@ namespace Excel_Iterate.TestHarness
                 form.AddSide(true, t1); form.AddSide(true, t2);
                 form.SetTrigger(source, new MigrationTrigger { Cell = "B2", Values = "G2:G30", NameColumn = "H" });
                 source.Trigger.Chosen[9] = @"D:\预设\子目录\目标二.xlsx";
+                source.Trigger.Extra.Add(new MigrationCondition { Cell = "C2", Value = "2025" }); source.Trigger.Extra.Add(new MigrationCondition { Cell = "D2", Column = "I" });
                 form.PairItems()[1].ValuesOnly = true; form.PairItems()[1].Enabled = false;
                 var data = form.CapturePreset("测试预设");
                 var preset = MigrationPreset.From((Dictionary<string, object>)MigrationJson.Parse(MigrationJson.Write(data)), null);
@@ -615,6 +685,8 @@ namespace Excel_Iterate.TestHarness
                     var rows = other.PairItems();
                     Check(rows.Count == 2 && rows[0].Source == rows[1].Source && rows[0].Source.Trigger != null && rows[0].Source.Trigger.Cell == "B2" && rows[0].Source.Trigger.Values == "G2:G30"
                         && rows[0].Source.Trigger.Chosen[9] == @"E:\别处\目标二.xlsx", "applying restores the shared source, 逐行重算 and relocated choices");
+                    Check(rows[0].Source.Trigger.Extra.Count == 2 && rows[0].Source.Trigger.Extra[0].Cell == "C2" && rows[0].Source.Trigger.Extra[0].Value == "2025" && rows[0].Source.Trigger.Extra[1].Column == "I",
+                        "a preset keeps the extra 逐行重算 conditions (fixed value and per-row column)");
                     Check(rows[1].Target.Books[0] == @"E:\别处\目标二.xlsx" && rows[1].Target.Range == "H970" && !rows[1].Enabled && rows[1].ValuesOnly && other.Mappings.Count == 2, "applying restores targets, modes and enabled state with relocated paths");
                 }
                 data["version"] = 99L;

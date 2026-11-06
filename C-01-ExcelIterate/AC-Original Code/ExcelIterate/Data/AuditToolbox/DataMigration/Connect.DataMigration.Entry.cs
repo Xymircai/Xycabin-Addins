@@ -27,7 +27,7 @@ namespace Excel_Iterate
                     {
                         ResetMigration(); var plan = form.BuildPlan();
                         if (!ConfirmOverrides(form, plan)) return;
-                        if (!ReleaseBusyWorkbooks(form, plan)) return;
+                        if (!ReleaseBusyWorkbooks(form, plan, false)) return;
                         _migrationPlan = plan; _planCancelled = false;
                         form.Run(RunPlan(form, plan, false), delegate { form.RefreshResults(); }, delegate(Exception error) { form.Message(error.Message); ResetMigration(); });
                     });
@@ -37,7 +37,7 @@ namespace Excel_Iterate
                     MigrationAction(form, delegate
                     {
                         if (_migrationPlan == null) throw new InvalidOperationException("请先重新预检。");
-                        if (!ReleaseBusyWorkbooks(form, _migrationPlan)) return;
+                        if (!ReleaseBusyWorkbooks(form, _migrationPlan, true)) return;
                         ExecutePlan(form);
                     });
                 };
@@ -64,12 +64,20 @@ namespace Excel_Iterate
                     if (form.Running) return;
                     string address = null; Exception failure = null;
                     form.Hide();
-                    // Give WPS the focus first; otherwise the first click only
-                    // activates its window and the user has to click again.
-                    MigrationForeground.Bring(GetHostWindowHandle());
-                    try { using (var host = new DataMigrationHost(_app)) address = host.PickSourceRange(path, sheet, current, null, target ? "目标" : "源"); }
+                    // Give WPS the focus once the workbook is shown, and again
+                    // after the selection box opens; otherwise the first click
+                    // only activates its window and the user has to click again.
+                    IntPtr wps = GetHostWindowHandle();
+                    MigrationForeground.Bring(wps);
+                    // Once the selection box is up, click into the sheet for the
+                    // user so the grid has the focus, then restore the selection.
+                    System.Windows.Forms.Timer focusTimer = null;
+                    // The frame showing the opened workbook (WPS may open it in
+                    // another top-level window than the one we started from).
+                    Action<Action> ready = delegate(Action reselect) { IntPtr frame = MigrationForeground.ActiveFrame(_app, wps); MigrationForeground.Bring(frame); focusTimer = MigrationForeground.BringSoon(frame, reselect); };
+                    try { using (var host = new DataMigrationHost(_app)) address = host.PickSourceRange(path, sheet, current, null, target ? "目标" : "源", ready); }
                     catch (Exception error) { failure = error; Log("迁移框选区域：" + error); }
-                    finally { form.Show(); form.Activate(); }
+                    finally { if (focusTimer != null) { focusTimer.Stop(); focusTimer.Dispose(); } form.Show(); form.Activate(); }
                     if (failure != null) form.Message("框选失败：" + failure.Message);
                     else if (address == null) form.Message("已取消框选，区域保持不变。");
                     else done(address);
@@ -124,12 +132,16 @@ namespace Excel_Iterate
             var sourcePaths = new HashSet<string>(plan.Passes.Select(p => Path.GetFullPath(p.Request.SourcePath)), StringComparer.OrdinalIgnoreCase);
             bool chain = plan.Passes.SelectMany(p => p.Request.Targets).Any(t => sourcePaths.Contains(Path.GetFullPath(t.Path)));
             bool batch = execute && !chain;
+            // Plain reads first: 逐行重算 edits the trigger cell of the
+            // source copy, which ordinary ranges of that source share.
+            var passes = plan.Passes.OrderBy(p => p.Request.TriggerCell.Length > 0 ? 1 : 0).ToList();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
             try
             {
-                for (int index = 0; index < plan.Passes.Count; index++)
+                for (int index = 0; index < passes.Count; index++)
                 {
-                    var pass = plan.Passes[index];
-                    string label = "[" + (index + 1) + "/" + plan.Passes.Count + "] " + pass.Source.Label + " " + pass.Request.SourceSheet + "!" + pass.Request.SourceRange + "：";
+                    var pass = passes[index];
+                    string label = "[" + (index + 1) + "/" + passes.Count + "] " + pass.Source.Label + " " + pass.Request.SourceSheet + "!" + pass.Request.SourceRange + "：";
                     if (_planCancelled) { MarkPass(pass, "已取消", "已取消，未执行"); continue; }
                     // One host for the whole run: every source is opened (as its
                     // read copy) once and closed at the end, never saved. A
@@ -178,6 +190,9 @@ namespace Excel_Iterate
                     if (!plan.OutputCopies) foreach (var target in plan.Passes.SelectMany(p => p.Request.Targets)) if (target.Status == "成功") form.RecordRestorePoint(target.Path, target.Backup);
                     if (host.Cancelled) _planCancelled = true;
                 }
+                if (!execute) plan.PrecheckMilliseconds = clock.ElapsedMilliseconds;
+                plan.Finished = DateTime.Now; plan.Executed = execute; plan.RunMilliseconds = clock.ElapsedMilliseconds;
+                Log("迁移耗时：" + (execute ? "执行" : "预检") + "合计 " + clock.ElapsedMilliseconds + " ms");
             }
             finally
             {
@@ -209,6 +224,8 @@ namespace Excel_Iterate
             string saving = previewed.ReplaceTargets
                 ? "将更新 " + targets + " 个目标原文件（共 " + ready.Count + " 处写入）；原版本自动备份到同目录的“迁移备份”文件夹，可用“还原操作”恢复。源文件不修改。"
                 : "将为 " + targets + " 个目标各另存一个“迁移结果”副本（共 " + ready.Count + " 处写入），目标原文件不修改。";
+            double estimate = DataMigrationHost.EstimateMilliseconds(previewed.Passes.Select(p => p.Request), previewed.PrecheckMilliseconds);
+            saving += line + "预计耗时：约 " + DataMigrationHost.DurationText(estimate) + "（按刚才的预检耗时估算，仅供参考）。";
             string text = (empty.Count > 0 ? "以下源区域全部为空，会清空目标对应区域：" + string.Join("、", empty.Take(5).ToArray()) + (empty.Count > 5 ? " 等" : "") + line : "")
                 + (overwrite > 0 ? "目标区域已有数据：" + filled + " 处写入中共有 " + overwrite + " 个单元格已有内容，执行后将被源数据覆盖（源中为空的单元格会清空目标）。" + line : "")
                 + saving + line + (overwrite > 0 ? "是否覆盖原数据？" : "是否执行？");
@@ -275,13 +292,13 @@ namespace Excel_Iterate
             if (UiDialog.Show(form, text, "目标区域重复", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) == DialogResult.Yes) return true;
             form.Message("已取消：请在明细中调整这些行的目标后再预检。"); return false;
         }
-        private static bool ReleaseBusyWorkbooks(DataMigrationForm form, MigrationPlan plan)
+        // Precheck only needs every workbook saved: open ones are read in
+        // place (逐行重算 sources through a copy). Execution replacing target
+        // files needs those targets closed.
+        private static bool ReleaseBusyWorkbooks(DataMigrationForm form, MigrationPlan plan, bool execute)
         {
             var sources = new HashSet<string>(plan.Passes.Select(p => Path.GetFullPath(p.Request.SourcePath)), StringComparer.OrdinalIgnoreCase);
             var targets = new HashSet<string>(plan.Passes.SelectMany(p => p.Request.Targets).Select(t => Path.GetFullPath(t.Path)), StringComparer.OrdinalIgnoreCase);
-            // 逐行重算 edits the trigger cell in our own copy, so its source
-            // must not be open in WPS (the copy is only made for closed files).
-            var triggerSources = new HashSet<string>(plan.Passes.Where(p => p.Request.TriggerCell.Length > 0).Select(p => Path.GetFullPath(p.Request.SourcePath)), StringComparer.OrdinalIgnoreCase);
             var save = new List<string>(); var close = new List<string>();
             using (var bag = new ComBag())
             {
@@ -291,18 +308,18 @@ namespace Excel_Iterate
                     dynamic book = bag.Own(books.Item(i)); string full;
                     try { full = Path.GetFullPath(Convert.ToString(book.FullName)); } catch (Exception) { continue; }
                     bool saved = ComFormulaHost.Boolean(book.Saved, "Saved");
-                    if ((targets.Contains(full) && plan.ReplaceTargets) || triggerSources.Contains(full)) close.Add(full);
+                    if (execute && targets.Contains(full) && plan.ReplaceTargets) close.Add(full);
                     else if ((sources.Contains(full) || targets.Contains(full)) && !saved) save.Add(full);
                 }
             }
             if (save.Count == 0 && close.Count == 0) return true;
             string line = Environment.NewLine;
-            string text = "以下工作簿正在 WPS 中被占用，预检无法读取或替换："
-                + (save.Count == 0 ? "" : line + line + "有未保存修改（将保存）：" + line + string.Join(line, save.Select(p => "· " + Path.GetFileName(p)).ToArray()))
-                + (close.Count == 0 ? "" : line + line + "已打开的目标或逐行重算的源工作簿（将保存并关闭，完成后可重新打开）：" + line + string.Join(line, close.Select(p => "· " + Path.GetFileName(p)).ToArray()))
-                + line + line + "保存会把你在这些工作簿中尚未保存的修改一并写入文件。" + line + "是否保存并关闭后继续？";
+            string text = (execute ? "以下工作簿正在 WPS 中打开，执行前需要处理：" : "以下工作簿有未保存修改，预检读取的是已保存的内容：")
+                + (save.Count == 0 ? "" : line + line + "有未保存修改（将保存，不关闭）：" + line + string.Join(line, save.Select(p => "· " + Path.GetFileName(p)).ToArray()))
+                + (close.Count == 0 ? "" : line + line + "要更新原文件的目标（将保存并关闭，完成后可重新打开）：" + line + string.Join(line, close.Select(p => "· " + Path.GetFileName(p)).ToArray()))
+                + line + line + "保存会把你在这些工作簿中尚未保存的修改一并写入文件。" + line + (close.Count == 0 ? "是否保存后继续？" : "是否保存并关闭后继续？");
             if (UiDialog.Show(form, text, "工作簿被占用", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1) != DialogResult.Yes)
-            { form.Message("已取消：请自行保存源工作簿、保存并关闭目标工作簿后再预检。"); return false; }
+            { form.Message(execute ? "已取消：请保存并关闭要更新的目标工作簿后再执行。" : "已取消：请先保存这些工作簿再预检。"); return false; }
             var failures = new List<string>();
             foreach (string path in save.Concat(close))
             {
@@ -327,10 +344,10 @@ namespace Excel_Iterate
             }
             if (failures.Count > 0)
             {
-                form.Message("未能处理：" + string.Join("；", failures.ToArray()) + "。请手动保存或关闭后再预检。");
+                form.Message("未能处理：" + string.Join("；", failures.ToArray()) + "。请手动保存" + (execute ? "或关闭" : "") + "后再试。");
                 return false;
             }
-            form.Message("已保存 " + save.Count + " 个、保存并关闭 " + close.Count + " 个被占用的工作簿，继续预检。");
+            form.Message(close.Count == 0 ? "已保存 " + save.Count + " 个工作簿（未关闭），继续" + (execute ? "执行" : "预检") + "。" : "已保存 " + save.Count + " 个、保存并关闭 " + close.Count + " 个工作簿，继续执行。");
             return true;
         }
         private static void MigrationAction(DataMigrationForm form, Action action)
@@ -355,10 +372,115 @@ namespace Excel_Iterate
         [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr window);
         [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
         [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint process);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool AttachThreadInput(uint attach, uint to, bool on);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool BringWindowToTop(IntPtr window);
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] private struct POINT { public int X, Y; }
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out RECT rect);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(POINT point);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetCursorPos(int x, int y);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool GetCursorPos(out POINT point);
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern void mouse_event(uint flags, int x, int y, uint data, UIntPtr extra);
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)] private static extern int GetClassName(IntPtr window, System.Text.StringBuilder name, int size);
+        private static string ClassOf(IntPtr window) { var name = new System.Text.StringBuilder(128); GetClassName(window, name, name.Capacity); return name.ToString(); }
+        internal static IntPtr ActiveFrame(object app, IntPtr fallback)
+        {
+            try
+            {
+                IntPtr handle = new IntPtr(Convert.ToInt64(((dynamic)app).ActiveWindow.Hwnd));
+                IntPtr root = handle == IntPtr.Zero ? IntPtr.Zero : GetAncestor(handle, 2);
+                if (root != IntPtr.Zero) return root;
+            }
+            catch (Exception) { }
+            return fallback;
+        }
+        // Is this screen point on the sheet grid of the WPS frame: inside the
+        // frame, clear of the ribbon above and the status/tab bar below, and
+        // on the frame itself or a large child of it (not the selection box)?
+        private static bool OnGrid(IntPtr main, RECT frame, POINT point)
+        {
+            int width = frame.Right - frame.Left, height = frame.Bottom - frame.Top;
+            if (point.X < frame.Left + width * 0.03 || point.X > frame.Right - width * 0.03 || point.Y < frame.Top + height * 0.25 || point.Y > frame.Bottom - height * 0.08) return false;
+            IntPtr hit = WindowFromPoint(point);
+            if (hit == main) return true;
+            if (hit == IntPtr.Zero || GetAncestor(hit, 2) != main) return false;
+            RECT area; return GetWindowRect(hit, out area) && area.Right - area.Left >= width * 0.4 && area.Bottom - area.Top >= height * 0.3;
+        }
+        // One simulated left click on the sheet grid. Where the pointer is
+        // already on the grid, click right there without moving it. Otherwise
+        // click a grid point and report where the pointer was (moved), so the
+        // caller puts it back a moment later.
+        private static bool ClickGrid(IntPtr main, out POINT moved, out bool wasMoved)
+        {
+            moved = new POINT(); wasMoved = false;
+            RECT frame; if (main == IntPtr.Zero || !GetWindowRect(main, out frame)) return false;
+            int width = frame.Right - frame.Left, height = frame.Bottom - frame.Top; if (width < 200 || height < 200) return false;
+            POINT now; bool known = GetCursorPos(out now);
+            if (known && OnGrid(main, frame, now))
+            {
+                mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero); mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+                Connect.Log("迁移框选：在鼠标当前位置模拟点击 @" + now.X + "," + now.Y);
+                return true;
+            }
+            foreach (var spot in new[] { new[] { 0.3, 0.55 }, new[] { 0.7, 0.55 }, new[] { 0.3, 0.75 }, new[] { 0.7, 0.75 }, new[] { 0.5, 0.8 }, new[] { 0.35, 0.65 } })
+            {
+                var point = new POINT { X = frame.Left + (int)(width * spot[0]), Y = frame.Top + (int)(height * spot[1]) };
+                if (!OnGrid(main, frame, point) || !SetCursorPos(point.X, point.Y)) continue;
+                mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero); mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
+                if (known) { moved = now; wasMoved = true; }
+                Connect.Log("迁移框选：鼠标不在表格上，临时在 @" + point.X + "," + point.Y + " 模拟点击后移回");
+                return true;
+            }
+            Connect.Log("迁移框选：未模拟点击（窗口 " + ClassOf(main) + " " + width + "x" + height + "）");
+            return false;
+        }
+        // Windows refuses SetForegroundWindow unless the caller shares input
+        // with the current foreground thread, so attach to it briefly.
         internal static void Bring(IntPtr window)
         {
             if (window == IntPtr.Zero) return;
-            try { if (IsIconic(window)) ShowWindow(window, 9); SetForegroundWindow(window); } catch (Exception) { }
+            try
+            {
+                if (IsIconic(window)) ShowWindow(window, 9);
+                uint process; uint foreground = GetWindowThreadProcessId(GetForegroundWindow(), out process), me = GetCurrentThreadId();
+                bool attached = foreground != 0 && foreground != me && AttachThreadInput(me, foreground, true);
+                try { BringWindowToTop(window); SetForegroundWindow(window); }
+                finally { if (attached) AttachThreadInput(me, foreground, false); }
+            }
+            catch (Exception) { }
+        }
+        // While a modal box (the WPS selection InputBox) runs, check a few
+        // times that WPS still has the focus and take it back if not.
+        // After the click (second tick) the selection is put back (third).
+        internal static System.Windows.Forms.Timer BringSoon(IntPtr window, Action reselect = null)
+        {
+            if (window == IntPtr.Zero) return null;
+            var timer = new System.Windows.Forms.Timer { Interval = 150 }; int ticks = 0; bool clicked = false, moved = false; POINT back = new POINT();
+            uint own = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+            timer.Tick += delegate
+            {
+                ticks++;
+                uint process; GetWindowThreadProcessId(GetForegroundWindow(), out process);
+                if (process != own) Bring(window);
+                try
+                {
+                    if (ticks == 2) { Connect.Log("迁移框选：前台窗口 " + ClassOf(GetForegroundWindow())); clicked = ClickGrid(window, out back, out moved); }
+                    else if (ticks == 3)
+                    {
+                        // The click has been handled by now: put the pointer back.
+                        if (moved) SetCursorPos(back.X, back.Y);
+                        if (clicked && reselect != null) reselect();
+                    }
+                }
+                catch (Exception) { }
+                if (ticks >= 4) { timer.Stop(); timer.Dispose(); }
+            };
+            timer.Start();
+            return timer;
         }
     }
 }

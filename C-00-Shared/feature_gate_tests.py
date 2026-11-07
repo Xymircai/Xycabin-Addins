@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+from process_support import run_process
 import sys
 import tempfile
 from unittest.mock import patch
@@ -170,7 +171,7 @@ def run(repository):
                         args = [sys.executable, '-B', str(fixture / directory / entry), '--mode', mode]
                         if entry != 'build.py':
                             args.append('--background')
-                        result = subprocess.run(args, cwd=fixture, env=environment, capture_output=True,
+                        result = run_process(args, cwd=fixture, env=environment, capture_output=True,
                                                 text=True, encoding='utf-8', timeout=45)
                         output = result.stdout + result.stderr
                         if result.returncode == 0 or 'R-30' not in output:

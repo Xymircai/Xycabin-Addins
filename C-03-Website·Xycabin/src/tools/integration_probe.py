@@ -10,6 +10,8 @@ import tempfile
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT.parent / 'C-00-Shared'))
+from process_support import run_process
 
 
 def digest(path):
@@ -30,7 +32,7 @@ def main():
         evidence.append('PASS: '+label)
         print(evidence[-1],flush=True)
     def run(script, args=(), expected=0):
-        result=subprocess.run([sys.executable,str(script),*map(str,args)],cwd=stage,
+        result=run_process([sys.executable,str(script),*map(str,args)],cwd=stage,
             env=dict(os.environ,PYTHONIOENCODING='utf-8',PYTHONUTF8='1',PYTHONDONTWRITEBYTECODE='1'),capture_output=True)
         text=(result.stdout+result.stderr).decode('utf-8','replace')
         evidence.append(str(script)+' '+str(list(args))+'\n'+text)

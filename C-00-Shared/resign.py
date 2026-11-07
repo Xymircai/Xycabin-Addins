@@ -7,6 +7,7 @@ Both SHA-256 signatures must pass the mandatory read-only verification gate.
 import os
 import re
 import subprocess
+from process_support import run_process
 import sys
 sys.dont_write_bytecode = True
 from project_support import PROJECT, load_configure
@@ -22,7 +23,7 @@ TOOLS = {name: os.path.join(BUILD, name + ".exe")
 
 
 def run(args, timeout=180):
-    result = subprocess.run(args, capture_output=True, timeout=timeout)
+    result = run_process(args, capture_output=True, timeout=timeout)
     return result.returncode, (result.stdout + result.stderr).decode("utf-8", "replace")
 
 

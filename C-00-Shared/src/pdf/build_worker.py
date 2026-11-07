@@ -4,7 +4,7 @@ import hashlib
 import io
 import json
 import os
-import subprocess
+from process_support import run_process
 import urllib.request
 import zipfile
 
@@ -37,7 +37,7 @@ def build():
     csc = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
     if not csc.exists():
         csc = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'Microsoft.NET/Framework/v4.0.30319/csc.exe'
-    subprocess.run([str(csc), '/nologo', '/target:exe', '/platform:anycpu', '/codepage:65001',
+    run_process([str(csc), '/nologo', '/target:exe', '/platform:anycpu', '/codepage:65001',
                     '/out:' + str(out / 'PdfWorker.exe'), '/r:System.Drawing.dll',
                     '/r:System.Xml.dll', '/r:Microsoft.CSharp.dll',
                     '/r:' + str(out / 'PdfSharp-gdi.dll'),

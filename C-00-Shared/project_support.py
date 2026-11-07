@@ -7,6 +7,7 @@ from pathlib import Path
 import importlib.util
 import json
 import subprocess
+from process_support import run_process
 import os
 import re
 import sys
@@ -52,7 +53,7 @@ def assembly_metadata(paths, reader=None):
     if not reader.is_file():
         raise ValueError('缺少程序集标识读取工具，请先运行 build.py：' + str(reader))
     paths = [Path(path).resolve() for path in paths]
-    result = subprocess.run([str(reader), '--json', *map(str, paths)], capture_output=True, timeout=60)
+    result = run_process([str(reader), '--json', *map(str, paths)], capture_output=True, timeout=60)
     output = result.stdout.decode('utf-8-sig', 'replace')
     if result.returncode:
         raise ValueError('无法读取实际程序集标识：' + output + result.stderr.decode('utf-8', 'replace'))

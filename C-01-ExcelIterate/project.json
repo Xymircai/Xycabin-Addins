@@ -217,7 +217,8 @@
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/FormulaFormat/RestoreTextFormula/Connect.RestoreTextFormula.Entry.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchProgress.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchPresets.cs",
-    "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchPresetUi.cs"
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchPresetUi.cs",
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/_Shared/PresetManagerView.cs"
   ],
   "tools": [
     {
@@ -672,7 +673,8 @@
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/SingleSummary/SingleSummaryHost.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchProgress.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchPresets.cs",
-        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchPresetUi.cs"
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchPresetUi.cs",
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/_Shared/PresetManagerView.cs"
       ],
       "tests": [
         "src/testharness/SingleSummaryProbe.cs"
@@ -1382,7 +1384,8 @@
         "AC-Original Code/ExcelIterate/Data/_Shared/SourceChangeWatch.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationWindowScope.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationOutputTransaction.cs",
-        "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationTargetSelectionPopup.cs"
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationTargetSelectionPopup.cs",
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/_Shared/PresetManagerView.cs"
       ],
       "tests": [
         "src/testharness/DataMigrationProbe.cs",
@@ -1398,7 +1401,8 @@
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookForm.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchProgress.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchPresets.cs",
-        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchPresetUi.cs"
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchPresetUi.cs",
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/_Shared/PresetManagerView.cs"
       ],
       "tests": [
         "src/testharness/CompanyWorkbookProbe.cs"

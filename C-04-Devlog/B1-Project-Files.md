@@ -142,6 +142,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+本轮直接抽取批量迁移原预设弹窗的布局、列表绘制、详情格式、命名输入和齿轮说明行，迁移与两个单体功能在上游集成源码中共用实现。Excel 构建通过；单体及预设 150、汇总 141、迁移 231、尺寸核心 131、布局 11715 项通过。固定证书缺失，重签未通过；未安装、未操作审计文件，真实宿主及 DPI 待本地验证。
+
 
 
 
@@ -610,3 +612,4 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 | 附件一致性 | [发布验证状态](../C-03-Website·Xycabin/build/github-release-r30/publication-state.json)为 PUBLISHED_AND_DOWNLOADED_VERIFIED；三个远端附件已重新下载，SHA-256 与本地匹配，HTML 内嵌两包与独立附件逐字节一致，去除安装包数据后的网页与两 DLL 快照一致 |
 | 发布记录 | [现有 Release](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)说明已更新本轮变化、精确源码提交、[源码 ZIP](https://github.com/Xymircai/Xycabin-Addins/archive/bfccdecb9bc3dab0af0030def01d1f9aac6a07ae.zip)与三附件完整 SHA-256；原说明和附件已备份，未移动标签或强制推送 |
 | 版本与边界 | 保持 0.9.9.3、原发布者及既有标签；自动 Source code 对应历史标签。本轮未自动安装或关闭宿主，实际 WPS 按钮和安装效果仍待实机验收 |
+

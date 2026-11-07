@@ -45,9 +45,18 @@ internal static class BatchPresetChecks
                 var list = (System.Windows.Forms.ListBox)typeof(BatchPresetManagerForm).GetField("list", flags).GetValue(manager);
                 var search = (System.Windows.Forms.TextBox)typeof(BatchPresetManagerForm).GetField("search", flags).GetValue(manager);
                 var detail = (System.Windows.Forms.RichTextBox)typeof(BatchPresetManagerForm).GetField("detail", flags).GetValue(manager);
+                check(typeof(BatchPresetManagerForm).GetField("view", flags).FieldType == typeof(PresetManagerView), "single presets use extracted migration view");
+                check(list.DrawMode == System.Windows.Forms.DrawMode.OwnerDrawFixed && list.BorderStyle == System.Windows.Forms.BorderStyle.None, "single presets reuse migration two-line owner-drawn list");
+                check(search.Width == 220 && manager.Controls.Count == 1, "single presets reuse migration search width and single layout root");
                 check(list.Items.Count == 1 && detail.Text.Contains("template.xlsx"), "manager lists version-one presets with human-readable file details");
                 search.Text = "not-found"; check(list.Items.Count == 0, "preset search filters names without altering library files");
                 search.Clear(); check(list.Items.Count == 1 && manager.Chosen == null, "browsing and cancelling manager does not apply a preset");
+            }
+            using (var migration = new MigrationPresetManager(null))
+            {
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                check(typeof(MigrationPresetManager).GetField("view", flags).FieldType == typeof(PresetManagerView), "migration and single features share the same production view");
+                check(migration.Controls.Count == 1, "migration adapter retains one shared layout root");
             }
             using (var preview = DialogPreviewFactory.Create("batch.preset.manager", DialogCatalog.Find("batch.preset.manager").Default))
                 check(preview != null, "shared preset manager participates in inert preview catalog");

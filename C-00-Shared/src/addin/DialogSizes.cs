@@ -51,8 +51,8 @@ namespace Excel_Iterate
             new DialogDefinition("file.rename", "文件批量命名", "操作 / 文件操作 / 批量处理",840,480,550,310),
             new DialogDefinition("merge.headers", "跨工作簿表头匹配合并", "数据 / 表头匹配合并",1180,780,900,620),
             new DialogDefinition("audit.batch.progress", "批量任务进度", "数据 / 审计工具箱 / 批量生成过程表 / 批量任务进度",840,600,640,460),
-            new DialogDefinition("batch.preset.name", "单体预设名称", "数据 / 审计工具箱 / 批量生成过程表 / 预设",500,220,420,200),
-            new DialogDefinition("batch.preset.manager", "单体预设管理", "数据 / 审计工具箱 / 批量生成过程表 / 预设",1020,650,760,520),
+            new DialogDefinition("batch.preset.name", "单体预设名称", "数据 / 审计工具箱 / 批量生成过程表 / 预设",460,170,380,170),
+            new DialogDefinition("batch.preset.manager", "单体预设管理", "数据 / 审计工具箱 / 批量生成过程表 / 预设",980,600,720,440),
             new DialogDefinition("company.workbooks", "单体模板生成", "数据 / 审计工具箱 / 批量生成过程表 / 单体模板生成",1180,900,950,680),
             new DialogDefinition("summary.single", "单体汇总批量链接", "数据 / 审计工具箱 / 批量生成过程表 / 单体汇总批量链接",1180,760,900,600),
             new DialogDefinition("migration.data", "批量迁移数据", "数据 / 审计工具箱 / 批量迁移数据",1180,760,900,560),
@@ -254,3 +254,4 @@ int[] user;var values=FormatSession.Capture(form).WindowSizes;if(values!=null&&v
         }
     }
 }
+

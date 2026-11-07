@@ -20,7 +20,7 @@ namespace Excel_Iterate
         private readonly Action<BatchPreset> apply;
         private readonly Func<bool> available;
         private readonly Action<string> message;
-        private readonly ContextMenuStrip menu = new ContextMenuStrip();
+        private ToolStripDropDown menu;
         private string savedState;
         internal BatchPresetActions(Form owner, string feature, Func<BatchPreset> capture, Action<BatchPreset> apply, Func<bool> available, Action<string> message)
         {
@@ -29,11 +29,17 @@ namespace Excel_Iterate
             var gearFont = Ui.MakeFont(15, FontStyle.Regular, Gear.Font); var menuFont = Ui.MakeFont(10, FontStyle.Regular, owner.Font);
             Gear.Font = gearFont; Gear.Margin = new Padding(8, 0, 0, 0);
             var tooltip = new ToolTip(); tooltip.SetToolTip(Gear, "保存为预设 / 预设管理");
-            menu.ShowImageMargin = false; menu.BackColor = Color.White; menu.Font = menuFont;
-            menu.Items.Add("保存为预设…", null, delegate { owner.BeginInvoke((MethodInvoker)delegate { Run(delegate { Save(); }); }); });
-            menu.Items.Add("预设管理…", null, delegate { owner.BeginInvoke((MethodInvoker)delegate { Run(Manage); }); });
-            Gear.Click += delegate { if (available()) menu.Show(Gear, new Point(0, Gear.Height)); };
-            owner.Disposed += delegate { menu.Dispose(); tooltip.Dispose(); gearFont.Dispose(); menuFont.Dispose(); };
+            Gear.Click += delegate {
+                if(!available()) return;
+                if(menu!=null) { menu.Dispose(); menu=null; }
+                var popup=new ToolStripDropDown { Padding=Padding.Empty,DropShadowEnabled=true,BackColor=Color.White };
+                menu=popup;
+                var panel=PresetMenuView.Rows(owner,popup,menuFont,delegate { Run(delegate { Save(); }); },delegate { Run(Manage); },0);
+                PresetMenuView.Frame(panel); panel.PerformLayout();
+                popup.Items.Add(new ToolStripControlHost(panel) { AutoSize=false,Size=panel.PreferredSize,Margin=Padding.Empty,Padding=Padding.Empty });
+                popup.Show(Gear.PointToScreen(new Point(Gear.Width,Gear.Height)),ToolStripDropDownDirection.BelowLeft);
+            };
+            owner.Disposed += delegate { if(menu!=null) menu.Dispose(); tooltip.Dispose(); gearFont.Dispose(); menuFont.Dispose(); };
         }
         internal Control Header(Control content)
         {
@@ -127,16 +133,11 @@ namespace Excel_Iterate
         internal BatchPresetNameForm(string feature, string title, string initial)
         {
             Text = title; DialogSizing.Prepare(this, "batch.preset.name", "table", Ui.Blue);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 3 };
-            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            var hint = new Label { AutoSize = true, Text = "预设名称（仅保存在本机，支持导出分享）：", Margin = new Padding(0, 0, 0, 8) };
-            name.Text = initial ?? ""; name.MaxLength = 80; root.Controls.Add(hint, 0, 0); root.Controls.Add(name, 0, 1);
-            var actions = Ui.ActionBar(); var save = Ui.Button("确定", 90); var cancel = Ui.Button("取消", 90);
-            actions.Dock = DockStyle.None; actions.Anchor = AnchorStyles.Right | AnchorStyles.Bottom;
-            actions.Controls.Add(save); actions.Controls.Add(cancel); root.Controls.Add(actions, 0, 2); Controls.Add(root);
-            save.Click += delegate { try { BatchPresetStore.FileFor(feature, ChosenName); DialogResult = DialogResult.OK; } catch (Exception error) { UiDialog.Show(this, error.Message, title, MessageBoxButtons.OK, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button1); } };
-            cancel.DialogResult = DialogResult.Cancel; CancelButton = cancel; AcceptButton = save;
-            root.SizeChanged += delegate { hint.MaximumSize = new Size(Math.Max(100, root.ClientSize.Width - 32), 0); };
+            name.MaxLength = 80;
+            PresetNameView.Build(this,name,"预设名称（保存在本机预设库，可在“预设管理”中导出分享）：",initial ?? "",delegate {
+                try { BatchPresetStore.FileFor(feature,ChosenName); return true; }
+                catch(Exception error) { UiDialog.Show(this,error.Message,title,MessageBoxButtons.OK,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button1); return false; }
+            });
         }
     }
 
@@ -147,39 +148,26 @@ namespace Excel_Iterate
         private readonly ListBox list = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, HorizontalScrollbar = true, Name = "batchPresetList" };
         private readonly RichTextBox detail = new RichTextBox { Dock = DockStyle.Fill, ReadOnly = true, BackColor = Color.White, BorderStyle = BorderStyle.None, Name = "batchPresetDetail" };
         private readonly TextBox search = new TextBox { Width = 180, Name = "batchPresetSearch" };
-        private readonly Label status = new Label { AutoSize = true, Dock = DockStyle.Top, ForeColor = Ui.InkDim, Name = "batchPresetStatus" };
+        private readonly Label status;
         private readonly RoundedButton apply = Ui.Button("应用到窗口", 130), rename = Ui.Button("重命名", 90), remove = Ui.Button("删除", 80), export = Ui.Button("导出…", 90);
         private readonly List<Entry> all = new List<Entry>();
-        private readonly Font heading, small;
+        private readonly PresetManagerView view;
         internal BatchPreset Chosen;
         internal BatchPresetManagerForm(string feature)
         {
             this.feature = feature; Text = feature == "company" ? "单体模板预设管理" : "单体汇总预设管理";
             DialogSizing.Prepare(this, "batch.preset.manager", "table", Ui.Blue);
-            heading = Ui.MakeFont(11, FontStyle.Bold, Font); small = Ui.MakeFont(9, FontStyle.Regular, Font);
-            var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(16), ColumnCount = 1, RowCount = 4 };
-            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            var top = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 3, Margin = new Padding(0, 0, 0, 10) };
-            top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            var import = Ui.Button("导入预设…", 120); top.Controls.Add(import, 0, 0); top.Controls.Add(new Label { AutoSize = true, Text = "搜索名称", Anchor = AnchorStyles.Right }, 1, 0); top.Controls.Add(search, 2, 0);
-            var middle = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
-            middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36)); middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 64)); middle.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            var left = new UiCard { Dock = DockStyle.Fill, Padding = new Padding(1), Margin = new Padding(0, 0, 6, 0) }; left.Controls.Add(list);
-            var right = new UiCard { Dock = DockStyle.Fill, Padding = new Padding(14), Margin = new Padding(6, 0, 0, 0) }; right.Controls.Add(detail); middle.Controls.Add(left, 0, 0); middle.Controls.Add(right, 1, 0);
-            var bottom = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top, ColumnCount = 2, RowCount = 1, Margin = new Padding(0, 12, 0, 0) };
-            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); bottom.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            var leftActions = Ui.ActionBar(); var rightActions = Ui.ActionBar(); rightActions.FlowDirection = FlowDirection.RightToLeft;
-            leftActions.WrapContents = rightActions.WrapContents = false;
-            var close = Ui.Button("关闭", 90); leftActions.Controls.AddRange(new Control[] { rename, remove, export }); rightActions.Controls.AddRange(new Control[] { close, apply });
-            bottom.Controls.Add(leftActions, 0, 0); bottom.Controls.Add(rightActions, 1, 0);
-            status.Text = "预设只保存设置，不含表格数据；应用后请重新预检。";
-            root.Controls.Add(top, 0, 0); root.Controls.Add(middle, 0, 1); root.Controls.Add(status, 0, 2); root.Controls.Add(bottom, 0, 3); Controls.Add(root);
+            view = new PresetManagerView(this,list,detail,search,apply,rename,remove,export,
+                item => ((Entry)item).Value.Name,
+                item => { var p=((Entry)item).Value; DateTime saved; return (DateTime.TryParse(p.Saved,out saved) ? saved.ToString("MM-dd HH:mm",CultureInfo.InvariantCulture)+"　·　" : "")+(p.Feature=="company" ? "单体模板生成" : "单体汇总批量链接"); });
+            var import=view.Import; var close=view.Close; status=view.Hint; status.Name="batchPresetStatus";
+            detail.HandleCreated += delegate { BeginInvoke(new Action(ShowDetail)); };
+            list.DoubleClick += delegate { apply.PerformClick(); };
+            list.KeyDown += delegate(object sender,KeyEventArgs e) { if(e.KeyCode==Keys.Delete) Safe(Remove); else if(e.KeyCode==Keys.F2) Safe(Rename); };
             search.TextChanged += delegate { Fill(null); }; list.SelectedIndexChanged += delegate { ShowDetail(); };
             import.Click += delegate { Safe(Import); }; export.Click += delegate { Safe(Export); }; rename.Click += delegate { Safe(Rename); }; remove.Click += delegate { Safe(Remove); };
             apply.Click += delegate { if (Current != null) { Chosen = Current.Value; DialogResult = DialogResult.OK; } };
             close.DialogResult = DialogResult.Cancel; CancelButton = close;
-            root.SizeChanged += delegate { status.MaximumSize = new Size(Math.Max(200, root.ClientSize.Width - 32), 0); };
-            Disposed += delegate { heading.Dispose(); small.Dispose(); };
             if (DialogPreviewFactory.IsConstructing)
             {
                 all.Add(new Entry { File = "", Value = new BatchPreset { Feature = feature, Name = "示例年度预设", Context = "示例模板.xlsx", Saved = "2026-01-01T10:00:00", Values = new Dictionary<string, string> { { "source", "公司主题汇总" }, { "target", "Lead" }, { "header", "1" } } } }); Fill(null);
@@ -210,15 +198,15 @@ namespace Excel_Iterate
             for (int i = 0; i < list.Items.Count; i++) if (string.Equals(((Entry)list.Items[i]).File, prior, StringComparison.OrdinalIgnoreCase)) index = i;
             if (index < 0 && list.Items.Count > 0) index = 0; list.SelectedIndex = index; list.EndUpdate(); ShowDetail();
         }
-        private void Line(string text, bool title)
-        {
-            detail.SelectionFont = title ? heading : small; detail.SelectionColor = title ? Ui.Blue : Ui.Ink; detail.AppendText(text + Environment.NewLine);
-        }
         private void ShowDetail()
         {
-            var entry = Current; apply.Enabled = rename.Enabled = remove.Enabled = export.Enabled = entry != null; detail.Clear();
-            if (entry == null) { Line(all.Count == 0 ? "还没有预设。请在主窗口的齿轮菜单中选择“保存为预设…”，或导入已有预设文件。" : "没有名称匹配的预设。", false); return; }
-            var value = entry.Value; Line(value.Name, true); Line("保存时间：" + (value.Saved ?? "未知"), false); Line("文件位置", true); Line(value.Context ?? "（未记录）", false);
+            var entry=Current; apply.Enabled=rename.Enabled=remove.Enabled=export.Enabled=entry!=null;
+            if(entry==null) { view.SetDetail(all.Count==0 ? "还没有保存的预设。请在主窗口齿轮中保存，或导入预设。" : "没有名称匹配的预设。"); return; }
+            var value=entry.Value; var lines=new List<PresetDetailLine>();
+            lines.Add(new PresetDetailLine().Add(PresetDetailKind.Title,value.Name));
+            lines.Add(new PresetDetailLine().Add(PresetDetailKind.Meta,"保存于 "+(value.Saved ?? "未知")));
+            lines.Add(new PresetDetailLine { Space=true }.Add(PresetDetailKind.Heading,"文件位置"));
+            lines.Add(new PresetDetailLine { Indent=1 }.Add(PresetDetailKind.Text,value.Context ?? "（未记录）"));
             string[][] groups = feature == "company" ? new[] {
                 new[] { "命名", "naming|命名名称", "removeTail|末尾去除字符数", "stripSuffix|去除 Excel 后缀" },
                 new[] { "来源", "source|工作表", "header|表头行", "first|数据起始行", "last|数据结束行", "code|替换字段的编码来源", "full|替换字段的全称来源" },
@@ -227,8 +215,15 @@ namespace Excel_Iterate
                 new[] { "工作表与模板", "lead|Lead 工作表", "header|Lead 表头行", "target|汇总工作表", "targetHeader|汇总表头行", "column|模板列", "placeholder|占位名", "sourceFile|模板公司文件名" },
                 new[] { "年度", "annual|按年度展开", "firstYear|开始年度", "lastYear|结束年度", "yearRow|年度表头行", "descending|年度倒序", "checkFiles|检查年度来源文件", "yearPattern|年度目录段" }
             };
-            foreach (var group in groups) { Line("\n" + group[0], true); foreach (string field in group.Skip(1)) { var pair = field.Split('|'); string text; if (!value.Values.TryGetValue(pair[0], out text) || text.Length == 0) text = "（未设置）"; if (text == "True") text = "是"; if (text == "False") text = "否"; Line(pair[1] + "：" + text, false); } }
-            detail.SelectionStart = 0; detail.ScrollToCaret();
+            foreach(var group in groups) {
+                lines.Add(new PresetDetailLine { Space=true }.Add(PresetDetailKind.Heading,group[0]));
+                foreach(string field in group.Skip(1)) { var pair=field.Split('|'); string text;
+                    if(!value.Values.TryGetValue(pair[0],out text)||text.Length==0) text="（未设置）";
+                    if(text=="True") text="是"; if(text=="False") text="否";
+                    lines.Add(new PresetDetailLine { Indent=1 }.Add(PresetDetailKind.Label,pair[1]+"：").Add(PresetDetailKind.Text,text));
+                }
+            }
+            view.ShowLines(lines);
         }
         private void Import()
         {
@@ -242,7 +237,7 @@ namespace Excel_Iterate
         {
             var entry = Current; if (entry == null) return;
             string file = HostDialogService.SaveSettings(this, entry.Value.Name + ".xybatch.json"); if (file == null) return;
-            BatchPresetStore.Write(file, entry.Value, true); status.Text = "已导出：" + file;
+            BatchPresetStore.Write(file, entry.Value, true); UiDialog.Show(this,"已导出到："+Environment.NewLine+file,"导出预设",MessageBoxButtons.OK,MessageBoxIcon.Information,MessageBoxDefaultButton.Button1);
         }
         private void Rename()
         {

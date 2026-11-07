@@ -436,8 +436,19 @@ namespace Excel_Iterate
             Color dot = item.Tone == 1 ? Ui.Green : item.Tone == 2 ? Ui.Amber : item.Tone == 3 ? Ui.Danger : item.Tone == 4 ? Ui.Blue : Color.FromArgb(170, 178, 192);
             int d = P(8), sx = c.Status.Left + P(4);
             using (var brush = new SolidBrush(dot)) g.FillEllipse(brush, sx, top + (height - d) / 2, d, d);
-            TextRenderer.DrawText(g, item.Status, body, new Rectangle(sx + d + P(6), top, Math.Max(0, c.Status.Right - sx - d - P(6)), height),
-                item.Tone == 3 ? Ui.Danger : item.Enabled ? Ui.Ink : Ui.InkDim, Line | TextFormatFlags.Left);
+            var statusBounds = new Rectangle(sx + d + P(6), top, Math.Max(0, c.Status.Right - sx - d - P(6)), height);
+            Color statusInk = item.Tone == 3 ? Ui.Danger : item.Enabled ? Ui.Ink : Ui.InkDim;
+            int separator = item.Status.StartsWith("目标文件区域：", StringComparison.Ordinal) ? item.Status.IndexOf('；') : -1;
+            if (separator >= 0)
+            {
+                int lineHeight = TextRenderer.MeasureText("目标", body).Height;
+                int firstTop = top + Math.Max(0, (height - lineHeight * 2) / 2);
+                TextRenderer.DrawText(g, item.Status.Substring(0, separator), body,
+                    new Rectangle(statusBounds.Left, firstTop, statusBounds.Width, lineHeight), statusInk, CardLine);
+                TextRenderer.DrawText(g, item.Status.Substring(separator + 1), body,
+                    new Rectangle(statusBounds.Left, firstTop + lineHeight, statusBounds.Width, lineHeight), statusInk, CardLine);
+            }
+            else TextRenderer.DrawText(g, item.Status, body, statusBounds, statusInk, Line | TextFormatFlags.Left);
             g.SmoothingMode = SmoothingMode.Default;
         }
         private void DrawSlot(Graphics g, int i, bool target, Rectangle rect)
@@ -764,7 +775,7 @@ namespace Excel_Iterate
         // The mapping the 映射 board has selected, kept across rebuilds.
         private MigrationPair mappingFocus;
         private readonly RichTextBox details = new RichTextBox { Name = "migrationDetails", ReadOnly = true, Dock = DockStyle.Fill, BackColor = Color.White, WordWrap = true };
-        private readonly Label status = Ui.Label("在“源区域”“目标区域”页各列出要迁移的区域，“映射”页按行把它们对应起来；右侧“区域选择”可直接框选。", 9, false);
+        private readonly Label status = Ui.Label("在“源区域”“目标区域”页各列出要迁移的区域，“映射”页按行把它们对应起来；右侧“区域选择”可直接框选。", 9, true);
         private readonly RoundedButton preview = Ui.Button("预检与预览", 120), execute = Ui.Button("执行迁移", 110), restore = Ui.Button("还原操作", 110), clearBackups = Ui.Button("清除备份", 110), open = Ui.Button("打开结果文件夹", 150);
         private readonly List<Control> inputs = new List<Control>();
         private SplitContainer split;
@@ -878,7 +889,9 @@ namespace Excel_Iterate
             root.Controls.Add(main, 0, 0); root.Controls.Add(details, 0, 1);
             details.MouseClick += delegate(object sender, MouseEventArgs e) { if (e.Button == MouseButtons.Left) ShowTriggerChoices(e.Location); };
             details.MouseMove += delegate(object sender, MouseEventArgs e) { int at = DetailLineAt(e.Location); var cursor = detailLinks.ContainsKey(at) || unusedLinks.ContainsKey(at) ? Cursors.Hand : Cursors.IBeam; if (details.Cursor != cursor) details.Cursor = cursor; };
-            status.AutoSize = true; status.MaximumSize = new Size(1100, 0); root.Controls.Add(status, 0, 2);
+            status.ForeColor = Ui.Blue; status.AutoSize = true; status.AutoEllipsis = false;
+            root.Controls.Add(status, 0, 2);
+            root.SizeChanged += delegate { status.MaximumSize = new Size(Math.Max(100, root.ClientSize.Width - root.Padding.Horizontal), 0); };
             var actions = Ui.ActionBar(); var close = Ui.Button("关闭", 90);
             preview.Click += delegate { if (PreviewRequested != null) PreviewRequested(); };
             execute.Click += delegate { if (ExecuteRequested != null) ExecuteRequested(); };
@@ -2131,13 +2144,13 @@ namespace Excel_Iterate
         {
             var trigger = side.Trigger; RefreshTrigger(side);
             if (trigger.Error.Length > 0) return "逐行重算设置无效：" + trigger.Error;
-            // 目标文件：26 行，已匹配 8 行，未匹配 16 行，跳过 2 行
+            // Keep this summary on one physical log line: detail links use line indices.
             var rows = trigger.Rows.Where(r => r.Kind != "空值").ToList();
             int matched = rows.Count(r => r.Ready), many = rows.Count(r => r.Kind == "多个候选"), missing = rows.Count(r => r.Kind == "缺失"), skipped = rows.Count(r => r.Kind == "跳过");
-            var parts = new List<string> { "已匹配 " + matched + " 行" };
-            if (missing > 0) parts.Add("未匹配 " + missing + " 行"); if (many > 0) parts.Add("同名待选 " + many + " 行"); if (skipped > 0) parts.Add("跳过 " + skipped + " 行");
+            var parts = new List<string> { "匹配" + matched + "行", "未匹" + missing + "行" };
+            if (many > 0) parts.Add("同名待选 " + many + " 行"); if (skipped > 0) parts.Add("跳过 " + skipped + " 行");
             int spare = UnusedTargets(side).Count; if (spare > 0) parts.Add("另有 " + spare + " 个目标工作簿未用到");
-            return "目标文件：" + rows.Count + " 行，" + string.Join("，", parts.ToArray());
+            return "目标文件区域：" + rows.Count + "行；" + string.Join("，", parts.ToArray());
         }
         // 目标文件: a one-column range (H2:H30), or the column letters older
         // presets saved (H).
@@ -2146,8 +2159,8 @@ namespace Excel_Iterate
             spec = (spec ?? "").Trim();
             if (Regex.IsMatch(spec, "^[A-Za-z]{1,3}$")) return ColumnIndex(spec);
             MigrationArea area;
-            try { area = MigrationArea.Parse(spec); } catch (Exception) { throw new InvalidOperationException("目标文件应为一列区域，例如 H2:H30"); }
-            if (area.Columns != 1) throw new InvalidOperationException("目标文件只能是一列");
+            try { area = MigrationArea.Parse(spec); } catch (Exception) { throw new InvalidOperationException("目标文件区域应为一列区域，例如 H2:H30"); }
+            if (area.Columns != 1) throw new InvalidOperationException("目标文件区域只能是一列");
             return area.Column;
         }
         private static int ColumnIndex(string letters)
@@ -2236,7 +2249,7 @@ namespace Excel_Iterate
             if (trigger != null) foreach (var source in DistinctSides(false).Where(x => x.Trigger != null)) split += SplitByFile(source);
             if (removed > 0 || split > 0) RebuildViews();
             Message(trigger == null ? "已取消应用逐行重算" + (shared > 0 ? "（使用同一套设置的另外 " + shared + " 个源区域一并取消）" : "") + "。"
-                : "已应用逐行重算：触发值 " + trigger.Values + " → " + trigger.Cell + string.Concat(trigger.Extra.Select(c => "，" + c.Text).ToArray()) + "，目标文件 " + trigger.NameColumn + (shared > 0 ? "；使用同一套设置的 " + shared + " 个源区域一并更新" : "")
+                : "已应用逐行重算：触发值 " + trigger.Values + " → " + trigger.Cell + string.Concat(trigger.Extra.Select(c => "，" + c.Text).ToArray()) + "，目标文件区域 " + trigger.NameColumn + (shared > 0 ? "；使用同一套设置的 " + shared + " 个源区域一并更新" : "")
                   + (removed > 0 ? "；目标区域已清理，只保留逐行重算匹配到的工作簿" : "") + "。目标区域页这一行的工作簿即匹配到的文件。");
         }
         private static bool SameTriggerSet(MigrationSide a, MigrationSide b)
@@ -2342,9 +2355,9 @@ namespace Excel_Iterate
             addCondition.LinkClicked += delegate { keep(); drop.Close(); value.Extra.Add(new MigrationCondition()); ShowTriggerPopup(grid, pair, value); };
             restoreTip.SetToolTip(addCondition, "再加一组：例如年度、期间，每一行重算前和触发值 1 一起填入");
             panel.Controls.Add(addCondition, 1, next); next++;
-            line("目标文件", nameBox, next, false, delegate(MigrationArea area) { value.NameColumn = area.Address; }); next++;
+            line("目标文件区域", nameBox, next, false, delegate(MigrationArea area) { value.NameColumn = area.Address; }); next++;
             int others = OtherTriggerSets(side);
-            var note = new Label { Text = "触发值依次填入触发单元格，并执行重算操作后再迁移；目标文件名列会自动匹配所选择的工作簿，只对匹配到的文件执行迁移，忽略缺失或溢出文件。"
+            var note = new Label { Text = "触发值依次填入触发单元格，并执行重算操作后再迁移；目标文件区域内的文件名会自动匹配所选择的工作簿，只对匹配到的文件执行迁移，忽略缺失或溢出文件。"
                 + (value.Extra.Count > 0 ? Environment.NewLine + "多组触发单元格在每一行重算前一并填入，取同一行的值；某组触发值只选一个单元格时，每一行都用它的值。" : "")
                 + (others > 0 ? Environment.NewLine + "这张源表已有另外 " + others + " 套逐行重算设置，各自独立。" : ""), AutoSize = true, MaximumSize = new Size(Ui.Px(this, 320), 0), ForeColor = Ui.InkDim, Margin = new Padding(0, p8, 0, 0) };
             panel.Controls.Add(note, 0, next); panel.SetColumnSpan(note, 3);
@@ -2367,9 +2380,9 @@ namespace Excel_Iterate
                     var cell = TryParse(value.Cell); if (cell == null || cell.Rows != 1 || cell.Columns != 1) throw new InvalidOperationException("触发单元格 1 只能是一个单元格，如 B2");
                     var values = TryParse(value.Values); if (values == null || values.Columns != 1) throw new InvalidOperationException("触发值 1 应为一列区域，如 G2:G30");
                     var names = TryParse(value.NameColumn);
-                    if (names == null || names.Columns != 1) throw new InvalidOperationException("目标文件应为一列区域，如 H2:H30");
-                    if (names.Column == values.Column) throw new InvalidOperationException("目标文件不能和触发值 1 是同一列");
-                    if (names.Row > values.Row || names.Row + names.Rows < values.Row + values.Rows) throw new InvalidOperationException("目标文件应与触发值 1 同行（覆盖 " + values.Row + "–" + (values.Row + values.Rows - 1) + " 行）");
+                    if (names == null || names.Columns != 1) throw new InvalidOperationException("目标文件区域应为一列区域，如 H2:H30");
+                    if (names.Column == values.Column) throw new InvalidOperationException("目标文件区域不能和触发值 1 是同一列");
+                    if (names.Row > values.Row || names.Row + names.Rows < values.Row + values.Rows) throw new InvalidOperationException("目标文件区域应与触发值 1 同行（覆盖 " + values.Row + "–" + (values.Row + values.Rows - 1) + " 行）");
                     var source = TryParse(side.Range);
                     if (source != null && cell.Row >= source.Row && cell.Row < source.Row + source.Rows && cell.Column >= source.Column && cell.Column < source.Column + source.Columns)
                         throw new InvalidOperationException("触发单元格不能在源区域里");
@@ -2406,6 +2419,8 @@ namespace Excel_Iterate
             error.SizeChanged += delegate { panel.PerformLayout(); host.Size = panel.PreferredSize; drop.Size = panel.PreferredSize; };
             drop.Closed += delegate { if (triggerPopup == drop) triggerPopup = null; BeginInvoke(new Action(delegate { drop.Dispose(); font.Dispose(); })); };
             triggerPopup = drop;
+            // Production controls can be rendered in the isolated preview without opening a native popup.
+            if (DialogPreviewFactory.IsConstructing) return;
             var row = RowOf(grid, pair); int column = grid.Columns["trigger"].Index;
             var rect = row == null ? new Rectangle(0, 0, 0, 0) : grid.GetCellDisplayRectangle(column, row.Index, true);
             drop.Show(grid, new Point(Math.Max(0, rect.Right - panel.PreferredSize.Width), rect.Bottom));
@@ -2556,7 +2571,7 @@ namespace Excel_Iterate
             if (trigger != null)
             {
                 RefreshTrigger(pair.Source);
-                lines.Add("逐行重算：触发值 " + trigger.Values + " → " + trigger.Cell + string.Concat(trigger.Extra.Select(c => "，" + c.Text).ToArray()) + "，目标文件 " + trigger.NameColumn + "；目标按文件名在已添加的 " + TargetBooks.Count + " 个目标工作簿中匹配");
+                lines.Add("逐行重算：触发值 " + trigger.Values + " → " + trigger.Cell + string.Concat(trigger.Extra.Select(c => "，" + c.Text).ToArray()) + "，目标文件区域 " + trigger.NameColumn + "；目标按文件名在已添加的 " + TargetBooks.Count + " 个目标工作簿中匹配");
                 if (trigger.Error.Length > 0) lines.Add("    设置无效：" + trigger.Error);
                 foreach (var row in trigger.Rows)
                 {
@@ -3490,7 +3505,7 @@ namespace Excel_Iterate
                 var tags = line(false, 2).Add(DetailKind.Tag, DataMigrationForm.ModeText(trigger != null || MigrationJson.Flag(mapping, "valuesOnly", false), MigrationJson.Flag(mapping, "keepFormat", true), trigger == null && MigrationJson.Flag(mapping, "formatOnly", false)));
                 if (!MigrationJson.Flag(mapping, "enabled", true)) tags.Add(DetailKind.Dim, "　·　").Add(DetailKind.Warn, "未启用");
                 if (trigger != null) tags.Add(DetailKind.Dim, "　·　").Add(DetailKind.Tag, "逐行重算 ")
-                    .Add(DetailKind.Dim, MigrationJson.Str(trigger, "values") + " → " + MigrationJson.Str(trigger, "cell") + "，目标文件 " + MigrationJson.Str(trigger, "nameColumn")
+                    .Add(DetailKind.Dim, MigrationJson.Str(trigger, "values") + " → " + MigrationJson.Str(trigger, "cell") + "，目标文件区域 " + MigrationJson.Str(trigger, "nameColumn")
                         + string.Concat(MigrationJson.Maps(trigger, "conditions").Select(c => "，" + MigrationJson.Str(c, "range") + (MigrationJson.Str(c, "range").Length == 0 && MigrationJson.Str(c, "column").Length > 0 ? MigrationJson.Str(c, "column") + " 列" : MigrationJson.Str(c, "range").Length == 0 ? MigrationJson.Str(c, "value") : "") + " → " + MigrationJson.Str(c, "cell")).ToArray()));
             }
             var files = Files().ToList(); int missing = files.Count(f => !System.IO.File.Exists(f));

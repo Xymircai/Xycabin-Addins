@@ -28,6 +28,29 @@ internal static class BatchPresetChecks
             value.Version = 2;
             rejects(delegate { BatchPresetStore.Write(file, value, true); }, "newer schema cannot overwrite existing preset");
             value.Version = 1;
+            var oldPreset = BatchPresetStore.Decode(BatchPresetStore.Encode(value), "company");
+            check(oldPreset.Context == value.Context && oldPreset.Version == 1, "version-one JSON remains compatible with isolated dialog transport");
+            string imported = BatchPresetStore.Import(file, "company");
+            check(imported != file && File.Exists(file) && BatchPresetStore.Read(imported, "company").Name.Contains("(2)"), "duplicate import preserves old preset and allocates another name");
+            rejects(delegate { BatchPresetStore.Rename(imported, "company", value.Name); }, "rename cannot replace another preset");
+            check(File.Exists(file) && File.Exists(imported), "rejected rename preserves both presets");
+            string renamed = BatchPresetStore.Rename(imported, "company", "重命名预设");
+            check(!File.Exists(imported) && BatchPresetStore.Read(renamed, "company").Name == "重命名预设", "rename changes both library file and serialized name");
+            string audit = Path.Combine(folder, "audit.xlsx"); File.WriteAllText(audit, "audit-original");
+            BatchPresetStore.Delete(renamed);
+            check(!File.Exists(renamed) && File.ReadAllText(audit) == "audit-original", "deleting a preset leaves audit file untouched");
+            using (var manager = new BatchPresetManagerForm("company"))
+            {
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var list = (System.Windows.Forms.ListBox)typeof(BatchPresetManagerForm).GetField("list", flags).GetValue(manager);
+                var search = (System.Windows.Forms.TextBox)typeof(BatchPresetManagerForm).GetField("search", flags).GetValue(manager);
+                var detail = (System.Windows.Forms.RichTextBox)typeof(BatchPresetManagerForm).GetField("detail", flags).GetValue(manager);
+                check(list.Items.Count == 1 && detail.Text.Contains("template.xlsx"), "manager lists version-one presets with human-readable file details");
+                search.Text = "not-found"; check(list.Items.Count == 0, "preset search filters names without altering library files");
+                search.Clear(); check(list.Items.Count == 1 && manager.Chosen == null, "browsing and cancelling manager does not apply a preset");
+            }
+            using (var preview = DialogPreviewFactory.Create("batch.preset.manager", DialogCatalog.Find("batch.preset.manager").Default))
+                check(preview != null, "shared preset manager participates in inert preview catalog");
             foreach (string name in new[] { "../bad", "CON", "", "a.", "a/b" })
                 rejects(delegate { BatchPresetStore.FileFor("company", name); }, "invalid preset filename refused");
             string bad = Path.Combine(folder, "broken.xybatch.json"); File.WriteAllText(bad, "{broken");
@@ -52,6 +75,13 @@ internal static class BatchPresetChecks
                 rejects(delegate { form.ApplyPreset(preset); }, "missing summary sheet rejected");
                 check(form.FirstYear.Value == 2023, "missing-sheet preset preserves old values");
                 form.SetBusy(true); rejects(delegate { form.ApplyPreset(preset); }, "busy summary refuses presets");
+                rejects(delegate { form.ApplyPreparedPreset(preset, "replacement.xlsx", new List<string> { "Lead", "汇总" }); }, "prepared preset validates candidate sheets before changing context");
+                check(form.BuildRequest().WorkbookName == "test.xlsx", "rejected replacement retains old summary workbook context");
+                preset.Values["target"] = "汇总";
+                form.ApplyPreparedPreset(preset, "replacement.xlsx", new List<string> { "Lead", "汇总" });
+                check(form.IsBusy && form.BuildRequest().WorkbookName == "replacement.xlsx", "prepared preset changes explicit context without releasing busy guard");
+                form.SetUndoAvailable(true);
+                rejects(delegate { form.ApplyPreparedPreset(preset, "another.xlsx", new List<string> { "Lead", "汇总" }); }, "prepared preset also respects pending rollback protection");
             }
         }
         finally { DialogSizeStore.RootOverride = oldRoot; }

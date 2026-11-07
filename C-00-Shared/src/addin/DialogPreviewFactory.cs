@@ -72,6 +72,8 @@ namespace Excel_Iterate
                     case "file.rename":form=new RenameFilesForm(null);break;
                     case "merge.headers":form=new MergeHeadersForm();break;
                     case "audit.batch.progress":form=new BatchProgressForm(new BatchProgressState("批量任务"));break;
+                    case "batch.preset.name":form=new BatchPresetNameForm("company", "保存为预设", "示例年度预设");break;
+                    case "batch.preset.manager":form=new BatchPresetManagerForm("company");break;
                     case "company.workbooks":form=new CompanyWorkbookForm();break;
                     case "summary.single":form=new SingleSummaryForm();break;
                     case "migration.data":form=new DataMigrationForm();break;
@@ -138,4 +140,3 @@ namespace Excel_Iterate
         }
     }
 }
-

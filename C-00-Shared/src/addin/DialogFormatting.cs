@@ -284,6 +284,13 @@ namespace Excel_Iterate
         internal Control Hit(Point point) {return DialogFormatting.Walk(preview).Where(c=>rectangles.ContainsKey(c)&&rectangles[c].Contains(point)).LastOrDefault();}
         internal Rectangle BoundsInPreview(Control c) {Rectangle bounds;return rectangles.TryGetValue(c,out bounds)?bounds:ManagedBounds(c);}
         private Rectangle ManagedBounds(Control c) {if(c==preview)return new Rectangle(Point.Empty,preview.ClientSize);var result=c.Bounds;for(Control parent=c.Parent;parent!=null&&parent!=preview;parent=parent.Parent)result.Offset(parent.Left,parent.Top);return result;}
+        private Rectangle VisibleBounds(Control c) {
+            var visible=new Rectangle(Point.Empty,preview.ClientSize);
+            for(Control parent=c.Parent;parent!=null&&parent!=preview;parent=parent.Parent) {
+                var client=ManagedBounds(parent);client.Size=parent.ClientSize;visible=Rectangle.Intersect(visible,client);
+            }
+            return Rectangle.Intersect(visible,ManagedBounds(c));
+        }
         internal void RefreshSnapshot() {
             // The source stays in its hidden render host for its entire lifetime.
             // Refresh never reparents, shows, focuses or activates a window.
@@ -302,6 +309,7 @@ namespace Excel_Iterate
                 var rich=c as RichTextBox;var text=c as TextBox;var choice=c as ComboBox;
                 if(!rectangles.ContainsKey(c)||(rich==null&&text==null&&choice==null))continue;
                 var bounds=BoundsInPreview(c);if(bounds.Width<1||bounds.Height<1)continue;
+                var clip=VisibleBounds(c);if(clip.Width<1||clip.Height<1)continue;
                 if(rich!=null) {
                     // DrawToBitmap only renders RichTextBox's border. Rich Edit's
                     // documented printing API preserves its actual styled content.
@@ -312,9 +320,10 @@ namespace Excel_Iterate
                             try {var area=new PrintRect {Right=(int)(part.Width*1440/part.HorizontalResolution),Bottom=(int)(part.Height*1440/part.VerticalResolution)};var range=new FormatRange {Hdc=hdc,Target=hdc,Area=area,Page=area,Characters=new CharRange {First=rich.GetCharIndexFromPosition(Point.Empty),Last=-1}};memory=Marshal.AllocHGlobal(Marshal.SizeOf(typeof(FormatRange)));Marshal.StructureToPtr(range,memory,false);SendMessage(rich.Handle,0x0439,new IntPtr(1),memory);}
                             finally {SendMessage(rich.Handle,0x0439,IntPtr.Zero,IntPtr.Zero);if(memory!=IntPtr.Zero)Marshal.FreeHGlobal(memory);g.ReleaseHdc(hdc);}
                         }
-                        using(var g=Graphics.FromImage(bitmap))g.DrawImageUnscaled(part,bounds.Location);
+                        using(var g=Graphics.FromImage(bitmap)){g.SetClip(clip);g.DrawImageUnscaled(part,bounds.Location);}
                     }
                 }else using(var g=Graphics.FromImage(bitmap)) {
+                    g.SetClip(clip);
                     // Hidden child TextBoxes are omitted by DrawToBitmap as well.
                     using(var brush=new SolidBrush(c.BackColor))g.FillRectangle(brush,bounds);
                     if(choice!=null||text.BorderStyle!=BorderStyle.None)ControlPaint.DrawBorder(g,bounds,Ui.GridFrame,ButtonBorderStyle.Solid);var inner=bounds;inner.Inflate(-3,-2);

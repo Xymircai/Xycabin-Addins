@@ -151,6 +151,13 @@ internal static class CompanyWorkbookHostChecks
                     check(!((System.Windows.Forms.CheckBox)field("confirmed")).Checked, "company preset never restores execution confirmation");
                     preset.Values["naming"] = "missing-field";
                     reject(delegate { form.ApplyPreset(preset); }, "company preset missing header rejected before apply");
+                    string before = form.CapturePreset().Values["first"];
+                    var invalidTemplateApp = new CompanyFakeApp();
+                    preset.Context = template;
+                    form.OpenTemplate = delegate(string path) { return new CompanyWorkbookHost(invalidTemplateApp, path); };
+                    reject(delegate { form.ApplyPreset(preset); }, "new preset template is validated before replacing current reader");
+                    check(invalidTemplateApp.Workbooks.Template.Closed && !app.Workbooks.Template.Closed, "invalid candidate closes its own read copy and retains old reader");
+                    check(form.CapturePreset().Values["first"] == before && ReferenceEquals(typeof(CompanyWorkbookForm).GetField("host", flags).GetValue(form), host), "failed relocated preset leaves old parameters and binding unchanged");
                 }
                 finally { typeof(CompanyWorkbookForm).GetField("host", flags).SetValue(form, null); }
             }

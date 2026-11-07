@@ -23,6 +23,7 @@ namespace Excel_Iterate
                 RunSummaryWorkbookList(form);
                 form.WorkbooksRequested += delegate { RunSummaryWorkbookList(form); };
                 form.WorkbookRequested += delegate(string path) { RunSummaryWorkbookChoice(form, delegate { _summaryWorkbook.Choose(path); return true; }); };
+                form.PresetRequested += delegate(BatchPreset value) { RunSummaryPreset(form, value); };
                 form.CurrentRequested += delegate { RunSummaryWorkbookChoice(form, delegate { _summaryWorkbook.UseCurrent(); return true; }); };
                 form.BrowseRequested += delegate { RunSummaryBrowse(form); };
                 form.SheetsRequested += delegate { RunSummaryRefresh(form); };

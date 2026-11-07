@@ -68,6 +68,11 @@ namespace Excel_Iterate
                     {
                         var progress=DialogCatalog.Find("audit.batch.progress");
                         node.Children.Add(new DialogTreeNode {Id=id+".progress",Tab=tab,Group=group,Label=progress.Name,DialogId=progress.Id,Parent=node,Depth=node.Depth+1});
+                        foreach(string presetId in new[]{"batch.preset.name","batch.preset.manager"})
+                        {
+                            var preset=DialogCatalog.Find(presetId);
+                            node.Children.Add(new DialogTreeNode {Id=id+"."+presetId,Tab=tab,Group=group,Label=preset.Name,DialogId=preset.Id,Parent=node,Depth=node.Depth+1});
+                        }
                     }
                     if(window=="trace.precedents")
                     {
@@ -293,4 +298,3 @@ Status.Text="已更新尺寸草稿；点击保存设置后，下次打开对应�
         }
     }
 }
-

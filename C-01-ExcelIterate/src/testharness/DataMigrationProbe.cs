@@ -65,18 +65,18 @@ namespace Excel_Iterate.TestHarness
             Check(DataMigrationEngine.Translate("=A1+'[第三方.xlsx]明细'!A1", d, "源表").Text == "=C100+'C:\\third\\[第三方.xlsx]明细'!A1", "an unused same-name link no longer blocks migration");
             Reject(delegate { DataMigrationEngine.Translate("='[北京]明细'!A1", d, "源表"); }, "a formula that uses a same-name link is still blocked");
             // 逐行重算: target names match only the added targets, exactly after
-            // normalisation, otherwise as a fuzzy match that needs confirming.
+            // normalisation only; near or partial names match nothing.
             Check(DataMigrationForm.NormalizeName("！00-芜湖市繁昌区乡村振兴发展集团有限公司（合并）.xlsx") == DataMigrationForm.NormalizeName("！00-芜湖市繁昌区乡村振兴发展集团有限公司(合并)")
                 && DataMigrationForm.NormalizeName("03-01-繁花乡 文化.xlsx") == "繁花乡文化" && DataMigrationForm.NormalizeName("2024年报") == "2024年报", "names normalise extension, width, numbering, ！ and spaces only");
             var pool = new[] { @"D:\目标\！00-芜湖市繁昌区乡村振兴发展集团有限公司（合并）.xlsx", @"D:\目标\！01-芜湖市繁昌区乡村振兴发展集团有限公司.xlsx", @"D:\目标\！03-01-芜湖市繁昌区繁花乡韵文化传媒有限公司.xlsx", @"D:\目标\！02-芜湖市繁昌区五华鸡产业发展有限公司.xlsx" };
             var exact = new MigrationTriggerRow { Row = 2, Value = "x", Name = "！00-芜湖市繁昌区乡村振兴发展集团有限公司（合并）" }; DataMigrationForm.MatchRow(exact, pool);
             Check(exact.Kind == "精确" && exact.Path == pool[0] && exact.Ready, "an exact name picks its workbook even when a near name exists");
             var fuzzy = new MigrationTriggerRow { Row = 3, Value = "x", Name = "繁昌区繁花乡韵文化传媒有限公司" }; DataMigrationForm.MatchRow(fuzzy, pool);
-            Check(fuzzy.Kind == "模糊" && fuzzy.Path == pool[2] && !fuzzy.Ready, "a partial name is a fuzzy match that is not used until confirmed");
+            Check(fuzzy.Kind == "缺失" && fuzzy.Path.Length == 0 && fuzzy.Candidates.Count == 0 && !fuzzy.Ready, "a partial name no longer matches (fuzzy matching removed)");
             var missing = new MigrationTriggerRow { Row = 4, Value = "x", Name = "完全无关的单位" }; DataMigrationForm.MatchRow(missing, pool);
             Check(missing.Kind == "缺失" && missing.Path.Length == 0, "an unrelated name matches nothing rather than the closest file");
-            var twins = new MigrationTriggerRow { Row = 5, Value = "x", Name = "乡村振兴" }; DataMigrationForm.MatchRow(twins, new[] { @"D:\a\乡村振兴甲.xlsx", @"D:\a\乡村振兴乙.xlsx" });
-            Check(twins.Kind == "多个候选" && twins.Path.Length == 0, "equally close candidates require a choice");
+            var twins = new MigrationTriggerRow { Row = 5, Value = "x", Name = "乡村振兴" }; DataMigrationForm.MatchRow(twins, new[] { @"D:\a\乡村振兴.xlsx", @"D:\b\01-乡村振兴.xlsx", @"D:\a\乡村振兴乙.xlsx" });
+            Check(twins.Kind == "多个候选" && twins.Path.Length == 0 && twins.Candidates.Count == 2, "the same name in two folders requires a choice; a longer name is not a candidate");
             var spare = new MigrationPlan(); spare.Unused.Add(@"D:\a\多余.xlsx");
             Check(DataMigrationForm.PlanSummary(spare).Contains("1 个目标工作簿没有触发行匹配，不会写入"), "added targets no trigger row matched are reported, not written");
             c.Names.Add(new MigrationName { Name = "Relative", Formula = "=源表!A1" });
@@ -563,10 +563,10 @@ namespace Excel_Iterate.TestHarness
                 Check(p1.ValuesOnly && p2.ValuesOnly, "rows created in the window paste values by default");
                 Check(!p1.KeepFormat && DataMigrationForm.ModeText(true, false) == "只写数值" && DataMigrationForm.ModeText(true, true) == "数值+格式" && DataMigrationForm.ModeText(false, false) == "只写公式" && DataMigrationForm.ModeText(false, true) == "公式+格式", "new rows write values without formats; four write modes");
                 var toggleMode = (Action<int>)typeof(MigrationMappingBoard).GetField("ModeToggled", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(form.Mappings);
-                foreach (string expected in new[] { "数值+格式", "只写公式", "公式+格式", "只写数值" })
+                foreach (string expected in new[] { "数值+格式", "只写公式", "公式+格式", "只迁移格式", "只写数值" })
                 {
                     toggleMode(0);
-                    Check(DataMigrationForm.ModeText(p1.ValuesOnly, p1.KeepFormat) == expected, "mapping mode click cycles to " + expected);
+                    Check(DataMigrationForm.ModeText(p1.ValuesOnly, p1.KeepFormat, p1.FormatOnly) == expected, "mapping mode click cycles to " + expected);
                 }
                 p1.Source.Trigger = new MigrationTrigger();
                 toggleMode(0); Check(p1.ValuesOnly && p1.KeepFormat, "recalculation mode click enables formats while keeping values-only output");

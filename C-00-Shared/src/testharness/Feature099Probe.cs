@@ -210,6 +210,30 @@ partial class Feature099Probe
             editor.Font=font;editor.TopLevel=false;editor.FormBorderStyle=FormBorderStyle.None;editor.ClientSize=new Size((int)(1000*factor),(int)(760*factor));parking.Controls.Add(editor);editor.Show();Console.WriteLine("Scale editor shown");var selector=DialogFormatting.Walk(editor).OfType<ComboBox>().Single(c=>c.Name=="dialogChoice");selector.SelectedIndex=Array.FindIndex(DialogCatalog.All,d=>d.Id=="agent.notes");var tree=DialogFormatting.Walk(editor).OfType<TreeView>().Single();tree.SelectedNode=Nodes(tree.Nodes).First(n=>{var t=n.Tag as FormatTarget;return t!=null&&t.Control is TextBoxBase;});DialogFormatting.Walk(editor).OfType<Button>().Single(c=>c.Name=="resizeControl").PerformClick();Console.WriteLine("Scale resize panel shown");var row=DialogFormatting.Walk(editor).OfType<FlowLayoutPanel>().Single(c=>c.Name=="styleActions");Check(row.Controls.Cast<Control>().All(c=>c.Right<=row.Width),"style row remains uncut at font scale "+factor);var viewport=DialogFormatting.Walk(editor).OfType<Panel>().Single(c=>c.Name=="propertyViewport");Check(viewport.AutoScrollMinSize.Height>=viewport.Controls[0].Height,"property scroll range includes the full dimension panel "+factor);using(var bitmap=new Bitmap(editor.Width,editor.Height)){editor.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));bitmap.Save(Path.Combine(Environment.CurrentDirectory,"build/link-restart-drag/editor-"+((int)(factor*100))+".png"));}editor.Dispose();
         }
     }
+    static void PreviewButtonText(PreviewSelectionOverlay surface, Form actual, RoundedButton button, int index) {
+        // Visible does not imply exposed: a scrollable parameter panel can
+        // clip this button. Test its real pixels after scrolling it into view.
+        for(Control parent=button.Parent;parent!=null&&parent!=actual;parent=parent.Parent) {
+            var scroll=parent as ScrollableControl;
+            if(scroll!=null&&scroll.AutoScroll)scroll.ScrollControlIntoView(button);
+        }
+        actual.PerformLayout();surface.RefreshSnapshot();
+        var bounds=surface.BoundsInPreview(button);bounds.Inflate(-4,-4);
+        var exposed=new Rectangle(Point.Empty,actual.ClientSize);
+        for(Control parent=button.Parent;parent!=null&&parent!=actual;parent=parent.Parent) {
+            var client=surface.BoundsInPreview(parent);client.Size=parent.ClientSize;
+            exposed=Rectangle.Intersect(exposed,client);
+        }
+        Check(bounds.Width>0&&bounds.Height>0&&exposed.Contains(bounds),"preview button scrolls fully into view "+index+" "+button.Text);
+        using(var bitmap=new Bitmap(surface.Width,surface.Height)) {
+            surface.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));var pixels=new PixelSampler(bitmap);int ink=0;
+            for(int y=Math.Max(0,bounds.Top);y<Math.Min(bitmap.Height,bounds.Bottom);y+=2)
+                for(int x=Math.Max(0,bounds.Left);x<Math.Min(bitmap.Width,bounds.Right);x+=2) {
+                    var pixel=pixels.Get(x,y);if(pixel.R<180&&pixel.G<180)ink++;
+                }
+            Check(ink>3,"actual preview button has text "+index+" "+button.Text);
+        }
+    }
     static void Formatting() {
         DialogSizeStore.RootOverride=sandbox;DialogSizing.Initialize();
         foreach(var id in new[]{"agent.sort","agent.name","agent.format","agent.notes","agent.dialogsizes"}) {
@@ -242,7 +266,7 @@ partial class Feature099Probe
                 var sourceParent=actual.Parent;var focus=GetFocus();surface.RefreshSnapshot();surface.RefreshSnapshot();Check(actual.Parent==sourceParent&&GetFocus()==focus,"refresh preserves source parent and UI thread focus "+i);
                 using(var bitmap=new Bitmap(surface.Width,surface.Height)){surface.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));var pixels=new PixelSampler(bitmap);int ink=0;for(int y=0;y<bitmap.Height;y+=7)for(int x=0;x<bitmap.Width;x+=7){var pixel=pixels.Get(x,y);if(pixel.R<180&&pixel.G<180)ink++;}Check(ink>20,"selection surface contains real dialog text "+i);
                     foreach(var rich in DialogFormatting.Walk(actual).OfType<RichTextBox>().Where(r=>r.TextLength>0)){var bounds=surface.BoundsInPreview(rich);bounds.Inflate(-4,-4);int bodyInk=0;for(int y=Math.Max(0,bounds.Top);y<Math.Min(bitmap.Height,bounds.Bottom);y+=5)for(int x=Math.Max(0,bounds.Left);x<Math.Min(bitmap.Width,bounds.Right);x+=5){var pixel=pixels.Get(x,y);if(pixel.R<180&&pixel.G<180)bodyInk++;}Check(bodyInk>20,"actual rich text body rendered "+i);Directory.CreateDirectory(Path.Combine(Environment.CurrentDirectory,"build/issue-fixes"));bitmap.Save(Path.Combine(Environment.CurrentDirectory,"build/issue-fixes/rich-preview-"+i+".png"));}
-                    foreach(var button in DialogFormatting.Walk(actual).OfType<RoundedButton>().Where(b=>b.Text.Length>0&&b.Visible)){var bounds=surface.BoundsInPreview(button);bounds.Inflate(-4,-4);int buttonInk=0;for(int y=Math.Max(0,bounds.Top);y<Math.Min(bitmap.Height,bounds.Bottom);y+=2)for(int x=Math.Max(0,bounds.Left);x<Math.Min(bitmap.Width,bounds.Right);x+=2){var pixel=pixels.Get(x,y);if(pixel.R<180&&pixel.G<180)buttonInk++;}Check(buttonInk>3,"actual preview button has text "+i+" "+button.Text);}
+                    foreach(var button in DialogFormatting.Walk(actual).OfType<RoundedButton>().Where(b=>b.Text.Length>0&&b.Visible))PreviewButtonText(surface,actual,button,i);
                 }
             }
             Console.WriteLine("Formatting long text");

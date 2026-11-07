@@ -224,7 +224,7 @@ int[] user;var values=FormatSession.Capture(form).WindowSizes;if(values!=null&&v
             if(overridden)custom.Add(form);
             // Seed in logical units; apply the same physical conversion after autoscaling
             // for defaults and overrides. The host owns process DPI awareness.
-            Size frame=new Size(form.Width-form.ClientSize.Width,form.Height-form.ClientSize.Height);
+            Size frame=new Size(Math.Max(0,form.Width-form.ClientSize.Width),Math.Max(0,form.Height-form.ClientSize.Height));
             Rectangle area=Screen.FromControl(form).WorkingArea;float scale=Scale(form);
             form.MinimumSize=new Size(d.Minimum.Width+frame.Width,d.Minimum.Height+frame.Height);
             form.ClientSize=measure?saved:new Size(Math.Min(saved.Width,Math.Max(1,(int)((area.Width-24-frame.Width)/scale))),Math.Min(saved.Height,Math.Max(1,(int)((area.Height-24-frame.Height)/scale))));
@@ -238,7 +238,9 @@ int[] user;var values=FormatSession.Capture(form).WindowSizes;if(values!=null&&v
         {
             if(form.TopLevel&&form.WindowState!=FormWindowState.Normal)return;
             Rectangle visible=Screen.FromControl(form).WorkingArea;float scale=Scale(form);
-            Size frame=new Size(form.Width-form.ClientSize.Width,form.Height-form.ClientSize.Height);
+            // Embedded/offscreen forms can temporarily retain a ClientSize
+            // larger than their constrained native Size. Borders cannot be negative.
+            Size frame=new Size(Math.Max(0,form.Width-form.ClientSize.Width),Math.Max(0,form.Height-form.ClientSize.Height));
             if(!form.TopLevel) {
                 form.MinimumSize=new Size((int)Math.Round(d.Minimum.Width*scale)+frame.Width,(int)Math.Round(d.Minimum.Height*scale)+frame.Height);
                 form.ClientSize=new Size((int)Math.Round(saved.Width*scale),(int)Math.Round(saved.Height*scale));form.Location=Point.Empty;return;

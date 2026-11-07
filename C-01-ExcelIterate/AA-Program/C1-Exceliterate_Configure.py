@@ -263,11 +263,11 @@ BUTTONS = [
                 "label": "批量生成过程表",
                 "builtin_icon": "table",
                 "screentip": "按公司复制模板工作簿，或生成单体汇总表",
-                "supertip": "按公司生成工作簿：完整复制所选模板并按来源行填写 Lead，原模板不变，不覆盖已有文件。单体汇总表生成：从模板列起每家公司铺一列，备份工作表后换链，不自动保存工作簿。",
+                "supertip": "单体模板生成：完整复制所选模板并按来源行填写 Lead，原模板不变，不覆盖已有文件。单体汇总批量链接：从模板列起每家公司铺一列，备份工作表后换链，不自动保存工作簿。",
                 "children": [
                     {
                         "id": "btnCompanyWorkbooks",
-                        "label": "按公司生成工作簿",
+                        "label": "单体模板生成",
                         "builtin_icon": "table",
                         "screentip": "完整复制模板，按来源行命名并填写 Lead",
                         "supertip": "选择 xlsx/xls 模板，配置来源字段、数据行范围及 Lead 唯一写入行；预检后逐公司生成完整副本，保留原模板且不覆盖已有文件。可选只复制模式。",
@@ -276,7 +276,7 @@ BUTTONS = [
                     },
                     {
                         "id": "btnSingleSummary",
-                        "label": "单体汇总表生成",
+                        "label": "单体汇总批量链接",
                         "builtin_icon": "table",
                         "screentip": "选择工作簿 → Lead 勾选公司 → 可选按年度跨度铺列换链",
                         "supertip": "读 Lead 表的「编码&简称」「全称」列，勾选状态按实际行回写「选用」。默认每家公司一列；可选开始至结束年度，每家公司占年度数的列，每列重复公司名，下方指定行显示年度，默认倒序。年度模式只按指定目录段换年份和模板公司文件名，月日、工作表、地址与其他公司引用保留。执行前预检来源及覆盖范围，备份后生成，可整批还原，不自动保存。",
@@ -592,3 +592,4 @@ check_installer_version = _core.check_installer_version
 main = _core.main
 if __name__ == "__main__":
     main()
+

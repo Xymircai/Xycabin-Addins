@@ -37,6 +37,7 @@ namespace Excel_Iterate
                     dynamic books = held.Own(((dynamic)app).Workbooks);
                     book = held.Own(books.Open(reading, 0, true));
                     if (book == null) throw new InvalidOperationException("无法打开模板读取副本。");
+                    MigrationWindowScope.SetOwnedVisible(book, false);
                     using (var bag = new ComBag())
                     {
                         dynamic sheets = bag.Own(((dynamic)book).Worksheets);
@@ -56,6 +57,73 @@ namespace Excel_Iterate
         internal Dictionary<string, int> Headers(string name, int row)
         {
             using (var bag = new ComBag()) return HeadersOn(Sheet(name, bag), row);
+        }
+        internal CompanyWorkbookSelection Pick(string kind, CompanyWorkbookRequest request, Func<object, object> picker = null, Action<string> preparation = null)
+        {
+            bool target = kind == "targetHeader" || kind == "targetCode" || kind == "targetName" || kind == "leadRow";
+            bool sheetPicker = kind == "sourceHeader" || kind == "targetHeader";
+            bool fieldPicker = kind == "naming" || kind == "code" || kind == "full" || kind == "targetCode" || kind == "targetName";
+            string expected = target ? request.TargetSheet : request.SourceSheet;
+            int header = target ? request.TargetHeaderRow : request.HeaderRow;
+            if (!sheetPicker && !fieldPicker && !Sheets.Contains(expected)) throw new InvalidOperationException("请先选择来源或目标工作表及表头行。");
+            string path = Path.Combine(folder, ".company-select-" + Guid.NewGuid().ToString("N") + Path.GetExtension(Snapshot));
+            object selectionBook = null;
+            using (var refs = new ComBag())
+            using (var quiet = new CompanyWorkbookQuiet(app))
+            {
+                try
+                {
+                    if (preparation != null) preparation("正在复制选区副本");
+                    File.Copy(Snapshot, path, false);
+                    dynamic books = refs.Own(((dynamic)app).Workbooks);
+                    if (preparation != null) preparation("正在通过宿主打开只读副本，大模板可能需要数秒");
+                    selectionBook = refs.Own(books.Open(path, 0, true));
+                    if (selectionBook == null) throw new InvalidOperationException("无法打开模板选区副本。");
+                    if (picker == null)
+                    {
+                        dynamic windows = refs.Own(((dynamic)selectionBook).Windows);
+                        dynamic window = refs.Own(windows.Item(1)); window.Visible = true;
+                        ((dynamic)selectionBook).Activate();
+                        if (Sheets.Contains(expected))
+                        {
+                            dynamic sheets = refs.Own(((dynamic)selectionBook).Worksheets);
+                            dynamic initialSheet = refs.Own(sheets.Item(expected)); initialSheet.Activate();
+                        }
+                        ((dynamic)app).ScreenUpdating = true;
+                    }
+                    if (preparation != null) preparation(null);
+                    object chosen = picker != null ? picker(selectionBook) : DataMigrationHost.PickNativeRange(app,
+                        sheetPicker ? "请切换到所需工作表，选择一个表头单元格。此副本只用于取坐标，取消保留原设置。" : kind == "data" ? "请选择连续公司数据行，不含表头；所选列不限制实际读取字段。" : kind == "leadRow" ? "请选择目标表中待更新数据行的一个单元格。" : "请选择所需字段的实际表头单元格；将替换旧工作表、表头行及字段。",
+                        "单体模板生成 · 临时只读副本选区", Type.Missing);
+                    if (chosen == null || chosen is bool) return null;
+                    chosen = refs.Own(chosen);
+                    dynamic chosenSheet = refs.Own(((dynamic)chosen).Parent);
+                    string name = Convert.ToString(chosenSheet.Name);
+                    if (!Sheets.Contains(name)) throw new InvalidOperationException("请选择模板中的工作表。");
+                    object expectedSheet;
+                    if (sheetPicker || fieldPicker) expectedSheet = chosenSheet;
+                    else
+                    {
+                        dynamic sheets = refs.Own(((dynamic)selectionBook).Worksheets);
+                        expectedSheet = refs.Own(sheets.Item(expected));
+                    }
+                    var area = DataMigrationHost.ReadCoordinates(chosen, selectionBook, expectedSheet);
+                    CompanyWorkbookSelectionRules.Validate(kind, area.Row, area.Column, area.Rows, area.Columns, ((dynamic)chosen).MergeCells, header);
+                    var result = new CompanyWorkbookSelection { Sheet = name, Row = area.Row, Column = area.Column, LastRow = area.Row + area.Rows - 1 };
+                    if (sheetPicker) Headers(name, area.Row);
+                    else if (kind != "data" && kind != "leadRow")
+                    {
+                        foreach (var field in Headers(name, area.Row)) if (field.Value == area.Column) result.Field = field.Key;
+                        if (result.Field == null) throw new InvalidOperationException("所选表头为空或不是可用字段，请重新选择。");
+                    }
+                    return result;
+                }
+                finally
+                {
+                    try { if (selectionBook != null) { quiet.ExcludeClosingBook(selectionBook); ((dynamic)selectionBook).Close(false); } }
+                    finally { if (File.Exists(path)) File.Delete(path); }
+                }
+            }
         }
         internal static Dictionary<string, int> HeadersOn(object sheet, int row)
         {
@@ -108,6 +176,8 @@ namespace Excel_Iterate
                 object cells = bag.Own(sheet.Cells);
                 for (int row = request.FirstRow; row <= request.LastRow; row++)
                 {
+                    if (log != null && (row == request.FirstRow || (row - request.FirstRow) % 100 == 0))
+                        log("正在读取来源数据：第 " + row + " 行 / " + request.LastRow + " 行。");
                     try
                     {
                         string n = Read(cells, row, name);
@@ -172,7 +242,7 @@ namespace Excel_Iterate
             if (Convert.ToBoolean(c.HasFormula) || CompanyWorkbookRules.Text(c.Value2) != value)
                 throw new InvalidOperationException("目标字段写入后核验不一致。");
         }
-        internal void Generate(CompanyWorkbookRequest request, CompanyWorkbookRecord record, Action<object, CompanyWorkbookRequest, CompanyWorkbookRecord> update)
+        internal void Generate(CompanyWorkbookRequest request, CompanyWorkbookRecord record, Action<object, CompanyWorkbookRequest, CompanyWorkbookRecord> update, Action<string> progress = null)
         {
             string stage = Path.Combine(request.Output, ".company-" + Guid.NewGuid().ToString("N") + Path.GetExtension(Snapshot));
             object outputBook = null;
@@ -181,6 +251,7 @@ namespace Excel_Iterate
             {
                 try
                 {
+                    if (progress != null) progress("复制模板：" + Path.GetFileName(record.OutputPath));
                     File.Copy(Snapshot, stage, false);
                     File.SetAttributes(stage, FileAttributes.Normal);
                     if (request.UpdateLead)
@@ -188,11 +259,14 @@ namespace Excel_Iterate
                         using (var quiet = new CompanyWorkbookQuiet(app))
                         {
                             dynamic books = bag.Own(((dynamic)app).Workbooks);
+                            if (progress != null) progress("打开副本并更新 Lead：" + Path.GetFileName(record.OutputPath));
                             outputBook = bag.Own(books.Open(stage, 0, false));
                             if (outputBook == null || Convert.ToBoolean(((dynamic)outputBook).ReadOnly)) throw new InvalidOperationException("输出副本无法以可写方式打开。");
                             update(outputBook, request, record);
+                            if (progress != null) progress("保存工作簿：" + Path.GetFileName(record.OutputPath));
                             ((dynamic)outputBook).Save();
                             ((dynamic)outputBook).Close(false); closed = true;
+                            if (progress != null) progress("重新打开并核验字段与工作表：" + Path.GetFileName(record.OutputPath));
                             outputBook = bag.Own(books.Open(stage, 0, true)); closed = false;
                             using (var verify = new ComBag())
                             {
@@ -211,6 +285,7 @@ namespace Excel_Iterate
                             ((dynamic)outputBook).Close(false); closed = true;
                         }
                     }
+                    if (progress != null) progress("发布文件：" + Path.GetFileName(record.OutputPath));
                     File.Move(stage, record.OutputPath); // Atomic no-overwrite publication.
                 }
                 finally

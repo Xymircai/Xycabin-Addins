@@ -214,7 +214,9 @@
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/ResultAsText/Connect.ResultAsText.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/ValuesOnly/Connect.ValuesOnly.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/FormulaFormat/Connect.FormulaFormat.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/FormulaFormat/RestoreTextFormula/Connect.RestoreTextFormula.Entry.cs"
+    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/FormulaValueConversion/FormulaFormat/RestoreTextFormula/Connect.RestoreTextFormula.Entry.cs",
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchProgress.cs",
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchPresets.cs"
   ],
   "tools": [
     {
@@ -482,7 +484,9 @@
       ],
       "offline": true,
       "additional_sources": [
-        "src/testharness/CompanyWorkbookHostChecks.cs"
+        "src/testharness/CompanyWorkbookHostChecks.cs",
+        "src/testharness/BatchProgressChecks.cs",
+        "src/testharness/BatchPresetChecks.cs"
       ]
     },
     {
@@ -664,7 +668,9 @@
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/SingleSummary/Connect.SingleSummary.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/SingleSummary/SingleSummaryForm.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/SingleSummary/SingleSummaryEngine.cs",
-        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/SingleSummary/SingleSummaryHost.cs"
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/SingleSummary/SingleSummaryHost.cs",
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchProgress.cs",
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchPresets.cs"
       ],
       "tests": [
         "src/testharness/SingleSummaryProbe.cs"
@@ -1387,7 +1393,9 @@
       "implementation": [
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookEngine.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookHost.cs",
-        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookForm.cs"
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/CompanyWorkbooks/CompanyWorkbookForm.cs",
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchProgress.cs",
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/BatchProcessSheets/_Shared/BatchPresets.cs"
       ],
       "tests": [
         "src/testharness/CompanyWorkbookProbe.cs"

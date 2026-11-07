@@ -252,6 +252,32 @@ namespace Excel_Iterate
                 return SourceRangeAddress(chosen, handle.Book, handle.Sheet);
             }
         }
+        internal static object PickNativeRange(object application, string prompt, string title, object initial)
+        {
+            return ((dynamic)application).InputBox(prompt, title, initial, Type.Missing, Type.Missing, Type.Missing, Type.Missing, 8);
+        }
+        // Shared coordinate reader; callers retain their own business size limits.
+        internal static MigrationArea ReadCoordinates(object selection, object expectedBook, object expectedSheet)
+        {
+            if (selection == null) throw new InvalidOperationException("请先在 Excel 工作表中选择单元格区域。");
+            using (var bag = new ComBag())
+            {
+                try
+                {
+                    dynamic range = selection, sheet = bag.Own(range.Parent), book = bag.Own(sheet.Parent), areas = bag.Own(range.Areas);
+                    if (!WorksheetIdentity.SameObject(sheet, expectedSheet) || !WorksheetIdentity.SameObject(book, expectedBook))
+                        throw new InvalidOperationException("请选择指定工作簿和工作表中的区域，不接受其他工作簿或工作表的选区。");
+                    if (Convert.ToInt32(areas.Count) != 1) throw new InvalidOperationException("只支持一个连续矩形区域，请不要按 Ctrl 选择多个区域。");
+                    dynamic rows = bag.Own(range.Rows), columns = bag.Own(range.Columns);
+                    var result = new MigrationArea { Row = Convert.ToInt32(range.Row), Column = Convert.ToInt32(range.Column), Rows = Convert.ToInt32(rows.Count), Columns = Convert.ToInt32(columns.Count) };
+                    dynamic sheetRows = bag.Own(sheet.Rows), sheetColumns = bag.Own(sheet.Columns);
+                    result.Check(Convert.ToInt32(sheetRows.Count), Convert.ToInt32(sheetColumns.Count));
+                    return result;
+                }
+                catch (Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
+                { throw new InvalidOperationException("当前选区不是单元格区域，请取消图形或图表选择后重试。"); }
+            }
+        }
         internal static string SourceRangeAddress(object chosen, object expectedBook, object expectedSheet)
         {
             using (var refs = new ComBag())
@@ -1666,3 +1692,4 @@ namespace Excel_Iterate
         }
     }
 }
+

@@ -26,7 +26,7 @@ namespace Excel_Iterate
                 IntPtr owner = GetHostWindowHandle();
                 if (owner == IntPtr.Zero) form.Show(); else form.Show(new WindowWrapper(owner));
             }
-            catch (Exception error) { Log("按公司生成工作簿：" + error); UiDialog.Show(error.Message, "按公司生成工作簿", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch (Exception error) { Log("单体模板生成：" + error); UiDialog.Show(error.Message, "单体模板生成", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
         public IPictureDisp GetImage_btnCompanyWorkbooks(object control) { return GetButtonImageCore("btnCompanyWorkbooks"); }
     }

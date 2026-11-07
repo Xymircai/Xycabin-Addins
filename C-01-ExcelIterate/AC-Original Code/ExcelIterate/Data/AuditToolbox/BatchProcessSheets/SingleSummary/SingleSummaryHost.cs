@@ -109,7 +109,7 @@ namespace Excel_Iterate
         public void Dispose() { Clear(); }
     }
     // =====================================================================
-    // 单体汇总表生成 —— COM 宿主层
+    // 单体汇总批量链接 —— COM 宿主层
     //
     // 纪律（与项目既有实现一致）：
     //   · 全程 dynamic 晚期绑定，不引用 Microsoft.Office.Interop.Excel
@@ -124,6 +124,7 @@ namespace Excel_Iterate
         internal int HeaderRow;
         internal int CodeColumn;      // 0 = 没有这一列
         internal int NameColumn;
+        internal int SourceFileColumn;
         internal int PickColumn;      // 0 = 没有这一列
         internal int LastColumn;      // 表头行最后一个非空列
         internal int PickWriteColumn; // 回写「选用」的列（可能是新建的列）
@@ -240,6 +241,11 @@ namespace Excel_Iterate
                 for (int c = 0; c < columns; c++)
                 {
                     string text = SummaryArrays.Text(SummaryArrays.Pick(headerValues, 0, 1, c, columns));
+                    if (SummaryHeaders.Normalize(text) == SummaryHeaders.Normalize(SummaryFileMapping.Header))
+                    {
+                        if (snapshot.SourceFileColumn != 0) snapshot.Blocking.Add("Lead 表「来源文件名」表头重复，请仅保留一列。");
+                        snapshot.SourceFileColumn = left + c;
+                    }
                     if (text.Length > 0) headerLast = left + c;
                     if (snapshot.CodeColumn == 0 && SummaryHeaders.IsCode(text)) snapshot.CodeColumn = left + c;
                     else if (snapshot.NameColumn == 0 && SummaryHeaders.IsName(text)) snapshot.NameColumn = left + c;
@@ -265,6 +271,7 @@ namespace Excel_Iterate
                 if (rows <= 0) return snapshot;
                 object codeValues = ReadColumn(s, headerRow + 1, bottom, snapshot.CodeColumn, bag);
                 object nameValues = ReadColumn(s, headerRow + 1, bottom, snapshot.NameColumn, bag);
+                object fileValues = snapshot.SourceFileColumn > 0 ? ReadColumn(s, headerRow + 1, bottom, snapshot.SourceFileColumn, bag) : null;
                 object pickValues = snapshot.PickColumn > 0
                     ? ReadColumn(s, headerRow + 1, bottom, snapshot.PickColumn, bag)
                     : null;
@@ -279,6 +286,7 @@ namespace Excel_Iterate
                     company.Row = headerRow + 1 + r;
                     company.Code = code;
                     company.Name = name;
+                    company.SourceFileName = fileValues == null ? "" : Convert.ToString(SummaryArrays.Pick(fileValues, r, rows, 0, 1), CultureInfo.InvariantCulture);
                     company.PriorSelection = prior;
                     company.Selected = true;                              // 候选行预填勾
                     snapshot.Companies.Add(company);
@@ -334,6 +342,14 @@ namespace Excel_Iterate
     /// <summary>模板列体检：占位表头、末行、外链文件名、跨列合并。</summary>
     internal static class SummaryTemplateReader
     {
+        internal static void ValidateRelativeFormulas(SummaryRequest request, SummaryTemplateProbe probe)
+        {
+            // Check the farthest destination before touching the workbook. Intermediate
+            // column offsets are nonnegative and cannot overflow if this one is valid.
+            var columns = request.Columns();
+            int delta = columns.Count == 0 ? 0 : columns[columns.Count - 1].Column - request.TemplateColumn;
+            foreach (string formula in probe.Formulas) SummaryFormulaShift.Shift(formula, delta);
+        }
         internal static List<string> AnnualPreview(object book, object sheet, SummaryRequest request, SummaryTemplateProbe probe)
         {
             var lines = new List<string>();
@@ -501,7 +517,7 @@ namespace Excel_Iterate
             if (disposed) return;
             disposed = true;
             try { ((dynamic)app).Calculation = previous; }
-            catch (Exception ex) { Connect.Log("单体汇总表生成：恢复重算方式失败 " + ex.Message); }
+            catch (Exception ex) { Connect.Log("单体汇总批量链接：恢复重算方式失败 " + ex.Message); }
         }
     }
 
@@ -537,9 +553,9 @@ namespace Excel_Iterate
             if (disposed) return;
             disposed = true;
             try { ((dynamic)app).DisplayAlerts = alerts; }
-            catch (Exception ex) { Connect.Log("单体汇总表生成：恢复提醒设置失败 " + ex.Message); }
+            catch (Exception ex) { Connect.Log("单体汇总批量链接：恢复提醒设置失败 " + ex.Message); }
             try { ((dynamic)app).AskToUpdateLinks = ask; }
-            catch (Exception ex) { Connect.Log("单体汇总表生成：恢复链接询问失败 " + ex.Message); }
+            catch (Exception ex) { Connect.Log("单体汇总批量链接：恢复链接询问失败 " + ex.Message); }
         }
     }
 
@@ -550,7 +566,7 @@ namespace Excel_Iterate
         private const string BackupPrefix = "备份_单体汇总_";
 
         internal static SummaryRunReport Run(object app, object book, object sheet, SummaryRequest request,
-            SummaryTemplateProbe probe, string backupSheet, Action<string> status)
+            SummaryTemplateProbe probe, string backupSheet, Action<string> status, Action<int, string> progress = null)
         {
             List<SummaryYearColumn> columns = request.Columns();
             SummaryRunReport report = new SummaryRunReport();
@@ -605,13 +621,13 @@ namespace Excel_Iterate
                     if (width > 0) WriteColumnWidth(bag, s, column, width);
                 }
 
-                // 4) 换链 + 公式原样带出
-                //    复制会把相对引用平移，所以复制出来的列必须把公式原文写回；
-                //    模板列本身没有复制，只在确实替换成功时才写。
+                // 4) From the immutable snapshot, shift internal relative columns;
+                //    freeze external addresses and replace only the source company/year.
                 for (int i = 0; i < columns.Count; i++)
                 {
                     int column = firstColumn + i;
                     SummaryCompany company = columns[i].Company;
+                    if (status != null) status("正在处理公司列 " + SummaryColumns.Letter(column) + "：" + company.Code);
                     string letter = SummaryColumns.Letter(column);
                     int touched = 0;
                     for (int r = 0; r < rows; r++)
@@ -668,16 +684,18 @@ namespace Excel_Iterate
                         yearCell.HorizontalAlignment = -4108; // xlCenter
                         yearCell.VerticalAlignment = -4108;   // xlCenter
                     }
+                    if (progress != null) progress(i + 1, "已写入列 " + SummaryColumns.Letter(firstColumn + i) + "，等待最终核验");
                 }
 
                 // 6) 读回校验：表头与首列公式必须与预期一致
+                if (status != null) status("正在逐列核验表头和公式…");
                 string verify = Verify(s, columns, request, headerRow, startRow, lastRow, sourceFormulas);
-                if (verify != null) { if (request.Annual) throw new InvalidOperationException(verify); report.Warnings.Add(verify); }
+                if (verify != null) throw new InvalidOperationException(verify);
 
                 // 6b) 趁「不询问链接」仍然生效时先把目标表算完：
                 //     否则稍后自动重算会逐条弹「更新值」，用户看到的就是反复弹窗。
                 try { s.Calculate(); }
-                catch (Exception ex) { Connect.Log("单体汇总表生成：目标表重算失败 " + ex.Message); }
+                catch (Exception ex) { Connect.Log("单体汇总批量链接：目标表重算失败 " + ex.Message); }
 
                 if (probe.Tokens.Count == 0)
                     report.Warnings.Add("模板列里没有 [xxx.xlsx] 形式的外链，换链已跳过（按需求记日志、不阻断）。");
@@ -801,7 +819,7 @@ namespace Excel_Iterate
                     "A" + startRow.ToString(CultureInfo.InvariantCulture) + ":F"
                     + (startRow + columns.Count - 1).ToString(CultureInfo.InvariantCulture)]);
                 body.Value2 = rows;
-                try { ((dynamic)bag.Own(s.Columns)).AutoFit(); } catch (Exception ex) { Connect.Log("单体汇总表生成：日志列宽自适应失败 " + ex.Message); }
+                try { ((dynamic)bag.Own(s.Columns)).AutoFit(); } catch (Exception ex) { Connect.Log("单体汇总批量链接：日志列宽自适应失败 " + ex.Message); }
                 return Convert.ToString(sheet.Name);
             }
         }
@@ -834,7 +852,7 @@ namespace Excel_Iterate
             }
             catch (Exception ex)
             {
-                if (!ComFormulaHost.Missing(ex)) Connect.Log("单体汇总表生成：读取列宽失败 " + ex.Message);
+                if (!ComFormulaHost.Missing(ex)) Connect.Log("单体汇总批量链接：读取列宽失败 " + ex.Message);
                 return 0;
             }
         }
@@ -847,7 +865,7 @@ namespace Excel_Iterate
                 dynamic range = bag.Own(((dynamic)sheet).Range[letter + ":" + letter]);
                 range.ColumnWidth = width;
             }
-            catch (Exception ex) { Connect.Log("单体汇总表生成：设置列宽失败 " + ex.Message); }
+            catch (Exception ex) { Connect.Log("单体汇总批量链接：设置列宽失败 " + ex.Message); }
         }
 
         private static List<string> SheetNames(object book, ComBag bag)
@@ -878,7 +896,6 @@ namespace Excel_Iterate
                         dynamic year = bag.Own(s.Cells[request.YearHeaderRow, columns[i].Column]);
                         if (SummaryArrays.Text(year.Value2) != columns[i].YearLabel) return "年度表头读回不一致：" + SummaryColumns.Letter(columns[i].Column);
                     }
-                    if (!request.Annual && i > 0) continue;
                     object formulas = ReadFormulas(bag, s, columns[i].Column, startRow, lastRow);
                     for (int r = 0; r < sourceFormulas.Count; r++)
                     {

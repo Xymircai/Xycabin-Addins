@@ -5,6 +5,7 @@ import subprocess
 import sys
 sys.dont_write_bytecode = True
 from project_support import ROOT, OUT, PROJECT, CONFIGURE_NAME, load_site, verify_layout, verify_features
+from build_report import BuildReport, run_command, write_json
 
 
 # rule=R-17
@@ -15,18 +16,30 @@ def main():
     parser.add_argument('--open-installer-only', action='store_true')
     parser.add_argument('--site-html')
     parser.add_argument('--installer-output')
+    parser.add_argument('--verbose', action='store_true', help='在控制台显示完整构建日志')
     args = parser.parse_args()
     if args.background and args.open_installer_only:
         raise ValueError('--background 不能与 --open-installer-only 同时使用')
     if args.open_installer_only:
         os.startfile(str(OUT / (PROJECT['assembly'] + '_Setup.exe')))
         return
+    gate = 'G-11' if PROJECT['host'] == 'Excel' else 'G-14'
+    report = BuildReport(ROOT.parent, ROOT / 'build', 'rebuild', [gate], args.mode, args.verbose, args.background)
+    status = 'failed'
+    try:
+        with report.gate(gate):
+            rebuild(args, report)
+        status = 'success'
+    finally:
+        write_json(ROOT / 'build/rebuild-run-summary.json', report.summary(status))
+
+
+def rebuild(args, report):
     verify_features()
     website = load_site()
     verify_layout(source_only=True)
     if args.site_html:
         website.validate_snapshot(args.site_html, ROOT, require_embedded=True)
-    environment = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUTF8='1')
     for index, script in enumerate(('AA-Program/' + CONFIGURE_NAME, 'build.py', 'resign.py', 'build_installer.py'), 1):
         print('[%d/4] %s' % (index, script), flush=True)
         command = [sys.executable, str(ROOT / script)]
@@ -36,7 +49,7 @@ def main():
             command += ['--site-html', args.site_html]
         if script == 'build_installer.py' and args.installer_output:
             command += ['--output', args.installer_output]
-        subprocess.run(command, cwd=ROOT, env=environment, check=True)
+        run_command(command, ROOT, report.directory / (str(index) + '-' + script.split('/')[-1] + '.log'))
     verify_layout(source_only=bool(args.installer_output))
     print('完成：' + str(args.installer_output or (OUT / (PROJECT['assembly'] + '_Setup.exe'))))
 
@@ -44,6 +57,6 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
         print('FAIL:', exc)
         sys.exit(1)

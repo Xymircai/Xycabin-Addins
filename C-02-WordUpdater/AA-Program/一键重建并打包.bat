@@ -20,11 +20,11 @@ set "PYTHONDONTWRITEBYTECODE=1"
 set "PYTHONIOENCODING=utf-8"
 set "PYTHONUTF8=1"
 
-"%WPS_TASK_PYTHON%" rebuild.py
+"%WPS_TASK_PYTHON%" rebuild.py --background %*
 
 if errorlevel 1 goto fail
 
-"%WPS_TASK_PYTHON%" validate.py --background
+"%WPS_TASK_PYTHON%" validate.py --background %*
 
 if errorlevel 1 goto validatefail
 

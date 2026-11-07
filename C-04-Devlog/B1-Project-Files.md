@@ -1,6 +1,6 @@
 **三项目档案与版本**
 
-最后更新：2026-11-05 ｜ 当前版本：**0.9.9.3** ｜ 交付物：`Excel_Iterate_Setup.exe`、`WordUpdater_Setup.exe`、`XyCabin.html`
+最后更新：2026-11-07 ｜ 当前版本：**0.9.9.3** ｜ 交付物：`Excel_Iterate_Setup.exe`、`WordUpdater_Setup.exe`、`XyCabin.html`
 
 # 一. Agent及开发者接手概览
 
@@ -94,6 +94,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (1). 当前实现与待验收
 
+批量迁移的逐行重算字段统一为“目标文件区域”，映射状态按区域行数／匹配统计分两行，底部说明默认蓝色粗体。三个打包入口共用按 B3 编号的简洁报告，完整日志按运行和阶段隔离；schema 3 摘要按执行范围核对真实 G 次序，H 保留人工边界，详细输出使用 --verbose。
+
 新增“操作 → 一键转换 → 文本提取与过滤”，以及“一键公式 → 相对-绝对转换／公式-数值转换”。两个参数窗支持手输地址及隐藏窗口后原生框选，按实际首格显示修改前后示例，默认高度随内容收紧。五类字符可提取或过滤，四种引用锁定可统一转换；“转公式格式”展开“转为公式文本”和“还原文本公式”，后者将等号开头的文本恢复为公式并局部计算。六个入口沿用全批快照、预检和内容／格式回滚，取消与失效目标零写入。真实宿主框选、焦点、菜单和 DPI 外观另列验收。
 
 工程规范由 B3-Gate Control 更名为 B3-Spec Coding.md，仍承担 B3 逻辑角色，六文档边界、R/H/G 编号及校验强度保留。入口、链接、公共文档清单、资源范围及测试夹具同步维护。
@@ -148,6 +150,30 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 单体模板生成与单体汇总批量链接已加入命名预设、应用、导入、导出和删除；仅保存参数，应用后重新预检。以当前上游 main 合并验证：Excel 与 Word 编译通过，单体模板检查 128 项、汇总检查 138 项、上游迁移检查 213 项、弹窗核心 127 项、宿主弹窗检查 17 项通过。正式证书缺失，重签未完成；未生成正式安装包，未安装或操作真实工作簿，实际 Excel/WPS 交互仍待本地验收。
 
 
+
+
+
+**本轮交付：19 个门禁与安静后台。** 默认移出 G-03／05／06／07，开发自检另行执行并保存独立摘要；schema 3 按范围核次序，旧 schema 2 仍按旧流程解释。后台统一无窗口子进程和关闭的默认输入，CMD 测试使用合法 1／2；焦点记录只读、不切换用户窗口。版本 0.9.9.3、原发布者及稳定 ID 沿用。
+
+| 核对项 | 本轮证据 |
+| --- | --- |
+| 后台验证 | 完整模式 32 项任务、缓存复用 0；增量复用 17 项并保留原证据时间；R-30 每轮实际执行。签名、五载荷、内嵌文档资源与网页两包字节检查通过 |
+| Excel_Iterate_Setup.exe | 5,578,240 字节；SHA-256：9b63959b513a3bd4fa34db2dea8eade1b1197a0c068487096e733618770457d0 |
+| 证据 | [本轮总记录](../build/quiet-build/delivery-summary.json)、[完整 BAT](../build/quiet-build/site-full-bat.log)、[增量 BAT](../build/quiet-build/site-incremental-bat.log)、[实际产物篡改回归](../build/quiet-build/artifact-probe.json) |
+| 验收边界 | 完整与增量流程、开发机制及隔离失败用例通过；采样未观察到受监测子进程取得前台焦点。未做录音、真实 WPS 操作或安装；50ms 采样不能覆盖所有桌面条件。严格历史链接检查仍受旧审计 126 处未携带日志引用阻止，本轮新增链接存在 |
+
+
+**本轮交付：批量迁移界面与共享构建报告。** 版本仍为 0.9.9.3，原证书与稳定 ID 沿用。逐行重算字段为“目标文件区域”，映射两行状态、蓝色粗体说明及明细链接已用生产控件离线渲染核对。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 正式安装包 | [Excel_Iterate_Setup.exe](../C-01-ExcelIterate/AA-Program/Excel_Iterate_Setup.exe)，5,576,704 字节；SHA-256：761a19848c87f4bda0e6a56230023801bba11584c0b36994407da0dbd821e417 |
+| 后台验证 | 重建阶段 32 项任务通过，缓存复用 0；增量收尾复用 17 项并保留原检查时间；R-30 每轮实际执行、cached=false |
+| 签名及资源 | 原发布者清单双签名、五载荷、文档与图形资产及两 DLL 同源网页通过；下载页内嵌 EXE 与正式包逐字节一致 |
+| 入口及报告 | 三个实际 BAT 完整运行返回 0；网站追加增量复验返回 0。23 项报告夹具、145 项 CMD 入口夹具通过；迁移离线构造验证 236 项通过。见[本轮总验证记录](../build/ui-spec-report/delivery-summary.json)与[Excel-Iterate 签名核对](../build/ui-spec-report/excel-final-signatures.log) |
+| 验收边界 | 未安装或操作真实 WPS；宿主焦点、菜单、Esc 与跨屏交互仍待人工验收 |
+
+以下为此前批次保留的历史证据。
 
 本轮补齐被 Git 忽略的本机签名指纹配置和独立 Excel 测试打包入口，已通过该入口实际执行隔离编译、清单签名、标准完整后台验证 32 项（迁移 228 项）、安装器签名及五载荷字节、版本、卸载视图检查。源项目正式签名配置不变，未创建或导出私钥，未修改信任根、安装或启动 WPS；仅交付本机测试包，真实交互与两产品正式联合发布未验收。见 [本机入口验证结果](../C-01-ExcelIterate/build/local-delivery/local-self-build/result.json)。
 
@@ -414,6 +440,30 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 ### (2). 本轮交付证据
 
 
+
+
+**本轮交付：19 个门禁与安静后台。** 默认移出 G-03／05／06／07，开发自检另行执行并保存独立摘要；schema 3 按范围核次序，旧 schema 2 仍按旧流程解释。后台统一无窗口子进程和关闭的默认输入，CMD 测试使用合法 1／2；焦点记录只读、不切换用户窗口。版本 0.9.9.3、原发布者及稳定 ID 沿用。
+
+| 核对项 | 本轮证据 |
+| --- | --- |
+| 后台验证 | 完整模式 25 项任务、缓存复用 0；增量复用 10 项并保留原证据时间；R-30 每轮实际执行。签名、五载荷、内嵌文档资源与网页两包字节检查通过 |
+| WordUpdater_Setup.exe | 4,314,112 字节；SHA-256：b27ee9bde9df2eaee86b0d5b75d1ae5d6562d8418f82c3ea206341bc6ea527cf |
+| 证据 | [本轮总记录](../build/quiet-build/delivery-summary.json)、[完整 BAT](../build/quiet-build/site-full-bat.log)、[增量 BAT](../build/quiet-build/site-incremental-bat.log)、[实际产物篡改回归](../build/quiet-build/artifact-probe.json) |
+| 验收边界 | 完整与增量流程、开发机制及隔离失败用例通过；采样未观察到受监测子进程取得前台焦点。未做录音、真实 WPS 操作或安装；50ms 采样不能覆盖所有桌面条件。严格历史链接检查仍受旧审计 126 处未携带日志引用阻止，本轮新增链接存在 |
+
+
+**本轮交付：共享构建报告与联合交付。** 版本仍为 0.9.9.3，原证书与稳定 ID 沿用。单项目输出实际执行的 G-14、G-15，末尾 H 项保留人工边界。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 正式安装包 | [WordUpdater_Setup.exe](../C-02-WordUpdater/AA-Program/WordUpdater_Setup.exe)，4,312,576 字节；SHA-256：ee20591bfc6e6ebd5304ec789bc3e13c85baf91fb0cc3350908cee4220a69a05 |
+| 后台验证 | 重建阶段 25 项任务通过，缓存复用 0；增量收尾复用 10 项并保留原检查时间；R-30 每轮实际执行、cached=false |
+| 签名及资源 | 原发布者清单双签名、五载荷、文档与图形资产及两 DLL 同源网页通过；下载页内嵌 EXE 与正式包逐字节一致 |
+| 入口及报告 | 三个实际 BAT 完整运行返回 0；网站追加增量复验返回 0。23 项报告夹具、145 项 CMD 入口夹具通过；见[本轮总验证记录](../build/ui-spec-report/delivery-summary.json)与[WordUpdater 签名核对](../build/ui-spec-report/word-final-signatures.log) |
+| 验收边界 | 未安装或操作真实 WPS；宿主焦点、菜单、Esc 与跨屏交互仍待人工验收 |
+
+以下为此前批次保留的历史证据。
+
 本轮因共享弹窗结果接口修复同步重编 Word；原宿主模态扫描、17 项隔离服务真实消息循环、2450 项共享界面和 68 项核心弹窗回归通过。正式证书配置未修改；本机缺少原 Word 签名证书及私钥，因此没有重签、打包或记为 Word 完整验证通过。未连接或安装 WPS，未修改用户文档，未提交/推送。见 [共享修复验证](../C-02-WordUpdater/build/local-delivery/preset-modal-fix-20261105/fix-summary.json)。
 
 **最新交付：门禁冗余清理与当前 main 完整重建。** 隔离副本不携带旧 build、生成 EXE/HTML 或字节码缓存；原批处理选择 2 完成联合完整重建及收尾独立验证。清理后在原目录再次运行同一批处理，返回 0；原证书、0.9.9.3 与稳定 ID 沿用。
@@ -477,7 +527,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 预览运行 `python AA-Program/C3-XycabinSite_Configure.py`，只改HTML；仅使用成功交付记录中版本/大小/摘要匹配的包，无记录或变更时默认下载不可用。不要手改生成HTML或把配置器移出固定目录。
 
-联合交付直接运行本项目AA-Program批处理：1增量、2完整（均--background），或 `python rebuild.py --background --mode full`，不必先跑两单项目批处理。随后 `python validate.py --background`；回填审计后 `python src/tools/layout_probe.py --strict-evidence`核引用。安装、真实file下载/播放、WPS点击单列验收。
+联合交付直接运行本项目AA-Program批处理：1增量、2完整（均--background），或 `python rebuild.py --background --mode full`，不必先跑两单项目批处理。随后 `python validate.py --background` 只核对正式产物，默认共 19 个 G，两个产品业务回归各执行一次；机制自检另用 `python validate.py --background --developer-checks`，独立摘要保存到 development-run-summary.json。后台子进程统一无控制台、关闭默认输入，焦点切换只读记录于本轮日志；回填审计后 `python src/tools/layout_probe.py --strict-evidence`核引用。安装、真实file下载/播放、WPS点击单列验收。
 
 ## 3. 当前状态与交付
 
@@ -488,6 +538,33 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 源码与正式产物内容指纹控制增量；两包、独立页和交付记录统一事务发布。后台前端/下载/音频替身不发声、不真实下载，不能代替file页面、听感、浏览器许可或安装效果。当前交付摘要在审计区，方法不重复历史流水。
 
 ### (2). 本轮交付证据
+
+
+
+**本轮交付：19 个门禁与安静后台。** 默认移出 G-03／05／06／07，开发自检另行执行并保存独立摘要；schema 3 按范围核次序，旧 schema 2 仍按旧流程解释。后台统一无窗口子进程和关闭的默认输入，CMD 测试使用合法 1／2；焦点记录只读、不切换用户窗口。版本 0.9.9.3、原发布者及稳定 ID 沿用。
+
+| 核对项 | 本轮证据 |
+| --- | --- |
+| 运行 | 完整 BAT 246.8 秒、增量 54.3 秒，均返回 0；与原 407.3 秒记录相比缩短约 39%。G-23 为 4.7 秒，不再启动产品 validate；32／25 项业务回归各一轮 |
+| 产物 | 两 EXE 和 HTML 完整／增量摘要完全相同；原证书双签名、五载荷、文档图形资源及网页两包字节一致。隔离 EXE、HTML、签名篡改及更新收据后的下载篡改均被实际 G-23 拒绝 |
+| Excel_Iterate_Setup.exe | 5,578,240 字节；SHA-256：9b63959b513a3bd4fa34db2dea8eade1b1197a0c068487096e733618770457d0 |
+| WordUpdater_Setup.exe | 4,314,112 字节；SHA-256：b27ee9bde9df2eaee86b0d5b75d1ae5d6562d8418f82c3ea206341bc6ea527cf |
+| XyCabin.html | 14,414,256 字节；SHA-256：39d63b808d09bbb260f4271af042ab14e668faf21b822adf27b3dbafc796083c |
+| 证据 | [本轮总记录](../build/quiet-build/delivery-summary.json)、[完整 BAT](../build/quiet-build/site-full-bat.log)、[增量 BAT](../build/quiet-build/site-incremental-bat.log)、[实际产物篡改回归](../build/quiet-build/artifact-probe.json) |
+| 验收边界 | 完整与增量流程、开发机制及隔离失败用例通过；采样未观察到受监测子进程取得前台焦点。未做录音、真实 WPS 操作或安装；50ms 采样不能覆盖所有桌面条件。严格历史链接检查仍受旧审计 126 处未携带日志引用阻止，本轮新增链接存在 |
+
+
+**本轮交付：Spec 编号报告与联合交付。** 三个实际 BAT 完整运行均返回 0，网站追加增量复验返回 0；版本、发布者与稳定 ID 沿用。G-01～G-23 真实顺序、名称和 R 条款同源 B3，H-01～H-12 只标人工核对或不适用；完整子输出按运行及阶段隔离，收尾未覆盖重建证据。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 正式网站 | [XyCabin.html](../C-03-Website·Xycabin/AA-Program/XyCabin.html)，14,410,160 字节；SHA-256：02ce44482784830045b413022eee1fbf423767e41605903bec44d406402ac7a0 |
+| 联合验证 | Excel 32 项、Word 25 项后台任务；重建阶段均无验证缓存复用，增量收尾分别复用 17／10 项并保留原检查时间。原证书清单双签名、五载荷、网页资源与两 EXE 字节一致性通过 |
+| 报告回归 | 23 项报告夹具、145 项 CMD 夹具、25 项 Spec 自测通过；缺 Node 与前台待验原因保留，缓存回放不丢原因；G-05／G-07 为隔离机制回归，本轮未启动真实冗余清理 |
+| 证据 | [总验证记录](../build/ui-spec-report/delivery-summary.json)、[完整模式 BAT 日志](../build/ui-spec-report/site-full-bat.log)、[增量复验 BAT 日志](../build/ui-spec-report/site-bat.log)；独立收尾与重建通过运行标识关联 |
+| 验收边界 | 后台验证不代替真实 WPS 点击、焦点、跨屏、安装效果或浏览器保存许可；本轮未自动安装、关闭宿主或修改用户文档 |
+
+以下为此前批次保留的历史证据。
 
 **最新交付：按 R-21 完成三项目冗余清理并重建。** 隔离副本不携带旧 build、生成 EXE/HTML 或字节码缓存；原批处理选择 2 完成联合完整重建及收尾独立验证。清理后在原目录再次运行同一批处理，返回 0；原证书、0.9.9.3 与稳定 ID 沿用。
 

@@ -163,6 +163,8 @@ Invoke-Checked -Program $TaskPython -Arguments @("C-03-Website·Xycabin/src/tool
 if ($LASTEXITCODE -ne 0) { throw "联合重建或收尾验证失败，停止提交和发布" }
 ```
 
+默认联合流程执行 19 个 G，完整模式中 Excel／Word 业务回归各一轮，G-23 只核对正式产物。开发机制自检单独运行 `python "C-03-Website·Xycabin/validate.py" --background --developer-checks`，输出 development-run-summary.json。三个 BAT 可追加 --verbose 查看详情。后台子进程默认无控制台且关闭标准输入；前台窗口切换仅记录于各运行目录的 focus-events.jsonl，记录不主动切换焦点。
+
 核对 `cleanup-report.json` 的实际删除/失败状态，以及网站 `build/last-run-summary.json`、`build/validate-run-summary.json` 均成功。按后文提交、推送源码和更新 Release 三附件；清理的忽略文件本身不会出现在 Git 提交中，应在 B1 交付审计区记录类别、路径、实际释放字节与保留原因。
 
 ### 新增或调整功能

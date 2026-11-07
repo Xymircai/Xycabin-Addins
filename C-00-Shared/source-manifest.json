@@ -1,6 +1,8 @@
 {
   "schema": 1,
   "linked": [
+    "process_support.py",
+    "build_report.py",
     "src/addin/AgentCustomization.cs",
     "src/addin/AgentDocumentForm.cs",
     "src/addin/AgentLocalFiles.cs",

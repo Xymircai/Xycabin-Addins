@@ -16,6 +16,8 @@ from configurators import CONFIGURE
 
 sys.dont_write_bytecode = True
 SITE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SITE.parent / "C-00-Shared"))
+from process_support import run_process
 _ENVIRONMENT = None
 
 
@@ -197,7 +199,7 @@ def compile_cached(command, cwd, mode='full'):
         response.write_text('\n'.join(subprocess.list2cmdline([arg]) for arg in command[1:]) + '\n',
                             encoding='utf-8-sig')
         invocation = [command[0], '@' + str(response)]
-    subprocess.run(invocation, cwd=cwd, check=True)
+    run_process(invocation, cwd=cwd, check=True)
     save(cache, expected, [target])
 
 

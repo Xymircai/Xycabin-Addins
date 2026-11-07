@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import argparse
 import subprocess
+from process_support import run_process
 import sys
 sys.dont_write_bytecode = True
 from project_support import ROOT, SRC, BUILD, LIB, CSC, COMMON_REF, PROJECT, DEFINES, load_configure, write_project_info, load_site, SITE_ROOT, DOC_OUT, OUT, verify_layout, verify_features
@@ -19,7 +20,7 @@ def run(args, cwd=ROOT):
     if Path(args[0]) == CSC:
         compile_cached(args, cwd, MODE)
     else:
-        subprocess.run(args, cwd=cwd, check=True)
+        run_process(args, cwd=cwd, check=True)
 
 
 def compile_tool(name, source, references=(), output=None, identity=False, additional_sources=()):

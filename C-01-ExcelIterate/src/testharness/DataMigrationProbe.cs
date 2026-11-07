@@ -525,7 +525,7 @@ namespace Excel_Iterate.TestHarness
                 FormulaChecks(); PackageChecks(root); FidelityChecks(root); WatchChecks(); PickerChecks(root); TargetSelectionChecks(root); SelectionPopupChecks(root); PumpChecks(); HostChecks(root); TransactionChecks(root); QuietReplaceChecks(root); SnapshotRaceChecks(root);
                 using (var form = new DataMigrationForm()) Check(!form.Visible && form.Mappings.Count == 0 && form.Sources.Columns.Count == 7 && form.Targets.Columns.Count == 6 && form.Sources.Columns.Contains("pick") && form.Sources.Columns.Contains("trigger") && !form.Targets.Columns.Contains("trigger"), "production form constructs without host access");
                 LayoutChecks(); RecalculationTargetChecks(root); PresetChecks();
-                if (args.Length == 2 && args[0] == "--render") Render(Path.GetFullPath(args[1]));
+                if (args.Length == 2 && args[0] == "--render") Render(root, Path.GetFullPath(args[1]));
                 Console.WriteLine("PASS: DataMigrationProbe " + count + " assertions; managed fixtures only, no WPS connection");
                 Directory.Delete(root, true); return 0;
             }
@@ -695,30 +695,74 @@ namespace Excel_Iterate.TestHarness
                 Reject(delegate { MigrationPreset.From(data, null); }, "a JSON file that is not a migration preset is refused");
             }
         }
-        private static void Render(string path)
+        private static void Render(string root, string path)
         {
-            using (var form = new DataMigrationForm())
-            using (var parking = new System.Windows.Forms.Panel { Size = new Size(2000, 1600) })
+            string source = Path.Combine(root, "render-source.xlsx");
+            var rows = new System.Text.StringBuilder();
+            for (int r = 2; r <= 17; r++) rows.Append("<row r=\"" + r + "\"><c r=\"G" + r + "\" t=\"inlineStr\"><is><t>触发" + r
+                + "</t></is></c><c r=\"H" + r + "\" t=\"inlineStr\"><is><t>目标" + (r - 1) + "</t></is></c></row>");
+            using (var file = File.Create(source)) using (var zip = new ZipArchive(file, ZipArchiveMode.Create))
             {
-                form.TopLevel = false; form.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None; parking.Controls.Add(form);
-                string sourceBook = @"D:\审计底稿\源工作簿.xlsx"; var targetBooks = new[] { @"D:\审计底稿\目标一.xlsx", @"D:\审计底稿\目标二.xlsm" };
-                form.AddBook(false, sourceBook, new[] { "源表", "明细" }); foreach (string book in targetBooks) form.AddBook(true, book, new[] { "目标表", "明细" });
-                foreach (var spec in new[] { new[] { "B1:D10", "B100" }, new[] { "F1:F12", "D200" } })
+                var parts = new Dictionary<string, string> {
+                    { "xl/workbook.xml", "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"表\" sheetId=\"1\" r:id=\"r1\"/></sheets></workbook>" },
+                    { "xl/_rels/workbook.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"r1\" Target=\"worksheets/sheet1.xml\"/></Relationships>" },
+                    { "xl/worksheets/sheet1.xml", "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>" + rows + "</sheetData></worksheet>" }
+                };
+                foreach (var part in parts) using (var writer = new StreamWriter(zip.CreateEntry(part.Key).Open())) writer.Write(part.Value);
+            }
+            bool previous = DialogPreviewFactory.IsConstructing;
+            DialogPreviewFactory.IsConstructing = true;
+            try
+            {
+                using (var form = new DataMigrationForm())
+                using (var parking = new System.Windows.Forms.Panel { Size = new Size(2100, 1600) })
                 {
+                    form.TopLevel = false; form.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None; parking.Controls.Add(form);
+                    form.AddBook(false, source, new[] { "表" });
                     var pair = form.AddPair(new MigrationPair());
-                    pair.Source.Books.Clear(); pair.Source.Books.Add(sourceBook); pair.Source.Sheet = "源表"; pair.Source.Range = spec[0];
-                    pair.Target.Books.Clear(); pair.Target.Books.AddRange(targetBooks); pair.Target.Sheet = "目标表"; pair.Target.Range = spec[1];
-                    foreach (string book in targetBooks)
+                    pair.Source.Books.Add(source); pair.Source.Sheet = "表"; pair.Source.Range = "C5:C24";
+                    pair.Source.Trigger = new MigrationTrigger { Cell = "B2", Values = "G2:G17", NameColumn = "H2:H17" };
+                    pair.Target.Sheet = "表"; pair.Target.Range = "H944";
+                    for (int i = 1; i <= 3; i++)
                     {
-                        var result = new MigrationTarget { Path = book, Sheet = "目标表", Ready = true, Status = "可执行", Overwritten = spec[1] == "B100" ? 8 : 0 };
-                        result.Samples.Add("=A1+'[第三方.xlsx]明细'!A1 → =A100+'[第三方.xlsx]明细'!A1");
-                        pair.Instances.Add(new MigrationMapping { Pair = pair, Source = new MigrationSourceItem { Path = sourceBook, Sheet = "源表", Range = spec[0] }, TargetPath = book, TargetSheet = "目标表", Result = result });
+                        string book = Path.Combine(root, "目标" + i + ".xlsx");
+                        form.AddBook(true, book, new[] { "表" }); pair.Target.Books.Add(book);
+                    }
+                    form.RefreshResults(); form.ShowPage(2); form.ClientSize = new Size(1600, 760); form.Show(); form.PerformLayout();
+                    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                    var status = (System.Windows.Forms.Label)typeof(DataMigrationForm).GetField("status", flags).GetValue(form);
+                    Check(form.Mappings[0].Status == "目标文件区域：16行；匹配3行，未匹13行", "render fixture exercises real filename matching for 16 rows");
+                    var details = (System.Windows.Forms.RichTextBox)typeof(DataMigrationForm).GetField("details", flags).GetValue(form);
+                    var links = (Dictionary<int, KeyValuePair<MigrationSide, MigrationTriggerRow>>)typeof(DataMigrationForm).GetField("detailLinks", flags).GetValue(form);
+                    Check(links.Count == 16 && links.All(link => details.Lines[link.Key].StartsWith("第 " + link.Value.Value.Row + " 行", StringComparison.Ordinal)),
+                        "each clickable detail index still points at its own trigger row after the display split");
+                    form.Message("已应用逐行重算：触发值 G2:G17 → B2，目标文件区域 H2:H17；目标区域已清理，只保留逐行重算匹配到的工作簿。目标区域页这一行的工作簿即匹配到的文件。");
+                    Check(status.Font.Bold && status.ForeColor == Ui.Blue, "production explanation uses blue bold text");
+                    using (var bitmap = new Bitmap(form.Width, form.Height)) { form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(path, ImageFormat.Png); }
+                    form.ClientSize = new Size(1000, 640); form.PerformLayout();
+                    using (var bitmap = new Bitmap(form.Width, form.Height)) { form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(Path.ChangeExtension(path, ".narrow.png"), ImageFormat.Png); }
+                    Check(status.GetPreferredSize(new Size(status.Width, 0)).Height <= status.Height + 2, "long bold explanation is measured within the narrower window");
+                    form.ShowPage(0);
+                    typeof(DataMigrationForm).GetMethod("ShowTriggerPopup", flags).Invoke(form, new object[] { form.Sources, pair, null });
+                    var drop = (System.Windows.Forms.ToolStripDropDown)typeof(DataMigrationForm).GetField("triggerPopup", flags).GetValue(form);
+                    var panel = ((System.Windows.Forms.ToolStripControlHost)drop.Items[0]).Control;
+                    Check(!drop.Visible && DialogFormatting.Walk(panel).Any(c => c is System.Windows.Forms.Label && c.Text == "目标文件区域"), "actual recalculation panel constructs its new label without displaying a popup");
+                    panel.CreateControl(); panel.PerformLayout(); panel.Size = panel.PreferredSize;
+                    using (var bitmap = new Bitmap(panel.Width, panel.Height)) { panel.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(Path.ChangeExtension(path, ".popup.png"), ImageFormat.Png); }
+                    form.ShowPage(2); form.Mappings.Size = new Size(1400, 250);
+                    using (var bitmap = new Bitmap(1400, 250))
+                    {
+                        bitmap.SetResolution(144, 144);
+                        using (var graphics = Graphics.FromImage(bitmap))
+                            typeof(MigrationMappingBoard).GetMethod("OnPaint", flags).Invoke(form.Mappings,
+                                new object[] { new System.Windows.Forms.PaintEventArgs(graphics, new Rectangle(Point.Empty, bitmap.Size)) });
+                        bitmap.Save(Path.ChangeExtension(path, ".board150.png"), ImageFormat.Png);
                     }
                 }
-                form.RefreshResults(); form.Show(); form.PerformLayout();
-                using (var bitmap = new Bitmap(form.Width, form.Height)) { form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(path, ImageFormat.Png); }
             }
+            finally { DialogPreviewFactory.IsConstructing = previous; }
         }
+
     }
 
     public sealed class FakeApp

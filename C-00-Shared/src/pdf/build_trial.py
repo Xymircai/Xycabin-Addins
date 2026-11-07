@@ -7,7 +7,7 @@ from pathlib import Path
 import argparse
 import importlib.util
 import json
-import subprocess
+from process_support import run_process
 import sys
 
 
@@ -19,7 +19,7 @@ def build(output):
     project = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(project)
     project.write_project_info()
-    subprocess.run([sys.executable, str(root / 'src/pdf/build_worker.py')], check=True)
+    run_process([sys.executable, str(root / 'src/pdf/build_worker.py')], check=True)
     scratch = root / 'build/pdf-trial-compile'
     scratch.mkdir(parents=True, exist_ok=True)
     stub = scratch / 'OfficeCoreCompileFixture.cs'
@@ -28,17 +28,17 @@ def build(output):
     sources = [project.source_path(source, addin=True) for source in project.PROJECT['sources'] if source != 'ThisAddIn.cs']
     sources += [root / 'src/shared/ProjectInfo.g.cs', stub]
     library = output / (project.PROJECT['assembly'] + '.dll')
-    subprocess.run([str(project.CSC), '/nologo', '/target:library', '/codepage:65001', '/out:' + str(library)]
+    run_process([str(project.CSC), '/nologo', '/target:library', '/codepage:65001', '/out:' + str(library)]
                    + project.DEFINES + project.COMMON_REF + ['/r:System.Windows.Forms.dll',
                    '/resource:' + str(root / 'build/PdfWorker.zip') + ',WpsShared.PdfWorker.zip']
                    + list(map(str, sources)), check=True)
     executable = output / ('Word-PDF验证版.exe' if project.PROJECT['host'] == 'Word' else 'Excel-PDF验证版.exe')
-    subprocess.run([str(project.CSC), '/nologo', '/target:winexe', '/codepage:65001', '/out:' + str(executable)]
+    run_process([str(project.CSC), '/nologo', '/target:winexe', '/codepage:65001', '/out:' + str(executable)]
                    + project.DEFINES + ['/r:System.Windows.Forms.dll', '/r:System.Drawing.dll',
                    str(project.source_path('src/tools/PdfTrialLauncher.cs'))], check=True)
     Path(str(executable) + '.config').write_text('<?xml version="1.0"?><configuration><startup>'
         '<supportedRuntime version="v4.0" sku=".NETFramework,Version=v4.8"/></startup></configuration>', encoding='utf-8')
-    subprocess.run([str(executable), '--check'], check=True, timeout=60)
+    run_process([str(executable), '--check'], check=True, timeout=60)
     return executable
 
 

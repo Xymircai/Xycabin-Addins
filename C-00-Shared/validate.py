@@ -4,6 +4,7 @@ import re
 import argparse
 import shutil
 import subprocess
+from process_support import run_process
 import sys
 import time
 import json
@@ -12,6 +13,7 @@ from project_support import ROOT, BUILD, OUT, PROJECT, SITE_ROOT, load_site, DES
 from verify_package import verify
 sys.path.insert(0, str(SITE_ROOT / "src"))
 from build_cache import inputs, key, digest, receipt, save
+from build_report import BuildReport, relay_omissions, write_json
 
 
 def main():
@@ -21,7 +23,21 @@ def main():
     parser.add_argument('--background', action='store_true', help='只运行已核对不会显示或激活窗口的探针，其余明确列为待验收')
     parser.add_argument('--site-html', type=Path, default=SITE_ROOT / 'AA-Program/XyCabin.html')
     parser.add_argument('--installer', type=Path, default=OUT / (PROJECT['assembly'] + '_Setup.exe'))
+    parser.add_argument('--verbose', action='store_true', help='在控制台显示完整验证日志')
     args = parser.parse_args()
+    gate = 'G-12' if PROJECT['host'] == 'Excel' else 'G-15'
+    report = BuildReport(ROOT.parent, BUILD, 'validation', [gate], args.mode, args.verbose, args.background)
+    status, result = 'failed', {}
+    try:
+        with report.gate(gate):
+            result = validate(args, report)
+        status = 'success'
+    finally:
+        write_json(BUILD / 'validate-run-summary.json', report.summary(status, **result))
+    report.manual_items(site=False)
+
+
+def validate(args, report):
     mode, background = args.mode, args.background
     classification = verify_features()
     load_site().validate_snapshot(args.site_html, ROOT)
@@ -67,9 +83,11 @@ def main():
         rendered.mkdir(exist_ok=True)
         tests += [(BUILD / 'UiPreviewProbe.exe', [dll, installer, rendered])]
     logs = ['待前台验收（本轮未运行）：' + ', '.join(pending)] if pending else []
-    if pending:
-        print(logs[0], flush=True)
-    log_path = BUILD / ('background-validation.log' if args.background else 'offline-validation.log')
+    if args.skip_ui:
+        logs.append('SKIP: --skip-ui，窗口布局截图未执行')
+    for line in logs:
+        print(line, flush=True)
+    log_path = report.directory / ('background-validation.log' if args.background else 'offline-validation.log')
     dependency_key = inputs(ROOT, args.site_html)
     pending_receipts, timings = [], []
     for exe, args in tests:
@@ -80,7 +98,9 @@ def main():
         hit = receipt(cache, expected, [exe, dll]) if cacheable and mode == 'incremental' else None
         print('TEST: ' + exe.name + ('（复用）' if hit else '（执行）'), flush=True)
         if hit:
+            report.reuse(hit['time'], exe.name)
             output = hit['output']
+            relay_omissions(output)
             logs.append(exe.name + ' CACHED ' + hit['time'] + '\n' + output)
             log_path.write_text('\n'.join(logs), encoding='utf-8')
             print('CACHE: ' + exe.name + '；原检查 ' + hit['time'], flush=True)
@@ -88,9 +108,10 @@ def main():
             continue
         if cacheable:
             cache.unlink(missing_ok=True)
-        result = subprocess.run([str(exe), *map(str, args)], cwd=ROOT, capture_output=True, timeout=120)
+        result = run_process([str(exe), *map(str, args)], cwd=ROOT, capture_output=True, timeout=120)
         codec = 'gbk' if exe.stem == 'ValidateManifest' else 'utf-8'
         output = result.stdout.decode(codec, 'replace') + result.stderr.decode(codec, 'replace')
+        relay_omissions(output)
         logs.append(exe.name + '\n' + output)
         log_path.write_text('\n'.join(logs), encoding='utf-8')
         if result.returncode or 'FAILED:' in output:
@@ -105,9 +126,9 @@ def main():
     log_path.write_text('\n'.join(logs), encoding='utf-8')
     for values in pending_receipts:
         save(*values)
-    (BUILD / 'validation-timings.json').write_text(json.dumps(
-        {'mode': mode, 'classification_gate': classification, 'tests': timings},
-        ensure_ascii=False, indent=2), encoding='utf-8')
+    evidence = {'mode': mode, 'classification_gate': classification, 'tests': timings}
+    write_json(BUILD / 'validation-timings.json', evidence)
+    write_json(report.directory / 'validation-timings.json', evidence)
     if render_ui:
         preview = DESIGN_OUT
         preview.mkdir(exist_ok=True)
@@ -125,11 +146,12 @@ def main():
                 shutil.move(str(f), str(preview / f.name))
         # Keep all four settings-table scales; other alternate scales remain represented in the log.
         shutil.rmtree(BUILD / 'ui-preview-current')
+    return {'classification_gate': classification, 'tests': timings}
 
 
 if __name__ == '__main__':
     try:
         main()
-    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         print('FAIL:', exc)
         sys.exit(1)

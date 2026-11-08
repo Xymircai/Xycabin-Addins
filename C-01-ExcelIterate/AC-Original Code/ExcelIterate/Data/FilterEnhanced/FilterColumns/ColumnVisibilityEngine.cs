@@ -169,7 +169,7 @@ namespace Excel_Iterate
                 }
                 if (range == null)
                 {
-                    object cell = bag.Own(((dynamic)sheet).Range[ComFormulaHost.Address(anchorRow, anchorColumn)]);
+                    object cell = bag.Own(((dynamic)sheet).Range[CellAddress.Name(anchorRow, anchorColumn)]);
                     range = bag.Own(((dynamic)cell).CurrentRegion);
                 }
                 int r = Convert.ToInt32(((dynamic)range).Row), height = Size(range, false);
@@ -177,7 +177,7 @@ namespace Excel_Iterate
                 headerRow = headers == null ? r : Convert.ToInt32(((dynamic)headers).Row);
                 if (start < 1 || width < 1 || start + width - 1 > 16384 || height < 1 || !Contains(range)) throw new InvalidOperationException("无法识别有效表格，请重新选择表格中的单元格。");
                 if (kind == "连续区域" && height == 1 && width == 1 && ((dynamic)range).Value2 == null) throw new InvalidOperationException("所选单元格不在有效数据区域内，请重新选择。");
-                string address = ComFormulaHost.Address(r, start) + ":" + ComFormulaHost.Address(r + height - 1, start + width - 1);
+                string address = CellAddress.Name(r, start) + ":" + CellAddress.Name(r + height - 1, start + width - 1);
                 RangeDescription = kind + "：" + address;
                 return kind + "|" + name + "|" + address + "|" + headerRow;
             }
@@ -206,13 +206,13 @@ namespace Excel_Iterate
             {
                 string header, signature; Header(c, out header, out signature); signatures.Add(signature);
                 bool hidden = ReadHidden(c);
-                choices.Add(new ColumnChoice { Number = c, Letter = ComFormulaHost.Address(1, c).TrimEnd('1'), Header = header, OriginalHidden = hidden, Visible = !hidden });
+                choices.Add(new ColumnChoice { Number = c, Letter = CellAddress.Name(1, c).TrimEnd('1'), Header = header, OriginalHidden = hidden, Visible = !hidden });
             }
             collected = choices; return collected;
         }
         private void Header(int column, out string text, out string signature)
         {
-            object cell = ((dynamic)sheet).Range[ComFormulaHost.Address(row, column)], merge = null, anchor = null;
+            object cell = ((dynamic)sheet).Range[CellAddress.Name(row, column)], merge = null, anchor = null;
             try
             {
                 dynamic source = cell; string annotation = "";
@@ -220,7 +220,7 @@ namespace Excel_Iterate
                 {
                     merge = source.MergeArea;
                     int r = Convert.ToInt32(((dynamic)merge).Row), c = Convert.ToInt32(((dynamic)merge).Column);
-                    anchor = ((dynamic)sheet).Range[ComFormulaHost.Address(r, c)]; source = anchor;
+                    anchor = ((dynamic)sheet).Range[CellAddress.Name(r, c)]; source = anchor;
                     string address = ((dynamic)merge).Address as string;
                     if (address == null) throw new InvalidOperationException("无法读取合并标题区域。");
                     annotation = " [合并 " + address + "]";
@@ -249,13 +249,13 @@ namespace Excel_Iterate
         }
         public bool ReadHidden(int column)
         {
-            object cell = ((dynamic)sheet).Range[ComFormulaHost.Address(1, column)], entire = null;
+            object cell = ((dynamic)sheet).Range[CellAddress.Name(1, column)], entire = null;
             try { entire = ((dynamic)cell).EntireColumn; return ComFormulaHost.Boolean(((dynamic)entire).Hidden, "整列 Hidden"); }
             finally { Release(entire); Release(cell); }
         }
         public void WriteHidden(int column, bool hidden)
         {
-            object cell = ((dynamic)sheet).Range[ComFormulaHost.Address(1, column)], entire = null;
+            object cell = ((dynamic)sheet).Range[CellAddress.Name(1, column)], entire = null;
             try { entire = ((dynamic)cell).EntireColumn; ((dynamic)entire).Hidden = hidden; }
             finally { Release(entire); Release(cell); }
         }

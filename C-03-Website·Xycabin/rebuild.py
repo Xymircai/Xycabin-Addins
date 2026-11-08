@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 from site_core import build, attach_installers, embedded_snapshot, verify_installers
 from delivery import projects, run, verify_payload, publish, fingerprints, RUN_STAGES
 from build_cache import inputs, input_fingerprint, receipt, save, commit, build_lock, atomic_json
+from tool_catalog import tools
 from build_report import BuildReport, BUILD_GATES
 
 
@@ -69,9 +70,7 @@ def rebuild():
                 with report.gate('G-11' if assembly == 'Excel_Iterate' else 'G-14'):
                     setup = stage / (assembly + '_Setup.exe')
                     identity = json.loads((base / 'project.json').read_text(encoding='utf-8-sig'))
-                    common = ('MakeCertCapi', 'RibbonProbe', 'AddInProbe', 'GetPkt', 'ValidateManifest', 'ValidateXmlSig',
-                              'SignCmi', 'TrustAdd', 'UiPreviewProbe', 'DialogSizesProbe', 'InstallFlowProbe', 'AgentExtensionProbe', 'AgentDocumentCoreProbe', 'SetupDoctor', 'GripProbe', 'LiveProbeSafetyFixture')
-                    outputs = [base / 'build' / (name + '.exe') for name in common] + [base / 'build' / (t['name'] + '.exe') for t in identity['tools']]
+                    outputs = [base / 'build' / (tool['name'] + '.exe') for tool in tools(identity)]
                     outputs += [base / 'build' / name for name in (assembly+'.dll', 'Microsoft.Office.Tools.Common.v4.0.Utilities.dll',
                                 'Interop.Microsoft.Office.Core.dll', assembly+'.dll.manifest', assembly+'.vsto')]
                     target = base / 'AA-Program' / setup.name

@@ -63,7 +63,7 @@ namespace Excel_Iterate
                     if (!identity.Matches(selectedSheet)) throw new InvalidOperationException("请在当前工作表中选择条件。");
                     if (ComFormulaHost.Boolean((object)sheet.ProtectContents, "ProtectContents")) throw new InvalidOperationException("请先取消工作表保护，再取得连续数据区域。");
                     dynamic areas = bag.Own(selection.Areas), first = bag.Own(areas.Item(1));
-                    dynamic firstCell = bag.Own(sheet.Range[ComFormulaHost.Address(Convert.ToInt32(first.Row), Convert.ToInt32(first.Column))]);
+                    dynamic firstCell = bag.Own(sheet.Range[CellAddress.Name(Convert.ToInt32(first.Row), Convert.ToInt32(first.Column))]);
                     dynamic source = bag.Own(firstCell.CurrentRegion);
                     int top = Convert.ToInt32(source.Row), left = Convert.ToInt32(source.Column);
                     dynamic sourceRows = bag.Own(source.Rows), sourceColumns = bag.Own(source.Columns);
@@ -74,7 +74,7 @@ namespace Excel_Iterate
                     {
                         using (ComBag cellBag = new ComBag())
                         {
-                            dynamic cell = cellBag.Own(sheet.Range[ComFormulaHost.Address(top, left + c)]);
+                            dynamic cell = cellBag.Own(sheet.Range[CellAddress.Name(top, left + c)]);
                             if (ComFormulaHost.Boolean((object)cell.MergeCells, "MergeCells")) throw new InvalidOperationException("表头不能合并。");
                             headers[c] = Convert.ToString((object)cell.Value2, CultureInfo.InvariantCulture);
                             if (string.IsNullOrWhiteSpace(headers[c]) || !unique.Add(headers[c])) throw new InvalidOperationException("数据表第一行需要非空且不重复的列名。");
@@ -90,7 +90,7 @@ namespace Excel_Iterate
                             if (ar <= top || ar + rh > top + height || ac < left || ac + cw > left + width) throw new InvalidOperationException("条件必须位于同一连续数据表的数据行内，不能含表头或跨表格。");
                             if ((long)conditions.Count + (long)rh * cw > 100000) throw new InvalidOperationException("请选择需要的条件行，条件选区不能超过十万个单元格。");
                             for (int r = ar; r < ar + rh; r++) for (int c = ac; c < ac + cw; c++)
-                                using (ComBag one = new ComBag()) { dynamic cell = one.Own(sheet.Range[ComFormulaHost.Address(r, c)]); if (ComFormulaHost.Boolean((object)cell.MergeCells, "MergeCells")) throw new InvalidOperationException("条件单元格不能合并。"); object v = cell.Value2; if (v is ErrorWrapper) throw new InvalidOperationException("条件不能包含错误值。"); conditions.Add(new FilterCriterion { Row = r, Column = c - left, Value = v }); }
+                                using (ComBag one = new ComBag()) { dynamic cell = one.Own(sheet.Range[CellAddress.Name(r, c)]); if (ComFormulaHost.Boolean((object)cell.MergeCells, "MergeCells")) throw new InvalidOperationException("条件单元格不能合并。"); object v = cell.Value2; if (v is ErrorWrapper) throw new InvalidOperationException("条件不能包含错误值。"); conditions.Add(new FilterCriterion { Row = r, Column = c - left, Value = v }); }
                         }
                     }
                     object[,] criteria = QuickFilterCriteria.Build(headers, conditions);
@@ -101,9 +101,9 @@ namespace Excel_Iterate
                         {
                             output = WorkbookUi.NewSheet((object)book, "高筛结果", bag, false);
                             temp = WorkbookUi.NewSheet((object)book, "_EI高筛条件", bag, false);
-                            dynamic criterionRange = bag.Own(((dynamic)temp).Range["A1:" + ComFormulaHost.Address(criteria.GetLength(0), criteria.GetLength(1))]);
+                            dynamic criterionRange = bag.Own(((dynamic)temp).Range["A1:" + CellAddress.Name(criteria.GetLength(0), criteria.GetLength(1))]);
                             criterionRange.NumberFormat = "@"; criterionRange.Value2 = criteria;
-                            dynamic destination = bag.Own(((dynamic)output).Range["A1:" + ComFormulaHost.Address(1, width)]);
+                            dynamic destination = bag.Own(((dynamic)output).Range["A1:" + CellAddress.Name(1, width)]);
                             object[,] head = new object[1, width]; for (int c = 0; c < width; c++) head[0, c] = headers[c]; destination.Value2 = head;
                             ((dynamic)output).Activate();
                             // WPS/Excel's native engine defines comparisons, dates,
@@ -114,8 +114,8 @@ namespace Excel_Iterate
                             object values = used.Value2; used.NumberFormat = "@"; used.Value2 = values;
                             for (int c = 0; c < width; c++) using (ComBag one = new ComBag())
                             {
-                                dynamic original = one.Own(sheet.Range[ComFormulaHost.Address(top + 1, left + c)]);
-                                dynamic target = one.Own(((dynamic)output).Range[ComFormulaHost.Address(2, c + 1) + ":" + ComFormulaHost.Address(Math.Max(2, count + 1), c + 1)]);
+                                dynamic original = one.Own(sheet.Range[CellAddress.Name(top + 1, left + c)]);
+                                dynamic target = one.Own(((dynamic)output).Range[CellAddress.Name(2, c + 1) + ":" + CellAddress.Name(Math.Max(2, count + 1), c + 1)]);
                                 target.NumberFormat = original.NumberFormat;
                             }
                             WorkbookUi.StyleTable(output, width, count + 1);

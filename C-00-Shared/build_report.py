@@ -16,10 +16,49 @@ from process_support import configure_background, FocusTrace, popen_process
 _ACTIVE = None
 GATE_ROW = re.compile(r'^\|\s*(G-\d{2})\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|\s*$', re.M)
 H_ROW = re.compile(r'^\*\*(H-\d{2})\*\*\s*(.+)$', re.M)
+H_SUMMARY_ROW = re.compile(r'^\|\s*(H-\d{2})\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|\s*$', re.M)
+H_ITEMS = {
+    'H-01': '维护顺序', 'H-02': '构建期禁编辑', 'H-03': '安装与卸载报告', 'H-04': '排障顺序',
+    'H-05': '实机 COM 验收', 'H-06': '弹窗真实交互验收', 'H-07': '清理触发', 'H-08': '冗余候选条件',
+    'H-09': '五类盘点', 'H-10': 'fixture 与删除边界', 'H-11': '网站经验归属', 'H-12': '固定图样不读桌面',
+    'H-13': '特定示例代码优化',
+}
+H_DEFAULT_INACTIVE = frozenset(('H-03', 'H-04', 'H-07', 'H-08', 'H-09', 'H-10', 'H-13'))
 DEVELOPER_GATES = ('G-03', 'G-05', 'G-06', 'G-07')
 BUILD_GATES = tuple('G-%02d' % i for i in range(1, 23) if 'G-%02d' % i not in DEVELOPER_GATES)
 GATE_SCOPES = {'G-%02d' % i: 'developer' if 'G-%02d' % i in DEVELOPER_GATES else 'delivery' if i == 23 else 'build'
                for i in range(1, 24)}
+
+
+def manual_spec_items(text):
+    """Read manual guidance metadata only; this never invokes its maintenance actions."""
+    definitions = H_ROW.findall(text)
+    found = [key for key, _ in definitions]
+    expected = ['H-%02d' % i for i in range(1, len(H_ITEMS) + 1)]
+    if len(found) != len(set(found)):
+        raise ValueError('人工门禁条目 H 编号重复')
+    missing, extra = sorted(set(H_ITEMS) - set(found)), sorted(set(found) - set(H_ITEMS))
+    if missing:
+        raise ValueError('缺少人工门禁条目 ' + ', '.join(missing))
+    if extra:
+        raise ValueError('未登记人工门禁条目 ' + ', '.join(extra))
+    if found != expected:
+        raise ValueError('人工门禁条目顺序必须为 H-01…H-%02d' % len(H_ITEMS))
+    humans = [(key, body.split('：', 1)[0].strip()) for key, body in definitions]
+    if any(title != H_ITEMS[key] for key, title in humans):
+        raise ValueError('人工条款主题与注册表不一致')
+    if any('验收：' not in body or '证据：' not in body for _, body in definitions):
+        raise ValueError('人工条款缺少“验收/证据”记录')
+    rows = H_SUMMARY_ROW.findall(text)
+    if [row[0] for row in rows] != expected:
+        raise ValueError('人工条款汇总缺项、重复或顺序不一致')
+    for key, title, applicable, trigger, method, evidence, display in rows:
+        if title.strip() != H_ITEMS[key] or not all(cell.strip() for cell in (applicable, trigger, method, evidence)):
+            raise ValueError(key + ' 人工条款汇总主题或核对信息不一致')
+        default = '本轮不适用' if key in H_DEFAULT_INACTIVE else '人工核对'
+        if display.strip() != default:
+            raise ValueError(key + ' 人工条款构建显示必须为“' + default + '”')
+    return humans
 
 
 def spec_items(repository):
@@ -27,13 +66,11 @@ def spec_items(repository):
     rows = GATE_ROW.findall(text)
     gates = {key: {'name': name.strip(), 'rules': rules.strip(), 'semantics': semantics.strip(), 'scope': scope.strip()}
              for key, name, _, rules, semantics, scope in rows}
-    humans = [(key, text.split('：', 1)[0].strip()) for key, text in H_ROW.findall(text)]
+    humans = manual_spec_items(text)
     if len(rows) != 23 or list(gates) != ['G-%02d' % i for i in range(1, 24)]:
         raise ValueError('B3 门禁总览必须按 G-01～G-23 排列')
     if any(info['scope'] != GATE_SCOPES[key] for key, info in gates.items()):
         raise ValueError('B3 门禁执行范围与实际入口不一致')
-    if [key for key, _ in humans] != ['H-%02d' % i for i in range(1, 13)]:
-        raise ValueError('B3 人工条款必须按 H-01～H-12 排列')
     return gates, humans
 
 
@@ -213,7 +250,7 @@ class BuildReport:
         if os.environ.get('XY_REPORT_NESTED') == '1':
             return
         for key, title in self.humans:
-            inactive = key in ('H-03', 'H-04', 'H-07', 'H-08', 'H-09', 'H-10') or (not site and key == 'H-11')
+            inactive = key in H_DEFAULT_INACTIVE or (not site and key == 'H-11')
             self.console.write('[%s] %s｜%s\n' % (key, '本轮不适用' if inactive else '人工核对', title))
         self.console.write('详细日志：' + str(self.directory.resolve()) + '\n')
         self.console.flush()

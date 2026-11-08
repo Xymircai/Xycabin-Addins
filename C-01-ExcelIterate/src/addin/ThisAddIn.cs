@@ -26,6 +26,14 @@ namespace Excel_Iterate
     {
         private Connect _ribbon;
 
+        [ComImport, Guid("000208D5-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+        private interface HostExcelApplication { }
+        internal static object ReadHostApplication(IHostItemProvider provider)
+        {
+            return provider == null ? null : provider.GetHostObject(typeof(HostExcelApplication), "Application");
+        }
+
+
         public ThisAddIn(ApplicationFactory factory, IServiceProvider serviceProvider)
             : base(factory, serviceProvider, "ThisAddIn", "ThisAddIn")
         {
@@ -42,7 +50,8 @@ namespace Excel_Iterate
             base.FinishInitialization();
             HostDialogService.Register();
             Connect.Log("VSTO FinishInitialization");
-            // 尝试提前建立与 WPS Application 的连接（失败则在点击时重试）
+            // Bind the application supplied to this VSTO add-in, never a global automation instance.
+            Connect.BindHostApplication(delegate { return ReadHostApplication(ItemProvider); });
             Connect.EnsureApplication();
             Connect.StartHostConnection();
         }
@@ -58,7 +67,7 @@ namespace Excel_Iterate
             Connect.CloseDataMigrationForm();
             Connect.CloseEliminationForm();   // 关掉还开着的「合并抵消」非模态窗
             Connect.ClosePdfTools();
-            Connect.HostApplication = null;
+            Connect.BindHostApplication(null);
             base.OnShutdown();
         }
 

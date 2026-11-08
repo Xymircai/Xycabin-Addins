@@ -155,30 +155,8 @@ namespace Excel_Iterate
         {
             int i = 0;
             while (i < addr.Length && char.IsLetter(addr[i])) i++;
-            col = LettersToCol(addr.Substring(0, i));
+            col = CellAddress.ColumnNumber(addr.Substring(0, i), int.MaxValue);
             row = int.Parse(addr.Substring(i));
-        }
-
-        /// <summary>列号（1 起始）→ 列字母。</summary>
-        internal static string ColToLetters(int col)
-        {
-            string s = "";
-            while (col > 0)
-            {
-                int m = (col - 1) % 26;
-                s = (char)('A' + m) + s;
-                col = (col - 1) / 26;
-            }
-            return s;
-        }
-
-        /// <summary>列字母 → 列号（1 起始）。</summary>
-        private static int LettersToCol(string letters)
-        {
-            int col = 0;
-            foreach (char ch in letters.ToUpperInvariant())
-                col = col * 26 + (ch - 'A' + 1);
-            return col;
         }
 
         /// <summary>COM 集合 1 起始索引访问。</summary>

@@ -61,7 +61,7 @@ namespace WordUpdater
 
         public string Ref()
         {
-            if (A1Style) return LinkPasteGeometry.ColToLetters(Col) + Row.ToString();
+            if (A1Style) return CellAddress.ColumnLetters(Col) + Row.ToString();
             return "R" + Row.ToString() + "C" + Col.ToString();
         }
 
@@ -141,7 +141,7 @@ namespace WordUpdater
                     object cell = null;
                     try
                     {
-                        cell = UpdateEngine.GetItem(cells, i);
+                        cell = WordComCollection.Item(cells, i);
                         if (cell == null) throw new InvalidOperationException("无法读取第 " + i + " 个选中单元格。");
                         LinkTargetCell target; long identity;
                         TargetRectStatus status = ReadCell(cell, layout, out target, out identity, out detail);
@@ -245,7 +245,7 @@ namespace WordUpdater
                 tables = ((dynamic)range).Tables;
                 int tableCount = (int)((dynamic)tables).Count;
                 if (tableCount < 1) throw new InvalidOperationException("无法定位所选单元格所属表格。");
-                parent = UpdateEngine.GetItem(tables, 1); parentRange = ((dynamic)parent).Range;
+                parent = WordComCollection.Item(tables, 1); parentRange = ((dynamic)parent).Range;
                 if ((int)((dynamic)parentRange).Start != layout.Start)
                 { detail = "所选单元格不属于同一张目标表格。"; return TargetRectStatus.MultiTable; }
                 int start = (int)((dynamic)range).Start, end = (int)((dynamic)range).End;
@@ -306,19 +306,6 @@ namespace WordUpdater
                     list.Add(new LinkCellPos(r, c));
             }
             return list;
-        }
-
-        /// <summary>列号 → 列字母（1 → A，27 → AA）。</summary>
-        internal static string ColToLetters(int col)
-        {
-            string s = "";
-            while (col > 0)
-            {
-                int m = (col - 1) % 26;
-                s = ((char)('A' + m)).ToString() + s;
-                col = (col - 1) / 26;
-            }
-            return s;
         }
     }
 }

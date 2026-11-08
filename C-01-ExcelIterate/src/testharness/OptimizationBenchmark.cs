@@ -93,6 +93,69 @@ public static class OptimizationBenchmark
         assembly.GetType("Excel_Iterate.FormatSession").GetField("SourceOverride",All).SetValue(null,Path.Combine(scratch,"missing.xml"));
         assembly.GetType("Excel_Iterate.UiDiagnostics").GetField("RootOverride",All).SetValue(null,scratch);
     }
+    private static Func<string> ArchitectureScenario(string mode, int count)
+    {
+        var assembly = typeof(Connect).Assembly;
+        if (mode == "addresses")
+        {
+            Type type = assembly.GetType("Excel_Iterate.ConversionRangeAddress");
+            MethodInfo normalize = type.GetMethod("Normalize", All), first = type.GetMethod("FirstCell", All);
+            string address = "A1:A" + count;
+            return delegate { return normalize.Invoke(null, new object[] { address }) + "|" + first.Invoke(null, new object[] { address }); };
+        }
+        if (mode == "names")
+        {
+            var targets = new List<string>();
+            for (int i = 0; i < 3000; i++) targets.Add(@"C:\fixtures\" + i.ToString("D4") + "-公司" + i + ".xlsx");
+            Type indexType = assembly.GetType("Excel_Iterate.MigrationNameIndex");
+            Type rowType = assembly.GetType("Excel_Iterate.MigrationTriggerRow");
+            MethodInfo match = assembly.GetType("Excel_Iterate.DataMigrationForm").GetMethod("MatchRow", All);
+            return delegate
+            {
+                object index = indexType == null ? null : Activator.CreateInstance(indexType, All, null, new object[] { targets }, null);
+                var values = new List<string>();
+                for (int i = 0; i < count; i++)
+                {
+                    string name = "公司" + (i % 3000);
+                    if (index != null)
+                    {
+                        var found = (IEnumerable<string>)indexType.GetMethod("Find", All).Invoke(index, new object[] { name });
+                        values.Add(string.Join("|", new List<string>(found).ToArray()));
+                    }
+                    else
+                    {
+                        object row = Activator.CreateInstance(rowType, true); rowType.GetField("Name", All).SetValue(row, name);
+                        match.Invoke(null, new object[] { row, targets });
+                        values.Add((string)rowType.GetField("Path", All).GetValue(row));
+                    }
+                }
+                return Signature(values);
+            };
+        }
+        Type planType = assembly.GetType("Excel_Iterate.MigrationPlan"), sourceType = assembly.GetType("Excel_Iterate.MigrationSourceItem"), mappingType = assembly.GetType("Excel_Iterate.MigrationMapping");
+        object source = Activator.CreateInstance(sourceType, true);
+        var mappings = (System.Collections.IList)Activator.CreateInstance(typeof(List<>).MakeGenericType(mappingType));
+        for (int i = 0; i < count; i++)
+        {
+            object mapping = Activator.CreateInstance(mappingType, true);
+            mappingType.GetField("Source", All).SetValue(mapping, source);
+            mappingType.GetField("TargetPath", All).SetValue(mapping, "target" + (i % 100)); mappings.Add(mapping);
+        }
+        Type planner = assembly.GetType("Excel_Iterate.MigrationPlanner") ?? assembly.GetType("Excel_Iterate.DataMigrationForm");
+        MethodInfo group = planner.GetMethod("Group", All);
+        return delegate
+        {
+            object plan = Activator.CreateInstance(planType, true); group.Invoke(null, new object[] { plan, mappings, true });
+            var values = new List<string>();
+            foreach (object pass in (System.Collections.IEnumerable)planType.GetField("Passes", All).GetValue(plan))
+            {
+                foreach (object mapping in (System.Collections.IEnumerable)pass.GetType().GetField("Mappings", All).GetValue(pass))
+                    values.Add((string)mappingType.GetField("TargetPath", All).GetValue(mapping));
+                values.Add("--pass--");
+            }
+            return Signature(values);
+        };
+    }
     [STAThread] public static int Main(string[] args)
     {
         Console.OutputEncoding=Encoding.UTF8;Application.EnableVisualStyles();Isolate();
@@ -100,7 +163,8 @@ public static class OptimizationBenchmark
         var rows=mode=="diff"||mode=="matrix"?Data(count,revenue):null;var columns=Columns(revenue);
         var options=new MatrixOptions {StaticValues=true,HasConditionColumn=true,SourceFirstRow=3,SourceLastRow=count+2};
         var app=new App(count);string signature="";double cancellationMs=0;Action operation;
-        if(mode=="startup")operation=delegate{new Connect();};
+        if(mode=="names"||mode=="addresses"||mode=="group") { var scenario=ArchitectureScenario(mode,count); operation=delegate {signature=scenario();}; }
+        else if(mode=="startup")operation=delegate{new Connect();};
         else if(mode=="cancel")operation=delegate{
             cancellationRequested=false;cancelClock=new Stopwatch();
             var found=DependentTrackerEngine.TraceDependents(app,null,delegate{return cancellationRequested;});

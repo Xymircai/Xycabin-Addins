@@ -666,7 +666,7 @@ public sealed class FakeRange {
     internal readonly FakeSheet Sheet;internal readonly FakeCell First,Last;private FakeSheet sheet{get{return Sheet;}}private FakeCell first{get{return First;}}private FakeCell last{get{return Last;}}
     public FakeRange(FakeSheet sheet,FakeCell first,FakeCell last){Sheet=sheet;First=first;Last=last;Font=new FakeFont(All);Interior=new FakeInterior(All);}
     public IEnumerable<FakeCell> All(){for(int r=first.Row;r<=last.Row;r++)for(int c=first.Column;c<=last.Column;c++)yield return sheet.Cells[r,c];}
-    internal string Address{get{return ComFormulaHost.Address(first.Row,first.Column)+":"+ComFormulaHost.Address(last.Row,last.Column);}}
+    internal string Address{get{return CellAddress.Name(first.Row,first.Column)+":"+CellAddress.Name(last.Row,last.Column);}}
     public object Formula {get {var a=new object[last.Row-first.Row+1,last.Column-first.Column+1];for(int r=first.Row;r<=last.Row;r++)for(int c=first.Column;c<=last.Column;c++)a[r-first.Row,c-first.Column]=sheet.Cells[r,c].Formula;return a;}}
     public object Value2 {get {var a=new object[last.Row-first.Row+1,last.Column-first.Column+1];for(int r=first.Row;r<=last.Row;r++)for(int c=first.Column;c<=last.Column;c++)a[r-first.Row,c-first.Column]=sheet.Cells[r,c].Value2;return a;}set {var a=(object[,])value;for(int r=first.Row;r<=last.Row;r++)for(int c=first.Column;c<=last.Column;c++){if(sheet.Cells[r,c].EntireRow.Hidden)continue;sheet.Cells[r,c].Value2=a[r-first.Row,c-first.Column];sheet.Cells[r,c].HasFormula=false;if(sheet.FailWrite){sheet.FailWrite=false;throw new IOException("injected partial write");}}}}
     public object NumberFormat {set {for(int r=first.Row;r<=last.Row;r++)for(int c=first.Column;c<=last.Column;c++)sheet.Cells[r,c].NumberFormat=value;}}
@@ -696,3 +696,4 @@ public sealed class FakeSheet {
     public FakeSheet(FakeWorkbook workbook){Parent=workbook;Cells=new FakeCells(this);Range=new FakeRanges(this);}
 }
 #endif
+

@@ -8,54 +8,52 @@ namespace Excel_Iterate
 {
     internal static class ConversionRangeAddress
     {
-        private static readonly Regex Cell = new Regex(@"^\$?([A-Za-z]{1,3})\$?([1-9][0-9]*)$", RegexOptions.Compiled);
         internal const int MaximumCells = 100000;
-        internal static string CellName(int row, int column)
+        internal static int[] Coordinates(string token) { return CellAddress.Coordinates(token); }
+        private static IList<int[]> Areas(string address)
         {
-            string name = "";
-            while (column > 0) { column--; name = (char)('A' + column % 26) + name; column /= 26; }
-            return name + row.ToString(CultureInfo.InvariantCulture);
-        }
-        private static int[] Coordinates(string token)
-        {
-            Match match = Cell.Match(token.Trim()); int column = 0; long row;
-            if (!match.Success || !long.TryParse(match.Groups[2].Value, out row) || row > 1048576) throw new FormatException("请输入有效的 A1 单元格或矩形区域，例如 A1:B10；多区域以英文逗号分隔。");
-            foreach (char c in match.Groups[1].Value.ToUpperInvariant()) column = column * 26 + c - 'A' + 1;
-            if (column > 16384) throw new FormatException("区域列号超过工作表上限。");
-            return new[] { (int)row, column };
+            if (string.IsNullOrWhiteSpace(address)) throw new FormatException("请选择或输入单元格区域。");
+            var areas = new List<int[]>(); long count = 0;
+            foreach (string area in address.Split(','))
+            {
+                string[] ends = area.Trim().Split(':');
+                if (ends.Length > 2) throw new FormatException("区域地址无效。");
+                int[] a = Coordinates(ends[0]), b = Coordinates(ends[ends.Length - 1]);
+                int top = Math.Min(a[0], b[0]), bottom = Math.Max(a[0], b[0]), left = Math.Min(a[1], b[1]), right = Math.Max(a[1], b[1]);
+                long size = (long)(bottom - top + 1) * (right - left + 1);
+                if (size > MaximumCells) throw new FormatException("单批最多处理 100000 个单元格，请缩小区域。");
+                count += size; areas.Add(new[] { top, left, bottom, right });
+            }
+            if (count > MaximumCells)
+            {
+                var seen = new HashSet<long>();
+                foreach (var area in areas)
+                    for (int row = area[0]; row <= area[2]; row++) for (int col = area[1]; col <= area[3]; col++)
+                        if (seen.Add(((long)row << 15) | (uint)col) && seen.Count > MaximumCells)
+                            throw new FormatException("单批最多处理 100000 个单元格，请缩小区域。");
+            }
+            return areas;
         }
         internal static IList<string> Cells(string address)
         {
-            if (string.IsNullOrWhiteSpace(address)) throw new FormatException("请选择或输入单元格区域。");
-            var names = new List<string>(); var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string area in address.Split(','))
-            {
-                string[] ends = area.Trim().Split(':'); if (ends.Length > 2) throw new FormatException("区域地址无效。");
-                int[] a = Coordinates(ends[0]), b = Coordinates(ends[ends.Length - 1]);
-                int top = Math.Min(a[0], b[0]), bottom = Math.Max(a[0], b[0]), left = Math.Min(a[1], b[1]), right = Math.Max(a[1], b[1]);
-                if ((long)(bottom - top + 1) * (right - left + 1) > MaximumCells) throw new FormatException("单批最多处理 100000 个单元格，请缩小区域。");
-                for (int row = top; row <= bottom; row++) for (int col = left; col <= right; col++)
-                {
-                    string name = CellName(row, col);
-                    if (seen.Add(name)) names.Add(name);
-                    if (names.Count > MaximumCells) throw new FormatException("单批最多处理 100000 个单元格，请缩小区域。");
-                }
-            }
+            var names = new List<string>(); var seen = new HashSet<long>();
+            foreach (var area in Areas(address))
+                for (int row = area[0]; row <= area[2]; row++) for (int col = area[1]; col <= area[3]; col++)
+                    if (seen.Add(((long)row << 15) | (uint)col)) names.Add(CellAddress.Name(row, col));
             return names;
         }
         internal static string Normalize(string address)
         {
-            Cells(address); var result = new List<string>();
-            foreach (string area in address.Split(','))
+            var result = new List<string>();
+            foreach (var area in Areas(address))
             {
-                string[] ends = area.Trim().Split(':'); int[] a = Coordinates(ends[0]), b = Coordinates(ends[ends.Length - 1]);
-                string first = CellName(Math.Min(a[0], b[0]), Math.Min(a[1], b[1])), last = CellName(Math.Max(a[0], b[0]), Math.Max(a[1], b[1]));
+                string first = CellAddress.Name(area[0], area[1]), last = CellAddress.Name(area[2], area[3]);
                 result.Add(first == last ? first : first + ":" + last);
             }
             return string.Join(",", result);
         }
         internal static string FirstCell(string address)
-        { return Normalize(address).Split(',')[0].Split(':')[0]; }
+        { var area = Areas(address)[0]; return CellAddress.Name(area[0], area[1]); }
         // Compress adjacent cells before constructing a calculation union in the host.
         internal static IList<string> Rectangles(IList<string> addresses)
         {
@@ -71,7 +69,7 @@ namespace Excel_Iterate
                 else { block = new[] { row, left, row, right }; blocks.Add(block); last[key] = block; }
             }
             var result = new List<string>();
-            foreach (var block in blocks) { string first = CellName(block[0], block[1]), end = CellName(block[2], block[3]); result.Add(first == end ? first : first + ":" + end); }
+            foreach (var block in blocks) { string first = CellAddress.Name(block[0], block[1]), end = CellAddress.Name(block[2], block[3]); result.Add(first == end ? first : first + ":" + end); }
             return result;
         }
     }
@@ -80,11 +78,12 @@ namespace Excel_Iterate
     internal sealed class ConversionPreview
     {
         internal readonly string Address, CellAddress, Display, Formula;
-        internal readonly bool IsFormula, IsNumeric;
+        internal readonly bool IsFormula, IsNumeric, IsBlank;
         internal ConversionPreview(string address, ConversionCellState state)
         {
-            Address = ConversionRangeAddress.Normalize(address); CellAddress = ConversionRangeAddress.FirstCell(Address);
+            Address = ConversionRangeAddress.Normalize(address); CellAddress = Address.Split(',')[0].Split(':')[0];
             Display = state.Display ?? ""; Formula = state.Formula; IsFormula = state.IsFormula; IsNumeric = CellConversionEngine.IsNumeric(state.Value);
+            IsBlank = !state.IsFormula && state.Value == null;
         }
     }
 
@@ -97,7 +96,7 @@ namespace Excel_Iterate
         ConversionPreview ReadPreview(string address);
     }
     // All methods and owned COM references stay on the original host STA.
-    internal sealed class ComConversionHost : IConversionSessionHost
+    internal sealed partial class ComConversionHost : IConversionSessionHost
     {
         private readonly object application;
         private object worksheet;
@@ -147,7 +146,7 @@ namespace Excel_Iterate
                         int row = System.Convert.ToInt32(((dynamic)area).Row), col = System.Convert.ToInt32(((dynamic)area).Column);
                         int height = System.Convert.ToInt32(((dynamic)rows).Count), width = System.Convert.ToInt32(((dynamic)columns).Count);
                         if ((long)height * width > ConversionRangeAddress.MaximumCells) throw new InvalidOperationException("单批最多处理 100000 个单元格，请缩小区域。");
-                        addresses.Add(ConversionRangeAddress.CellName(row, col) + ":" + ConversionRangeAddress.CellName(row + height - 1, col + width - 1));
+                        addresses.Add(CellAddress.Name(row, col) + ":" + CellAddress.Name(row + height - 1, col + width - 1));
                     }
                     finally { Release(columns); Release(rows); Release(area); }
                 }
@@ -202,8 +201,9 @@ namespace Excel_Iterate
             RecheckScope(); var addresses = new List<string>();
             foreach (var item in targets)
             {
-                var target = item as ComCell; if (target == null) throw new InvalidOperationException("计算目标不属于本次转换。");
-                addresses.Add(target.LocalAddress);
+                var target = item as ComCell; var batch = item as BatchComCell;
+                if (target == null && batch == null) throw new InvalidOperationException("计算目标不属于本次转换。");
+                addresses.Add(target == null ? batch.LocalAddress : target.LocalAddress);
             }
             object combined = null;
             try
@@ -302,8 +302,18 @@ namespace Excel_Iterate
                 range.NumberFormat = state.IsFormula || state.Value is string ? "General" : state.NumberFormat;
                 if (state.IsFormula)
                 {
-                    try { if (formula2) range.Formula2 = state.Formula; else range.Formula = state.Formula; }
-                    catch (Exception ex) { if (!formula2 || !Missing(ex)) throw; formula2 = false; range.Formula = state.Formula; }
+                    try
+                    {
+                        try { if (formula2) range.Formula2 = state.Formula; else range.Formula = state.Formula; }
+                        catch (Exception ex) { if (!formula2 || !Missing(ex)) throw; formula2 = false; range.Formula = state.Formula; }
+                    }
+                    catch (COMException error)
+                    {
+                        // Excel and WPS surface formula input rejection at this setter;
+                        // transport/member errors and format writes must not enter this path.
+                        if (BatchTextEditEngine.IsSyntaxRejection(error)) throw new FormulaInputRejectedException(error);
+                        throw;
+                    }
                 }
                 else if (state.Value == null) range.ClearContents();
                 else if (state.Value is string) range.Formula = "'" + (string)state.Value;

@@ -115,7 +115,7 @@ namespace Excel_Iterate
                 if(column.Role==EliminationRole.Ignore)continue;
                 using(var bag=new ComBag())
                 {
-                    dynamic range=bag.Own(((dynamic)sheet).Range[ComFormulaHost.Address(header+1+offset,column.Number)+":"+ComFormulaHost.Address(header+offset+height,column.Number)]);
+                    dynamic range=bag.Own(((dynamic)sheet).Range[CellAddress.Name(header+1+offset,column.Number)+":"+CellAddress.Name(header+offset+height,column.Number)]);
                     object values=range.Value2;
                     for(int r=0;r<height;r++)
                     {

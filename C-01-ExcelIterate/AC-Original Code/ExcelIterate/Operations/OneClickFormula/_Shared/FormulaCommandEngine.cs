@@ -270,7 +270,7 @@ namespace Excel_Iterate
         }
         private void CollectBlock(dynamic sheet, int row, int col, int height, int width, HashSet<string> seen, List<IFormulaCell> result)
         {
-            dynamic block = Own(sheet.Range[Address(row, col) + ":" + Address(row + height - 1, col + width - 1)]);
+            dynamic block = Own(sheet.Range[CellAddress.Name(row, col) + ":" + CellAddress.Name(row + height - 1, col + width - 1)]);
             try
             {
                 object has = block.HasFormula;
@@ -287,7 +287,7 @@ namespace Excel_Iterate
                     throw new InvalidOperationException("无法可靠批量读取选区公式。");
                 for (int r = 0; r < height; r++) for (int c = 0; c < width; c++)
                 {
-                    string address = Address(row + r, col + c);
+                    string address = CellAddress.Name(row + r, col + c);
                     if (!seen.Add(address)) continue;
                     dynamic cell = Own(sheet.Range[address]);
                     bool keep = false;
@@ -312,12 +312,6 @@ namespace Excel_Iterate
                 }
             }
             finally { Drop(block); }
-        }
-        internal static string Address(int row, int col)
-        {
-            string letters = "";
-            while (col > 0) { col--; letters = (char)('A' + col % 26) + letters; col /= 26; }
-            return letters + row.ToString(CultureInfo.InvariantCulture);
         }
         private void Drop(object value)
         {

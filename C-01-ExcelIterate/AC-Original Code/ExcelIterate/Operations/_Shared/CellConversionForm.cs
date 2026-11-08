@@ -4,7 +4,7 @@ using System.Windows.Forms;
 
 namespace Excel_Iterate
 {
-    // Two registered parameter windows share the same range controls and submission boundary.
+    // Registered parameter windows share the same range controls and submission boundary.
     internal sealed class CellConversionForm : Form, IDialogDefaultLayout
     {
         private readonly CellConversionKind kind;
@@ -12,6 +12,7 @@ namespace Excel_Iterate
         private readonly RadioButton extract, filter;
         private readonly CheckBox[] kinds;
         private readonly RadioButton[] styles;
+        private readonly BatchInsertTrimDeletePanel textEdit;
         private readonly Label beforePreview, preview;
         private readonly FlowLayoutPanel actions;
         private readonly Timer previewTimer;
@@ -30,9 +31,9 @@ namespace Excel_Iterate
 
         internal CellConversionForm(CellConversionKind selectedKind, string description = null, string address = null, ConversionPreview initialPreview = null, string initialError = null)
         {
-            if (selectedKind != CellConversionKind.TextFilter && selectedKind != CellConversionKind.ReferenceStyle) throw new ArgumentException("此命令无需参数窗口。");
-            kind = selectedKind; Text = kind == CellConversionKind.TextFilter ? "文本提取与过滤" : "相对-绝对转换";
-            DialogSizing.Prepare(this, kind == CellConversionKind.TextFilter ? "conversion.text" : "formula.references", "table", Ui.Blue);
+            if (selectedKind != CellConversionKind.TextFilter && selectedKind != CellConversionKind.ReferenceStyle && selectedKind != CellConversionKind.BatchInsertTrimDelete) throw new ArgumentException("此命令无需参数窗口。");
+            kind = selectedKind; Text = kind == CellConversionKind.TextFilter ? "文本提取与过滤" : kind == CellConversionKind.BatchInsertTrimDelete ? "批量插入与删截" : "相对-绝对转换";
+            DialogSizing.Prepare(this, kind == CellConversionKind.TextFilter ? "conversion.text" : kind == CellConversionKind.BatchInsertTrimDelete ? "conversion.batchInsertTrimDelete" : "formula.references", "table", Ui.Blue);
             KeyPreview = true; AutoScroll = true;
             root = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Padding = new Padding(16, 16, 16, 12), BackColor = Ui.Canvas };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); Controls.Add(root);
@@ -44,7 +45,7 @@ namespace Excel_Iterate
             RangeInput = new TextBox { Name = "conversionRange", Text = address ?? "A1:B10", Dock = DockStyle.Fill, Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(8, 6, 8, 6), MaxLength = 32767 };
             Pick = Ui.Button("在表中选择…", 128); Pick.Name = "conversionPick";
             range.Controls.Add(rangeLabel, 0, 0); range.Controls.Add(RangeInput, 1, 0); range.Controls.Add(Pick, 2, 0); Add(range);
-            Add(Label("可输入 A1:B10 或 A1:A5,C1:C5；每批最多十万格，包含隐藏行列。", 9, false));
+            if (kind != CellConversionKind.BatchInsertTrimDelete) Add(Label("可输入 A1:B10 或 A1:A5,C1:C5；每批最多十万格，包含隐藏行列。", 9, false));
             if (kind == CellConversionKind.TextFilter)
             {
                 var modes = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, Margin = new Padding(0, 8, 0, 4) };
@@ -60,6 +61,11 @@ namespace Excel_Iterate
                 }
                 extract.CheckedChanged += delegate { RefreshPreview(); }; Add(choices);
                 Add(Label("文本、数字、日期及公式结果按显示文字筛选，结果以文本覆盖原区域。空格包括 Tab 和换行。", 9, false));
+            }
+            else if (kind == CellConversionKind.BatchInsertTrimDelete)
+            {
+                textEdit = new BatchInsertTrimDeletePanel(); textEdit.OptionsChanged += RefreshPreview; Add(textEdit);
+                Add(Label("公式按原文处理，开头 = 参与计数；移除开头 = 后按普通内容保留原格式。语法无效时先确认再转文本，计算错误值仍保留公式。真正空白格跳过。", 9, false));
             }
             else
             {
@@ -129,6 +135,7 @@ namespace Excel_Iterate
                 request.Extract = extract.Checked; request.Kinds = CellCharacterKinds.None;
                 for (int i = 0; i < kinds.Length; i++) if (kinds[i].Checked) request.Kinds |= (CellCharacterKinds)(1 << i);
             }
+            else if (kind == CellConversionKind.BatchInsertTrimDelete) request.TextEdit = textEdit.Options();
             else for (int i = 0; i < styles.Length; i++) if (styles[i].Checked) request.Style = (ReferenceStyle)i;
             request.Validate(); return request;
         }
@@ -138,16 +145,25 @@ namespace Excel_Iterate
             try
             {
                 beforePreview.Text = "修改前示例："; preview.Text = "修改后示例：";
+                string before = sample == null ? "" : kind != CellConversionKind.TextFilter && sample.IsFormula ? sample.Formula : sample.Display;
+                if (sample != null) beforePreview.Text += string.IsNullOrEmpty(before) ? "（空白）" : before;
                 var request = Request(); Apply.Enabled = false; Validation.Text = "";
                 if (readError != null) throw new InvalidOperationException(readError);
                 if (sample == null || sample.Address != request.Address) { Validation.Text = "正在读取所选区域首格…"; return; }
-                string before = kind == CellConversionKind.ReferenceStyle && sample.IsFormula ? sample.Formula : sample.Display;
-                beforePreview.Text += string.IsNullOrEmpty(before) ? "（空白）" : before;
                 string after;
                 if (kind == CellConversionKind.TextFilter)
                 {
                     if (sample.IsNumeric && before.Trim().Length > 0 && before.Trim().Trim('#').Length == 0) throw new InvalidOperationException("数值显示为 ####，请先调宽该列后重试。");
                     after = CellCharacterClassifier.Filter(before, request.Kinds, request.Extract);
+                }
+                else if (kind == CellConversionKind.BatchInsertTrimDelete)
+                {
+                    if (sample.IsBlank) { after = ""; Validation.Text = "首格为空白，将跳过；执行时仍处理区域中的其他非空单元格。"; }
+                    else
+                    {
+                        if (!sample.IsFormula && sample.IsNumeric && before.Trim().Length > 0 && before.Trim().Trim('#').Length == 0) throw new InvalidOperationException("数值显示为 ####，请先调宽该列后重试。");
+                        after = BatchTextEdit.Transform(before, request.TextEdit);
+                    }
                 }
                 else
                 {

@@ -49,6 +49,10 @@ ThisAddIn使用 `[StartupObject(0)]`、FullTrust，继承 `Microsoft.Office.Tool
 
 每次新增源码/探针同步 project.json 的 sources/tools、退出清理及产品断言。生成文件由配置/构建产生，不手改 `.g.cs`。发现旧命名空间、缺窗口映射、未知目录或错网站产品时按身份表修正，不以旧产品PASS证明新产品已受检。
 
+测试输入和业务算法分开：project.json 的 sources 编译主 DLL，tools 及 additional_sources 编译独立诊断 EXE；安装器只打包五个 VSTO 载荷，不包含这些探针。testharness 中固定的输入与独立预期结果用于验证字符边界、名称规范化、引用改写及回滚，不是实际业务的匹配清单；不应为了减少样例而删除有效断言，或调用待测算法来生成预期结果。优先采用简短的通用主体名与 fixtures 路径，保留用例所需的中文、空格、括号宽度、编号、别名及数值关系。开发者身份摘要、固定发布者与功能内约定名称属于产品契约，不按样例替换。
+
+界面预览由 DialogPreviewFactory 提供固定演示数据，仅用于尺寸和格式编辑；实际执行从当前选区读取。迁移名称匹配用例独立归组。LiveVerify 复用同一批测试行生成源表，经 LiveProbeSafety 托管自建工作簿及引用，只计算样本表，恢复宿主状态和原选区；不依赖个人样本路径、不保存用户工作簿或退出宿主。实机命令可用 `build/LiveVerify.exe --standalone --new-instance`，仅在明确注册为 WPS 的 COM 宿主中执行。
+
 首次全新产品发布者由 src/tools/MakeCertCapi.cs独立编译生成，所需引用取project_support.CSC/COMMON_REF和write_project_info；先确认唯一配置可导入且固定指纹为空，再显式运行工具，核对CurrentUser/My中的主题、有效期和HasPrivateKey，回填准确指纹并保留私钥。失败先查是否已创建，避免重复建证书。已有产品只导入原证书及私钥，绝不静默换发布者；公开.cer不能用于签名。 本机开发测试可使用 Git 忽略的 .local-signing.json 记录已存在证书的指纹，通过本机测试打包入口把当前源码复制到隔离目录，仅在副本中明确使用该证书并标注测试包；仍执行签名、载荷与完整后台验证。该本机入口只处理 Excel，不替换正式配置、不为 Word 选择 Excel 证书，不创建证书或写入信任根；输出与日志保留在 build/local-packages，成功后才更新本机最新包。
 
 ### (4). 公共源码单源与产品上下文
@@ -60,6 +64,10 @@ ThisAddIn使用 `[StartupObject(0)]`、FullTrust，继承 `Microsoft.Office.Tool
 公共实现只在C-00-Shared维护，产品project.json通过@shared/引用。source_layout.resolve_source限制访问产品目录或公共目录，拒绝缺失及越界引用；共享Python通过产品薄入口显式取得PROJECT_ROOT，不能按共享文件位置推导产品。产品身份、生成文件、库依赖和输出保持产品隔离；不新增运行时公共DLL。源码探针读取与编译相同的物理实现；缓存和构建期指纹包含公共输入。SourceLayoutProbe用摘要注入验证公共改动使两产品缓存同时失效，不在构建中修改真实源文件。
 
 SourceLayoutProbe 从保留源码在独立临时目录生成网页快照，不读取或覆盖正式 HTML；全新检出和隔离重建因此不依赖上一轮发布产物。清理验证必须排除全部旧 build 和生成网页，不能用复制旧 HTML 的方式掩盖构建输入缺失。
+
+坐标转换只在 C-00-Shared/src/addin/CellAddress.cs 实现，两个程序集直接编译同一源码。区域反向、上限、合并与数组限制由各业务保留；不从公式执行器借用坐标工具。列号越界的抛错、返回 false 或缺省 A 等契约留在原业务入口。
+
+构建与验证共用 C-00-Shared/tool_catalog.py，产品专属工具及 background 参数登记在 project.json。同一工具的编译来源、附加源码和验证参数只登记一次；后台字段缺省即不运行，不将实机探针加入缓存或后台链。SourceLayoutProbe 核对原有必跑集合、次序、--core 分流及缓存边界，联合网站构建沿产品入口消费同一结果。
 
 ### (5). 功能目录与代码索引
 
@@ -179,7 +187,7 @@ IPicture宽高是HIMETRIC，乘96/2540才得逻辑像素；DPI/OLE首次映射�
 
 | 准确称呼（对应图号）   | 实例或使用状态         | 实现、修改范围及源码入口                                                |
 | ------------ | --------------- | ----------------------------------------------------------- |
-| 选项卡／选项页（28）  | 当前项目未使用；图6为通用示意 | TabControl／TabPage；页签、选中页、切换与页面内容；不同于WPS功能区选项卡或网格中的“选项卡归属”列 |
+| 选项卡／选项页（28）  | “批量插入与删截”的插入、截取、删除三页 | TabControl／TabPage；独立保留各页参数，按当前页收高；不同于WPS功能区选项卡或网格中的“选项卡归属”列 |
 | 分组框（29）      | 当前项目未使用；图6为通用示意 | GroupBox；带标题的分组边框及内部控件；不同于3号UiCard                          |
 | 列表框（30）      | 当前项目未使用；图6为通用示意 | ListBox；选项集合、选中项、多选和滚动；不同于数据网格                              |
 | 勾选列表框（31）    | 当前项目未使用；图6为通用示意 | CheckedListBox；列表项的勾选与选中分别说明；不同于20号网格复选列                    |
@@ -248,6 +256,11 @@ DataGridView 释放时清列会触发行、可见性和列宽事件。AutoFitCol
 ## 4. 宿主线程、窗口寿命与安全预览
 
 ### (1). COM与窗口分工
+
+Excel 加载项从 ThisAddIn.ItemProvider.GetHostObject 的 Application 项取得所属宿主，使用 Excel Application 的接口 GUID，交给 Connect.BindHostApplication 缓存与探活。VSTO 绑定失败时只能重试该上下文，不回退到其他全局实例；所属宿主暂时没有工作簿也不能切换实例。全局 GetActiveObject 只留给未绑定 VSTO 的独立工具，不能把它视为当前按钮所在实例。绑定在 FinishInitialization 建立、OnShutdown 清除，关联窗口和事件仍沿原 HostApplication 生命周期释放。
+
+共用入口回归须保留“存活但无工作簿的全局实例＋另一个当前宿主”，覆盖来源获取而非直接向业务适配器注入正确 Application。CellConversionProbe 同时检查 VSTO 请求 cookie/GUID、缓存、未就绪重试和失败不回退；BatchTextEditLiveProbe --new-instance --host-binding 仅用自建簿验证转换、文件提取及链接助手的共用连接和 WPS 接口支持。该证据不能替代安装后真实按钮点击验收。
+
 
 宿主UI STA捕获稳定目标/快照并提交COM操作，窗口线程只收纯数据；临时COM引用用finally逐次ReleaseComObject，GetIUnknownForObject增加的引用逐次Marshal.Release，宿主传入的Application为借用引用不释放；工具自己GetActiveObject取得的引用逐次Release，也不将FinalReleaseComObject推广到共享RCW。对象持有期间按RCW/IUnknown加路径名称核对，关闭重开的同名对象不能冒充原目标。
 
@@ -528,11 +541,19 @@ EliminationSession集中持有网关、预检、目标、双表快照和备份�
 - **格式接入 (2) 规范**：新增 `EliminationHost.FinishMatrixOutput`——金额列会计格式（含千位分隔）、数据区垂直居中、指定列水平居中（差异表序号/年度、结果表调整事项/会计科目）、列宽 AutoFit（含表头+数据）、表头行高 26 下限、表头不换行。差异表/往来结果表/收入成本结果表三处共用。**两个结果表另按用户「格式参考」样张**：表头填充 `#4874CB`（主题色 accent1，theme1.xml 实测值）+ 白字、表头与数据区宋体 11、边框 left=medium + 其余 slantDashDot（xlSlantDashDot=13，左缘/顶缘 xlMedium=-4138）、**会计格式从 R1 SUBTOTAL 行起铺设**（fmtTop=headerRow−1）
 - **「写数值不写公式」复选框删除**：写公式多次在宿主核对环节报错（跨表引用 `$` 规范化等），`request.StaticValues` 恒 true、金额恒写静态数值；确认文案同步
 - **拖柄加固 + 留白根除**：`WidthGrip.OnPaintBackground` 由空改为铺底色（双保险）；删除 `gripSource/gripTarget` 两个行拖柄；`Ui.Grip` 包按钮时清其底边距，前导 Label 上边距 8→6、非按钮输入框上下边距归零、hint 上下边距 8→2、来源/目标间隔行 8→2、两卡片纵向 Padding 8→4。**多轮压缩无效的真根因（新增 LayoutProbe 离线测量证实）**：AutoSize 行里放 `Dock=Fill` 的子控件时，TLP 读的是子控件「当前实际高度」而非期望高度（循环依赖），卡片渲染高 100px 而内容仅需 46/38px——改 `AutoSize=true + Dock=Top` 后卡片高度由内容决定（46/38px），留白彻底消失。`UiKit.cs` 现由 C-00-Shared 单源维护
-- **公式写入核对失败（G4）修复**：结果表跨表引用 `='差异表(2)'!I3` 写入后，宿主把相对引用规范化为 `$I$3` 回读，`NormalizeFormula` 不去 `$` 致逐字符比对失败。修复：NormalizeFormula 追加 `Replace("$","")`；核对失败消息附带期望/实际公式便于诊断；写入顺序改为**先写差异表、后写结果表**（引用目标先有数据）。`MergeHeadersHost.cs` 的宿主专属差异按两产品契约分别验证
+- **公式写入核对失败（G4）修复**：结果表跨表引用 `='差异表(2)'!I3` 写入后，宿主把相对引用规范化为 `$I$3` 回读，`NormalizeFormula` 不去 `$` 致逐字符比对失败。修复：NormalizeFormula 追加 `Replace("$","")`；核对失败消息附带期望/实际公式便于诊断；写入顺序改为**先写差异表、后写结果表**（引用目标先有数据）。`MergeHeadersHost.cs` 仅由 Excel 功能编译；Word 目录未编译的旧副本已移除，不能作为另一产品契约维护。
 
 ## 6. 批量迁移数据
 
-逐行重算的文件名地址统一称“目标文件区域”。TriggerSummary 保留分号连接的单行摘要，映射面板仅在绘制时将区域行数与匹配统计拆成两行，保留状态提示和额外异常计数；不能向共用摘要直接插入换行，因为明细中的触发行链接按实际文本行号定位。日志下方说明标签默认主蓝加粗，按容器可用宽度换行，运行进度仍节流刷新；预览构造可创建原生弹出框的真实内容控件而不显示窗口。
+WPS 实机夹具须先创建定义名称，再写首次引用它的公式；否则未解析标识符可能被宿主存成 _xleta 前缀，随后补名称不能修复原公式。此类样本先对本轮基线重放，区分夹具问题与产品回归；不能放宽生产预检来使错误样本通过。
+
+
+DataMigrationForm 只编排编辑、确认和结果展示。MigrationConfiguration 捕获独立配置图并保留共享来源身份；MigrationPlanner 从快照生成计划，不依赖 WinForms、COM 或文件读取，完成后 Attach 将结果关联回原界面行。预设 JSON 及编解码在 MigrationPresets，工作表 ZIP/XML 只读快照在 MigrationSheetSnapshot，备份记录、逆序恢复及删除事务在 MigrationRecovery；既有磁盘格式和宿主执行器保持兼容。
+
+目标池的有序路径变化时建立 MigrationNameIndex，一次规范化并保存同名候选顺序，触发行直接查询；展示复用已准备行结果，不能在绘制时扫描文件池。分组按来源顺序及目标路径出现次数分配批次，同一批目标唯一、覆盖顺序不变，不再复制剩余列表后反复删除。单列审计证据中的基线是本轮开始的完整工作区，生产源码、测试、工具、生成文件及文档分别统计，共享物理源码只计一次。
+
+
+逐行重算的文件名地址统一称“目标文件区域”。TriggerSummary 产出 MatchSummary 结构化统计，单行摘要仍用分号连接；映射面板第一行显示区域行数，第二行“已匹配X行（缺失X行）。”按绿色匹配、红色缺失及普通标点分段绘制，测宽、窄窗省略与完整悬停共用同一统计，额外同名、跳过和未用计数保留；不能向共用摘要直接插入换行，因为明细中的触发行链接按实际文本行号定位。日志下方说明标签默认主蓝加粗，按容器可用宽度换行，运行进度仍节流刷新；预览构造可创建原生弹出框的真实内容控件而不显示窗口。
 
 源文件按钮紧随源工作簿输入容器，位于源工作表之前；其余控件相对顺序沿用。主窗移除全选/全不选按钮，include 表头使用 MigrationSelectionHeader 绘制文字右侧的下拉箭头，按当前字体和 DPI 为箭头预留独立内边距，仍参与统一表头最小宽度及视口分配。MigrationTargetSelectionPopup 是 ToolStripDropDown，使用现有目标行身份作为草稿键；支持按完整路径、文件名和工作表搜索、匹配项全选/反选及逐项勾选。搜索切换不丢草稿、不隐藏或重排主表；仅确定时批量应用，取消、Esc 或点击外部丢弃。真正变化时只触发一次 InputsChanged，无变化保留原预检；执行前关闭弹窗，运行中禁开并拒绝过期弹窗回写，不新增 Form 或共享弹窗登记。
 
@@ -608,15 +629,28 @@ AnnualPreview 逐公司年度生成来源路径清单，默认检查存在性并
 
 ## 8. 文本与公式结果转换
 
-六个转换入口使用 CellConversionEngine、ComConversionHost 与纯数据 ConversionRequest。共用业务位于 Operations/_Shared，参数窗通过 ConversionInteraction 登记宿主会话，ConversionWindowThread 的独立 STA 仅接收字符串、枚举、票据及不可变预览数据。InputBox(Type=8) 始终在宿主线程运行，选择期间隐藏参数窗，取消或异常恢复原输入；关闭、卸载和重复票据不提交。预览只读首个区域左上格，打开、手输地址停止 250 毫秒及选区确认后刷新，同地址重新框选也刷新；会话与请求版本丢弃过期响应。执行时重新采集全批快照，不复用预览作为提交数据。
+ConversionRangeAddress 将区域解析与单元格枚举分开：规范化和首格预览不展开大区域，批量读取复用矩形端点坐标。单区域及面积和未超限的多区域直接校验；面积和超限时才有界去重，按并集十万格限制处理重叠。实际执行仍按输入区域顺序逐行去重，不覆盖空洞、从属格或未变化内容。
 
-两个窗口默认高度以真实控件首选高度测量，按钮下方保留 12 逻辑像素；conversion.text 与 formula.references 均接入动态默认尺寸。长内容换行并按屏幕限制滚动，用户保存尺寸或本次手动调整优先，刷新不写用户尺寸配置。离线预览由工厂注入固定样例，窗口构造及 Load 不读取宿主。
 
-事务完整读取原公式、Value2 类型、NumberFormat 和单格 Text 后计算全批目标。首次写入前核结果、内容和格式；逐格写入时复核内容与格式，公式计算结果允许因本批前序写入而改变，仍写入先前快照。引用改写后只核公式和格式，避免易失函数重算被误判。setter 调用前登记尝试项，失败逆序恢复；未恢复项在 ConversionRecovery 中保存地址、原类型、原内容和格式。
+批量插入与删截通过 BatchInsertTrimDeletePanel 承载三页参数，BatchTextEdit 共用预览与 Unicode 码点算法，BatchTextEditEngine 独立执行准备、隔离预检、确认和提交。按原始字符位置判断公式开头等号是否仍保留；删除或截掉该标记后直接作为普通结果，不因后续其他等号来到开头而重新解释成公式。非公式沿用显示文字；所有未变化结果零写入。
+
+ComConversionHost.BatchTextEdit 使用至多 1024 格的连续矩形读取和提交，按原格式及写入类型分组，不填补空洞或覆盖跳过格。公式原文批量读取，仅非公式读取 Text；只在必要时逐格判断混合属性。普通结果经 Value2 写入，临时文本格式防止前导零等被解释，随后恢复原格式，不通过 Formula 添加前缀。WPS 某些版本会在 Value2 中消费一个已有的开头单引号；仅在读回证明这一行为时做一次传输转义，最终数据仍须逐字一致，不能无条件多加单引号。
+
+只有保留公式标记的候选才复制全部工作表进行同坐标、名称及表格上下文的隔离预检，不执行 Calculate。复制前记录已存在工作簿，仅关闭本次新建对象；复制部分成功后抛错也清理自有副本，未知用户工作簿不关闭。0x8FE3000B、0x800A03EC、0x80020009 仅在公式赋值阶段归入输入拒绝，其他阶段相同错误码仍属真实失败。关闭副本并恢复宿主状态后，使用已有 UiMessageForm 与 HostDialogService.ShowIsolatedResult 的独立 STA 只确认一次，默认取消，跨线程仅传只读数量与消息，业务文件不直接调用 ShowDialog。确认后重新核原快照与会话寿命；提交时新出现的语法拒绝整批回滚，不自动转文本。
+
+批次暂存并恢复 Calculation、EnableEvents 与 ScreenUpdating，避免逐格自动重算，最终只局部计算保留的公式。普通结果不进入公式赋值、隔离副本或显式计算路径；确认转文本才使用单引号前缀并保留文本格式。错误计算值公式不降级。块写前登记全块尝试项，部分写入失败也恢复全部尝试范围，回滚独立读回核验；恢复日志保留原类型、内容和格式，计时分别记录读取、预检、写入、核验及计算恢复。
+
+新窗不显示区域地址说明。原生 TabControl 建句柄期间 SelectedIndex 可短暂为 -1，参数读取使用稳定默认页；选项与窗口宽度变化后按当前页首选高度收紧参数区，示例、按钮和整体默认高度联动。用户保存或本次手动调整尺寸优先，安全工厂注入固定样本且不试写宿主。
+
+七个转换入口使用 CellConversionEngine、ComConversionHost 与纯数据 ConversionRequest。共用业务位于 Operations/_Shared，参数窗通过 ConversionInteraction 登记宿主会话，ConversionWindowThread 的独立 STA 仅接收字符串、枚举、票据及不可变预览数据。InputBox(Type=8) 始终在宿主线程运行，选择期间隐藏参数窗，取消或异常恢复原输入；关闭、卸载和重复票据不提交。预览只读首个区域左上格，打开、手输地址停止 250 毫秒及选区确认后刷新，同地址重新框选也刷新；会话与请求版本丢弃过期响应。执行时重新采集全批快照，不复用预览作为提交数据。
+
+三个窗口默认高度以真实控件首选高度测量，按钮下方保留 12 逻辑像素；conversion.text、conversion.batchInsertTrimDelete 与 formula.references 均接入动态默认尺寸。长内容换行并按屏幕限制滚动，用户保存尺寸或本次手动调整优先，刷新不写用户尺寸配置。离线预览由工厂注入固定样例，窗口构造及 Load 不读取宿主。
+
+其他转换入口仍按原事务读取原公式、Value2 类型、NumberFormat 和单格 Text 后计算全批目标。首次写入前核结果、内容和格式；逐格写入时复核内容与格式，公式计算结果允许因本批前序写入而改变，仍写入先前快照。引用改写后只核公式和格式，避免易失函数重算被误判。setter 调用前登记尝试项，失败逆序恢复；未恢复项在 ConversionRecovery 中保存地址、原类型、原内容和格式。
 
 引用转换使用专属词法扫描，只改 A1 地址端点的锁定标记，跳过引号、外部工作簿名和结构化括号；数字先识别科学记数法，标识符和函数边界避免把 LOG10 或名称片段当地址。整行整列按实际存在的轴设置锁定，长公式不依赖宿主整式转换接口。字符分类按 Unicode 码点保留代理对，汉字范围与原 OCR 兼容；OCR 继续沿用原有空白丢弃规则。
 
-转文本按宿主单格显示文字保存日期和前导零；数值全为井号时预检拒绝，文字井号保留。字符串写入用文本前缀防止等号内容执行，空结果用 ClearContents。转文本格式覆盖所选空白格的 NumberFormat，其余转换跳过空白。合并从属格跳过，数组、溢出、保护锁定及无法可靠读取的必要属性整批停止；单批上限十万格。
+转文本按宿主单格显示文字保存日期和前导零；数值全为井号时预检拒绝，文字井号保留。文本提取与公式结果转换的字符串写入仍用文本前缀防止等号内容执行，空结果用 ClearContents；批量插入与删截采用上述专用 Value2 分流。转文本格式覆盖所选空白格的 NumberFormat，其余转换跳过空白。合并从属格跳过，数组、溢出、保护锁定及无法可靠读取的必要属性整批停止；单批上限十万格。
 
 “转公式格式”作为纯展开菜单，下设“转为公式文本”和“还原文本公式”。还原只接受非公式且 Value2 为等号开头的字符串，使用 Formula2（仅成员缺失时回退 Formula）写入，保留表达式内部单引号。原文本格式改为 General，其他格式保留。先写完全部目标，再将相邻单元格压缩为矩形并合并计算范围，调用 Range.Calculate，不改变全局计算模式；写入或计算失败仍在同一事务内恢复原文本和格式。
 
@@ -635,6 +669,9 @@ B3-Spec Coding.md 为 B3 工程规范入口。改名需要同时修改 verify_de
 ## 1. LINK字段与表格选区
 
 ### (1). 建立逐格链接
+
+LinkFieldCode 持有纯来源模型、LINK/DDE 语法解析与代码生成，粘贴、查看和 ET 选区读取共同依赖它；不能反向引用粘贴或更新执行器。COM 集合的索引访问在 WordComCollection，保留宿主两种 Item 调用顺序。LinkViewEngine 的整篇更新与断开共用收集和宿主状态管理，更新仍按正序，断开按逆序；选区更新的差异单独保留。
+
 
 LinkPasteEngine优先在原文档文末临时区PasteSpecial读取WPS生成的LINK代码，删临区并恢复选区；该类型原文档探测失败后回退自建并激活临时文档，finally按不保存关闭，不能保证无新标签闪现。DataType依文本2/RTF1/OLE0，每种先命名再位置参数。Fields.Add逐格重建并沿用剪贴板表名前缀：WPS LINK用R1C1，写A1可能Update成功但结果空，须内容核对。字段形状例如 `LINK Excel.Sheet.12 "C:\路径\Book.xlsx" "Sheet1!R1C1:R4C4" \t \a`。
 
@@ -668,7 +705,7 @@ Selection.Information(12)判断表内；Table.Uniform与整表Columns.Count不�
 
 UpdateEngine扫描当前选区，ShapeRange/InlineShapes按锚点去重；只有成功更新的LINK文本参与变化比对，图片/OLE单列无文本可比，失败不算变化/不标黄。Ordinal字符串比较，不解析数字；先Trim空格/制表/CR/LF/单元格结束符\a及\0。位置依表格行列、段落、页码、兜底描述，合并格异常可降级。
 
-WordHostStateScope先完整捕获DisplayAlerts和ScreenUpdating，再记录每项触碰和恢复；任一捕获失败零修改、零链接更新，设置部分失败也恢复已触碰状态，恢复错误进入结果及诊断。更新链接与链接查看共用这一边界。EtCleanup只诊断非自有实例，移除两处固定500ms等待，不关闭用户进程。
+WordHostStateScope先完整捕获DisplayAlerts和ScreenUpdating，再记录每项触碰和恢复；任一捕获失败零修改、零链接更新，设置部分失败也恢复已触碰状态，恢复错误进入结果及诊断。粘贴链接、更新链接与链接查看共用这一边界。EtCleanup只诊断非自有实例，移除两处固定500ms等待，不关闭用户进程。
 
 ### (2). 重新定位对象
 
@@ -738,4 +775,5 @@ SOUND默认正弦640Hz/70ms、gain0.40/max1.0，仅可信主动按钮click、100
 xy-home-audio version2将旧百分比除2仅迁移一次、支持小数，旧sound开关保留；用户静音/0/曲目优先，删曲回默认、畸形或禁存储不阻本次。加载试自动播放，suspended静默；若autoplay与play_on_first_interaction都开，首次可信普通导航/指南/主题click补一次，键盘可信click也可，模拟click/音频控件/搜索输入/音量面板排除。音效开关不阻补播，可信事件内先resume、再异步解码，复用未完resume避免多源。
 
 暂停/静音/背景0/换曲/pagehide以代次令牌取消未完播放和补播资格，不能由后续普通点击恢复；手动播放可重试，旧源/调度器释放，手动解码失败显示普通状态仍可用其他网页功能。AudioProbe是隔离DOM/AudioContext状态回归、不发声；真实效果依系统音量/压缩器/录音，不能将增益倍数承诺为听感倍数。
+
 

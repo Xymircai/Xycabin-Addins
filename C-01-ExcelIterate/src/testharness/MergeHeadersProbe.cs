@@ -69,7 +69,7 @@ namespace Excel_Iterate.TestHarness
             {
                 MergeColumn column = new MergeColumn();
                 column.Number = i + 1;
-                column.Letter = FormulaRefRewriter.ColumnLetters(i + 1);
+                column.Letter = CellAddress.ColumnLetters(i + 1);
                 column.Text = headers[i];
                 column.Key = MergeKey.Normalize(headers[i]);
                 set.Columns.Add(column);
@@ -81,15 +81,15 @@ namespace Excel_Iterate.TestHarness
         static void Main()
         {
             Console.WriteLine("=== 1. 列号与列字母 ===");
-            Assert("ColumnLetters(1)=A", FormulaRefRewriter.ColumnLetters(1) == "A", FormulaRefRewriter.ColumnLetters(1));
-            Assert("ColumnLetters(4)=D", FormulaRefRewriter.ColumnLetters(4) == "D", FormulaRefRewriter.ColumnLetters(4));
-            Assert("ColumnLetters(26)=Z", FormulaRefRewriter.ColumnLetters(26) == "Z", FormulaRefRewriter.ColumnLetters(26));
-            Assert("ColumnLetters(27)=AA", FormulaRefRewriter.ColumnLetters(27) == "AA", FormulaRefRewriter.ColumnLetters(27));
-            Assert("ColumnLetters(16384)=XFD", FormulaRefRewriter.ColumnLetters(16384) == "XFD", FormulaRefRewriter.ColumnLetters(16384));
-            Assert("ColumnNumber(A)=1", FormulaRefRewriter.ColumnNumber("A") == 1, "x");
-            Assert("ColumnNumber($D)=4", FormulaRefRewriter.ColumnNumber("$D") == 4, "x");
-            Assert("ColumnNumber(XFD)=16384", FormulaRefRewriter.ColumnNumber("XFD") == 16384, "x");
-            Assert("往返 702", FormulaRefRewriter.ColumnNumber(FormulaRefRewriter.ColumnLetters(702)) == 702, "x");
+            Assert("ColumnLetters(1)=A", CellAddress.ColumnLetters(1) == "A", CellAddress.ColumnLetters(1));
+            Assert("ColumnLetters(4)=D", CellAddress.ColumnLetters(4) == "D", CellAddress.ColumnLetters(4));
+            Assert("ColumnLetters(26)=Z", CellAddress.ColumnLetters(26) == "Z", CellAddress.ColumnLetters(26));
+            Assert("ColumnLetters(27)=AA", CellAddress.ColumnLetters(27) == "AA", CellAddress.ColumnLetters(27));
+            Assert("ColumnLetters(16384)=XFD", CellAddress.ColumnLetters(16384) == "XFD", CellAddress.ColumnLetters(16384));
+            Assert("ColumnNumber(A)=1", CellAddress.ColumnNumber("A") == 1, "x");
+            Assert("ColumnNumber($D)=4", CellAddress.ColumnNumber("$D") == 4, "x");
+            Assert("ColumnNumber(XFD)=16384", CellAddress.ColumnNumber("XFD") == 16384, "x");
+            Assert("往返 702", CellAddress.ColumnNumber(CellAddress.ColumnLetters(702)) == 702, "x");
 
             Console.WriteLine("=== 2. 相对/绝对四种组合 ===");
             // 用户场景：源第 1 列（表头 D）→ 目标第 4 列，delta=+2
@@ -141,31 +141,31 @@ namespace Excel_Iterate.TestHarness
             AssertRewrite("=SUM(Sheet2!A1:B2)", d4, 2, "=SUM(Sheet2!A3:B4)");
 
             Console.WriteLine("=== 3b. 跨簿带路径 / 整列 / 混合绝对 ===");
-            AssertRewrite("=A2+'C:\\Users\\Xymircai\\Desktop\\[工32作簿1.xlsx]Sheet1'!A1",
-                Mapper(1, 1), 5, "=A7+'C:\\Users\\Xymircai\\Desktop\\[工32作簿1.xlsx]Sheet1'!A6");
-            AssertRewrite("=A6+'C:\\Users\\Xymircai\\Desktop\\[工32作簿1.xlsx]Sheet1'!A5",
-                Mapper(1, 1), 5, "=A11+'C:\\Users\\Xymircai\\Desktop\\[工32作簿1.xlsx]Sheet1'!A10");
-            AssertUnchanged("='C:\\Users\\Xymircai\\Desktop\\[工32作簿1.xlsx]Sheet1'!$A$1", Mapper(1, 1), 5);
+            AssertRewrite("=A2+'C:\\fixtures\\中文 目录\\[工32作簿1.xlsx]Sheet1'!A1",
+                Mapper(1, 1), 5, "=A7+'C:\\fixtures\\中文 目录\\[工32作簿1.xlsx]Sheet1'!A6");
+            AssertRewrite("=A6+'C:\\fixtures\\中文 目录\\[工32作簿1.xlsx]Sheet1'!A5",
+                Mapper(1, 1), 5, "=A11+'C:\\fixtures\\中文 目录\\[工32作簿1.xlsx]Sheet1'!A10");
+            AssertUnchanged("='C:\\fixtures\\中文 目录\\[工32作簿1.xlsx]Sheet1'!$A$1", Mapper(1, 1), 5);
             AssertRewrite("=Sheet1!$A1", Mapper(1, 4), 2, "=Sheet1!$A3");   // 列绝对、行相对 → 行偏移
             AssertRewrite("=Sheet1!A$1", Mapper(1, 4), 2, "=Sheet1!A$1");   // 列相对、行绝对 → 列不变
             AssertUnchanged("=SUM(Sheet1!A:A)", Mapper(1, 4), 2);           // 整列：列不变、无行 → 不变
             AssertRewrite("=SUM(Sheet1!$A1:B$2)", Mapper(1, 4), 2, "=SUM(Sheet1!$A3:B$2)"); // 区域各半绝对
 
             Console.WriteLine("=== 3c. 跨表/跨簿列物理偏移 + 跨表前缀加路径（RewriteContext）===");
-            string srcPath = "E:\\Xymircai\\A.1 CodeProject\\B-3-Wps\\B-99-实验文档\\工作簿2.xlsx";
+            string srcPath = "D:\\fixtures\\中文 目录\\工作簿2.xlsx";
             // 本表引用 B2：列映射 B→F（源列2→目标列6），行 +4 → F6
             // 跨表引用 Sheet2!E18：物理列差 +4（E→I），行 +4（18→22），前缀加路径 → '路径[工作簿2.xlsx]Sheet2'!I22
             AssertRewriteCtx("=B2+Sheet2!E18", Mapper(2, 6), 4, 4, srcPath,
-                "=F6+'E:\\Xymircai\\A.1 CodeProject\\B-3-Wps\\B-99-实验文档\\[工作簿2.xlsx]Sheet2'!I22");
+                "=F6+'D:\\fixtures\\中文 目录\\[工作簿2.xlsx]Sheet2'!I22");
             // 跨表列物理偏移：Sheet2!A1 + 物理列差 4 → Sheet2!E1，行 +2 → E3
             AssertRewriteCtx("=Sheet2!A1", Mapper(1, 1), 2, 4, srcPath,
-                "='E:\\Xymircai\\A.1 CodeProject\\B-3-Wps\\B-99-实验文档\\[工作簿2.xlsx]Sheet2'!E3");
+                "='D:\\fixtures\\中文 目录\\[工作簿2.xlsx]Sheet2'!E3");
             // 跨簿引用（已含 [）：列物理偏移、行偏移，前缀不变
             AssertRewriteCtx("=[Book1.xlsx]Sheet1!A1", Mapper(1, 1), 2, 3, srcPath,
                 "=[Book1.xlsx]Sheet1!D3");
             // 绝对引用跨表：列 $A 不动，行照偏移，前缀仍加路径
             AssertRewriteCtx("=Sheet2!$A1", Mapper(1, 1), 2, 4, srcPath,
-                "='E:\\Xymircai\\A.1 CodeProject\\B-3-Wps\\B-99-实验文档\\[工作簿2.xlsx]Sheet2'!$A3");
+                "='D:\\fixtures\\中文 目录\\[工作簿2.xlsx]Sheet2'!$A3");
             // 跨簿全绝对：完全不变
             AssertUnchanged("='D:\\p\\[工作簿1]Sheet1'!$J$8", d4, 2);
 

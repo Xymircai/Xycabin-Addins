@@ -14,7 +14,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent
 DOCS = ROOT / 'C-04-Devlog'
 sys.path.insert(0, str(ROOT / 'C-00-Shared'))
-from build_report import ordered_errors, profile_errors, BUILD_GATES, DEVELOPER_GATES, GATE_SCOPES, GATE_ROW
+from build_report import ordered_errors, profile_errors, BUILD_GATES, DEVELOPER_GATES, GATE_SCOPES, GATE_ROW, H_ITEMS, manual_spec_items
 FILES = ('B0-Entry.md', 'A-UserGuide.md', 'B1-Project-Files.md',
          'B2-DevExperience.md', 'B3-Spec Coding.md', 'B4-Code Index.md')
 LIMIT = 200
@@ -62,32 +62,13 @@ RULES = {
 }
 
 H_LINE = re.compile(r'(?m)^\*\*(H-\d{2})\*\*')
-H_ITEMS = {
-    'H-01': '维护顺序', 'H-02': '构建期禁编辑', 'H-03': '安装与卸载报告', 'H-04': '排障顺序',
-    'H-05': 'COM 方法指引', 'H-06': '弹窗真实交互验收', 'H-07': '清理触发', 'H-08': '冗余候选条件',
-    'H-09': '五类盘点', 'H-10': 'fixture 与删除边界', 'H-11': '网站经验归属', 'H-12': '固定图样不读桌面',
-}
-
-
 def check_h_items(text):
-    """Manual gates are numbered consecutively, in document order, with acceptance evidence."""
-    errors = []
-    found = H_LINE.findall(text)
-    if len(found) != len(set(found)):
-        errors.append('B3: 人工门禁条目 H 编号重复')
-    missing = sorted(set(H_ITEMS) - set(found))
-    extra = sorted(set(found) - set(H_ITEMS))
-    if missing:
-        errors.append('B3: 缺少人工门禁条目 ' + ', '.join(missing))
-    if extra:
-        errors.append('B3: 未登记人工门禁条目 ' + ', '.join(extra))
-    expected = ['H-%02d' % index for index in range(1, len(H_ITEMS) + 1)]
-    if found and found != expected:
-        errors.append('B3: 人工门禁条目顺序必须为 H-01…H-%02d' % len(H_ITEMS))
-    for line in text.split('\n'):
-        if H_LINE.match(line) and '验收：' not in line:
-            errors.append('B3: ' + line[:6] + ' 缺少“验收/证据”记录')
-    return errors
+    """Check the manual checklist's metadata, without executing its instructions."""
+    try:
+        manual_spec_items(text)
+    except ValueError as error:
+        return ['B3: ' + str(error)]
+    return []
 
 
 def markdown_gate():
@@ -534,9 +515,9 @@ def self_test():
     assert any('失败语义' in item for item in check_gate_inventory(sample.replace('| FAIL |', '| 硬错 |', 1)))
     assert set(RULES) == {'R-%02d' % index for index in range(1, 31)}
     assert H_LINE.findall('**H-01** 甲。验收：x。证据：y。\n**H-02** 乙。验收：x。证据：y。\n') == ['H-01', 'H-02']
-    hsample = '\n'.join('**H-%02d** 甲。验收：人工。证据：记录。' % index for index in range(1, 13))
+    hsample = (DOCS / 'B3-Spec Coding.md').read_text(encoding='utf-8-sig')
     assert check_h_items(hsample) == []
-    assert any('缺少人工门禁条目 H-12' in item for item in check_h_items('\n'.join(hsample.split('\n')[:-1])))
+    assert any('缺少人工门禁条目 H-13' in item for item in check_h_items(re.sub(r'^\*\*H-13\*\*.*$', '', hsample, flags=re.M)))
     assert any('H 编号重复' in item for item in check_h_items(hsample + '\n**H-01** 乙。验收：人工。证据：记录。'))
     swapped = hsample.replace('**H-01**', '**H-X1**').replace('**H-02**', '**H-01**').replace('**H-X1**', '**H-02**')
     assert any('顺序' in item for item in check_h_items(swapped))

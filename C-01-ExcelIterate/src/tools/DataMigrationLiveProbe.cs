@@ -207,12 +207,17 @@ internal static class DataMigrationLiveProbe
                 Make(session, application, source, 51, "源表", delegate(object book, object sheet)
                 {
                     Cell(session, sheet, "A1", 10.0, false);
+                    // Declare the name before its first formula use; WPS otherwise
+                    // serializes the unresolved identifier as _xleta.Rate.
+                    using (var refs = session.References())
+                    {
+                        dynamic names = refs.Take(((dynamic)book).Names); refs.Take(names.Add("Rate", "='源表'!$A$1", true));
+                    }
                     string external = "'" + Path.Combine(Path.GetDirectoryName(third), "[" + Path.GetFileName(third) + "]明细").Replace("'", "''") + "'!A1";
                     Cell(session, sheet, "B1", "=A1+$A$1+" + external + "+Rate", true);
                     Cell(session, sheet, "C1", "=普通文本", false); Cell(session, sheet, "B2", 123.5, false);
                     using (var refs = session.References())
                     {
-                        dynamic names = refs.Take(((dynamic)book).Names); refs.Take(names.Add("Rate", "='源表'!$A$1", true));
                         dynamic merge = refs.Take(((dynamic)sheet).Range["B3:C3"]); merge.Merge(); merge.Value2 = "合并标题";
                         dynamic font = refs.Take(merge.Font); font.Bold = true; font.Color = 255;
                         dynamic fill = refs.Take(merge.Interior); fill.Color = 15658734;

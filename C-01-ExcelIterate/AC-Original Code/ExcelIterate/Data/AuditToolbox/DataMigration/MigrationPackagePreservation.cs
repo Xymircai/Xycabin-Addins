@@ -78,7 +78,7 @@ namespace Excel_Iterate
                     // but must not reapply source number formats after saving.
                     if (keepFormat) for (int r = range.Row; r < range.Row + range.Rows; r++) for (int c = range.Column; c < range.Column + range.Columns; c++)
                     {
-                        string address = MigrationArea.Cell(r, c); XmlElement cell; cells.TryGetValue(address, out cell); int style;
+                        string address = CellAddress.Name(r, c); XmlElement cell; cells.TryGetValue(address, out cell); int style;
                         if (cell != null && cell.HasAttribute("s")) style = Style(cell);
                         else if (!rows.TryGetValue(r, out style)) columns.TryGetValue(c, out style);
                         Format format;if(!formatCache.TryGetValue(style,out format))formatCache[style]=format=NumberFormat(styles,style);result.formats[address]=format;
@@ -91,7 +91,7 @@ namespace Excel_Iterate
                         for (int r = m.Row; r < m.Row + m.Rows; r++) for (int c = m.Column; c < m.Column + m.Columns; c++)
                         {
                             if (r == m.Row && c == m.Column) continue;
-                            string address = MigrationArea.Cell(r, c); XmlElement cell;
+                            string address = CellAddress.Name(r, c); XmlElement cell;
                             if (!cells.TryGetValue(address, out cell))continue;
                             if (Child(cell, "f") != null) throw new InvalidOperationException("合并从属格包含隐藏公式，暂不能可靠迁移：" + address);
                             if (Child(cell, "v") == null && Child(cell, "is") == null)continue;
@@ -109,7 +109,7 @@ namespace Excel_Iterate
             }
         }
         private string Destination(string address, MigrationTarget target)
-        { var p = MigrationArea.Parse(address); return MigrationArea.Cell(p.Row + target.Area.Row - area.Row, p.Column + target.Area.Column - area.Column); }
+        { var p = MigrationArea.Parse(address); return CellAddress.Name(p.Row + target.Area.Row - area.Row, p.Column + target.Area.Column - area.Column); }
         private static XmlElement EnsureCell(XmlDocument doc, Dictionary<string, XmlElement> cells, string address)
         {
             XmlElement cell; if (cells.TryGetValue(address, out cell)) return cell;

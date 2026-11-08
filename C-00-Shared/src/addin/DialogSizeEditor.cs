@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
@@ -298,3 +298,4 @@ Status.Text="已更新尺寸草稿；点击保存设置后，下次打开对应�
         }
     }
 }
+

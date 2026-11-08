@@ -57,10 +57,12 @@
     "src/tools/ValidateXmlSig.cs",
     "src/testharness/RuntimeQualityProbe.cs",
     "src/tools/source_layout_probe.py",
-    "src/tools/package_identity_probe.py"
+    "src/tools/package_identity_probe.py",
+    "src/addin/CellAddress.cs",
+    "tool_catalog.py"
   ],
   "entries": [
-    "AA-Program/\u4e00\u952e\u91cd\u5efa\u5e76\u6253\u5305.bat",
+    "AA-Program/一键重建并打包.bat",
     "build.py",
     "build_installer.py",
     "gen_manifest.py",

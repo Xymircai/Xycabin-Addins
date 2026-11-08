@@ -236,6 +236,18 @@ partial class Feature099Probe
     }
     static void Formatting() {
         DialogSizeStore.RootOverride=sandbox;DialogSizing.Initialize();
+        using(var form=new Form {ClientSize=new Size(320,280)})using(var parking=new Panel()) {
+            var background=new Panel {Bounds=new Rectangle(0,90,300,180),BackColor=Color.LightGreen};
+            var viewport=new Panel {Bounds=new Rectangle(0,0,300,80),BackColor=Color.White};
+            viewport.Controls.Add(new TextBox {Bounds=new Rectangle(10,120,80,24),Text="clipped text"});
+            viewport.Controls.Add(new RichTextBox {Bounds=new Rectangle(110,120,80,40),Text="clipped rich text"});
+            viewport.Controls.Add(new ComboBox {Bounds=new Rectangle(210,120,80,24),Text="clipped choice"});
+            form.Controls.Add(background);form.Controls.Add(viewport);form.TopLevel=false;form.FormBorderStyle=FormBorderStyle.None;parking.Controls.Add(form);form.Show();
+            using(var surface=new PreviewSelectionOverlay(form)) {surface.RefreshSnapshot();using(var image=new Bitmap(surface.Width,surface.Height)) {
+                surface.DrawToBitmap(image,new Rectangle(Point.Empty,image.Size));
+                foreach(int x in new[]{30,130,230})Check(image.GetPixel(x,130).ToArgb()==Color.LightGreen.ToArgb(),"native preview text respects parent clipping "+x);
+            }}
+        }
         foreach(var id in new[]{"agent.sort","agent.name","agent.format","agent.notes","agent.dialogsizes"}) {
             Console.WriteLine("Formatting preview: "+id);
             using(var form=DialogPreviewFactory.Create(id,DialogCatalog.Find(id).Default)) {
@@ -684,3 +696,4 @@ public sealed class FakeSheet {
     public FakeSheet(FakeWorkbook workbook){Parent=workbook;Cells=new FakeCells(this);Range=new FakeRanges(this);}
 }
 #endif
+

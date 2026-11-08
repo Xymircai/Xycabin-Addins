@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 
@@ -54,7 +55,7 @@ namespace Excel_Iterate
         internal BatchProgressSession OpenProgress()
         { if (ProgressSession != null) ProgressSession.Close(); ProgressSession = new BatchProgressSession("单体汇总批量链接"); return ProgressSession; }
         private bool busy;
-        private BatchPresetBar presetBar;
+        private BatchPresetActions presets;
         private bool canUndo;
         private bool previewOk;
         private bool suspendInvalidate;
@@ -66,6 +67,7 @@ namespace Excel_Iterate
         private readonly List<Control> selectionButtons = new List<Control>();
         internal event Action WorkbooksRequested, BrowseRequested, CurrentRequested;
         internal event Action<string> WorkbookRequested;
+        internal event Action<BatchPreset> PresetRequested;
         internal event Action PreviewRequested;
         internal event Action ExecuteRequested;
         internal event Action UndoRequested;
@@ -117,15 +119,17 @@ namespace Excel_Iterate
             row2.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             row2.Controls.Add(workbookLabel, 0, 0);
             row2.Controls.Add(hostLabel, 0, 1);
+            Action showContext = delegate { workbookLabel.Visible = workbookLabel.Text.Length > 0; hostLabel.Visible = hostLabel.Text.Length > 0; row2.Visible = workbookLabel.Text.Length > 0 || hostLabel.Text.Length > 0; };
+            workbookLabel.TextChanged += delegate { showContext(); }; hostLabel.TextChanged += delegate { showContext(); }; showContext();
 
             TableLayoutPanel paramsPanel = new TableLayoutPanel
             { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, RowCount = 7, Name = "paramPanel" };
             paramsPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             for (int i = 0; i < 7; i++) paramsPanel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            paramsPanel.Controls.Add(picker, 0, 0);
-            presetBar = new BatchPresetBar("summary", CapturePreset, ApplyPreset,
+            presets = new BatchPresetActions(this, "summary", CapturePreset,
+                delegate(BatchPreset value) { if (PresetRequested != null) PresetRequested(value); else ApplyPreset(value); },
                 delegate { return !busy && !canUndo; }, AppendLog);
-            paramsPanel.Controls.Add(presetBar, 0, 6);
+            paramsPanel.Controls.Add(presets.Header(picker), 0, 0);
             paramsPanel.Controls.Add(row2, 0, 1);
             paramsPanel.Controls.Add(rowA, 0, 2);
             paramsPanel.Controls.Add(rowB, 0, 3);
@@ -482,20 +486,36 @@ namespace Excel_Iterate
         internal void ApplyPreset(BatchPreset preset)
         {
             if (busy || canUndo) throw new InvalidOperationException("执行期间或有待还原结果时不能应用预设。");
-            BatchPresetStore.Validate(preset, "summary");
-            var fields = PresetFields(); var values = preset.Values; BatchPresetStore.ValidateFields(fields, values);
             if (workbookPath.Length == 0) throw new InvalidOperationException("请先选择工作簿；原文件位置：" + preset.Context);
-            if (!leadSheet.Items.Contains(values["lead"]) || !TargetSheet.Items.Contains(values["target"])) throw new InvalidOperationException("当前工作簿缺少预设中的 Lead 或汇总工作表。");
-            int n;
-            foreach (string key in new[] { "header", "targetHeader" })
-                if (!int.TryParse(values[key], out n) || n < 1 || n > 1048576) throw new InvalidOperationException("预设表头行无效：" + key);
-            if (!SummaryColumns.TryParse(values["column"], out n)) throw new InvalidOperationException("预设模板列无效。");
+            ValidatePreset(preset, leadSheet.Items.Cast<string>().ToList());
+            ApplyPresetValues(preset);
+        }
+        internal void ApplyPreparedPreset(BatchPreset preset, string path, List<string> sheets)
+        {
+            if (canUndo) throw new InvalidOperationException("有待还原结果时不能应用预设。");
+            ValidatePreset(preset, sheets);
+            SetContext(path, sheets, preset.Values["lead"], preset.Values["target"], "");
+            ApplyPresetValues(preset);
+        }
+        private void ApplyPresetValues(BatchPreset preset)
+        {
+            var fields = PresetFields(); var values = preset.Values;
             suspendInvalidate = true;
             try { BatchPresetStore.Apply(fields, values); }
             finally { suspendInvalidate = false; }
             annualOptions.Visible = AnnualMode.Checked; Companies.Rows.Clear();
             InvalidatePreview(this, EventArgs.Empty);
             AppendLog("预设未携带公司名单；请刷新公司列表并重新预检。当前文件：" + workbookPath + "；保存时文件：" + preset.Context);
+        }
+        internal void ValidatePreset(BatchPreset preset, IList<string> sheets)
+        {
+            BatchPresetStore.Validate(preset, "summary");
+            var fields = PresetFields(); var values = preset.Values; BatchPresetStore.ValidateFields(fields, values);
+            if (!sheets.Contains(values["lead"]) || !sheets.Contains(values["target"])) throw new InvalidOperationException("工作簿缺少预设中的 Lead 或汇总工作表。");
+            int n;
+            foreach (string key in new[] { "header", "targetHeader" })
+                if (!int.TryParse(values[key], out n) || n < 1 || n > 1048576) throw new InvalidOperationException("预设表头行无效：" + key);
+            if (!SummaryColumns.TryParse(values["column"], out n)) throw new InvalidOperationException("预设模板列无效。");
         }
         internal void SetUndoAvailable(bool value) { canUndo = value; RefreshActions(); }
         internal void MarkUndone() { canUndo = false; RefreshActions(); }
@@ -504,7 +524,7 @@ namespace Excel_Iterate
         private void RefreshActions()
         {
             bool idle = !busy && !canUndo;
-            if (presetBar != null) presetBar.Enabled = idle;
+            if (presets != null) presets.Gear.Enabled = idle;
             Workbooks.Enabled = BrowseWorkbook.Enabled = CurrentWorkbook.Enabled = RefreshWorkbooks.Enabled = idle;
             TargetSheet.Enabled = idle && workbookPath.Length > 0;
             AnnualMode.Enabled = annualOptions.Enabled = idle;

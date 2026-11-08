@@ -149,7 +149,7 @@ internal static class DialogSizesProbe
             Check(!Directory.Exists(root),"default measurement creates no preferences, business files or logs");
             Check((Size)Field(Call(catalog,"Find","agent.dialogsizes"),"Default")==new Size(1520,640),"settings default is 1520 logical client width");
             // 5 个 PDF 工具窗口位于 #endif 之后的公共区段，两个宿主都会加载。
-            Check(definitions.Length==(ns.StartsWith("Word")?17:46),"complete host-specific catalog count including conversion and migration preset windows");
+            Check(definitions.Length==(ns.StartsWith("Word")?17:48),"complete host-specific catalog count including conversion and migration preset windows");
             if(!ns.StartsWith("Word"))foreach(string id in new[]{"migration.preset.name","migration.preset.manager","migration.preset.relocate"})
                 Check(Call(catalog,"Find",id)!=null,"registered preset window: "+id);
             Check((Call(catalog,"Find","conversion.text")!=null)==!ns.StartsWith("Word")&&(Call(catalog,"Find","formula.references")!=null)==!ns.StartsWith("Word"),"conversion dialogs registered only for Excel");

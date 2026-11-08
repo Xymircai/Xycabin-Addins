@@ -125,6 +125,39 @@ namespace Excel_Iterate
             }
             finally { form.SetBusy(false); _busy = false; }
         }
+        private static void RunSummaryPreset(SingleSummaryForm form, BatchPreset preset)
+        {
+            if (_busy || (_summarySession != null && _summarySession.CanUndo)) throw new InvalidOperationException("当前任务或待还原批次不允许应用预设。");
+            SummaryWorkbookBinding candidate = null; bool committed = false;
+            _busy = true; form.SetBusy(true);
+            try
+            {
+                candidate = new SummaryWorkbookBinding(_app); candidate.Browse(preset.Context);
+                using (var bag = new ComBag())
+                {
+                    object book = candidate.RequireBook(); dynamic sheets = bag.Own(((dynamic)book).Worksheets);
+                    var names = new List<string>();
+                    for (int i = 1; i <= Convert.ToInt32(sheets.Count); i++) using (var one = new ComBag()) names.Add(Convert.ToString(((dynamic)one.Own(sheets.Item(i))).Name));
+                    form.ValidatePreset(preset, names);
+                    object lead = bag.Own(sheets.Item(preset.Values["lead"]));
+                    SummaryLeadReader.Read(lead, int.Parse(preset.Values["header"], CultureInfo.InvariantCulture));
+                    // All file/sheet/parameter checks precede replacing either binding
+                    // or controls. No audit cells are written during preset loading.
+                    form.ApplyPreparedPreset(preset, candidate.Path, names);
+                    var previous = _summaryWorkbook; _summaryWorkbook = candidate; candidate = null; committed = true;
+                    _summarySession = null;
+                    if (previous != null) try { previous.Dispose(); } catch (Exception error) { Log("预设应用后释放旧绑定失败：" + error); }
+                    try { form.SetWorkbooks(_summaryWorkbook.Choices(), _summaryWorkbook.Path); } catch (Exception error) { form.AppendLog("预设已应用，列表刷新失败：" + error.Message); }
+                }
+            }
+            finally
+            {
+                if (!committed && candidate != null && candidate.OpenedByBrowse)
+                    try { using (var quiet = new HostQuiet(_app)) ((dynamic)candidate.RequireBook()).Close(false); } catch (Exception error) { Log("预设未应用，关闭自建打开文件失败：" + error); }
+                if (candidate != null) candidate.Dispose();
+                form.SetBusy(false); _busy = false;
+            }
+        }
 
         private static void RunSummaryBrowse(SingleSummaryForm form)
         {

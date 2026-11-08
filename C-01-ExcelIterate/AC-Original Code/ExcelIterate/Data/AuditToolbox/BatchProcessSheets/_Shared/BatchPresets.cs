@@ -1,10 +1,11 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
+using System.Text;
 using System.Windows.Forms;
 
 namespace Excel_Iterate
@@ -21,6 +22,35 @@ namespace Excel_Iterate
     }
     internal static class BatchPresetStore
     {
+        internal static string Encode(BatchPreset value)
+        { using (var stream = new MemoryStream()) { new DataContractJsonSerializer(typeof(BatchPreset)).WriteObject(stream, value); return Encoding.UTF8.GetString(stream.ToArray()); } }
+        internal static BatchPreset Decode(string json, string feature)
+        {
+            if (json == null || Encoding.UTF8.GetByteCount(json) > 1024 * 1024) throw new InvalidDataException("预设超过大小限制。");
+            BatchPreset value;
+            using (var stream = new MemoryStream(Encoding.UTF8.GetBytes(json))) value = (BatchPreset)new DataContractJsonSerializer(typeof(BatchPreset)).ReadObject(stream);
+            Validate(value, feature); return value;
+        }
+        internal static string UniqueName(string feature, string name)
+        { string candidate = name; int suffix = 2; while (File.Exists(FileFor(feature, candidate))) candidate = name.Substring(0, Math.Min(name.Length, 70)) + " (" + suffix++ + ")"; return candidate; }
+        internal static string Import(string file, string feature)
+        {
+            var value = Read(file, feature); value.Name = UniqueName(feature, value.Name);
+            string target = FileFor(feature, value.Name); Write(target, value, false); return target;
+        }
+        internal static string Rename(string file, string feature, string name)
+        {
+            string target = FileFor(feature, name); var value = Read(file, feature); value.Name = name.Trim();
+            if (string.Equals(target, file, StringComparison.OrdinalIgnoreCase)) { Write(file, value, true); return file; }
+            using (var guard = new FileStream(file + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            {
+                Write(target, value, false);
+                try { File.Delete(file); } catch { try { File.Delete(target); } catch { } throw; }
+            }
+            return target;
+        }
+        internal static void Delete(string file)
+        { using (var guard = new FileStream(file + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) File.Delete(file); }
         internal static string Library(string feature)
         { return Path.Combine(DialogSizeStore.RootOverride ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), typeof(Connect).Assembly.GetName().Name, "单体预设", feature); }
         internal static string FileFor(string feature, string name)
@@ -99,80 +129,6 @@ namespace Excel_Iterate
                 else if (check != null) check.Checked = bool.Parse(values[item.Key]);
                 else item.Value.Text = values[item.Key];
             }
-        }
-    }
-    internal sealed class BatchPresetBar : FlowLayoutPanel
-    {
-        private readonly ComboBox names = new ComboBox { Width = 160, DropDownStyle = ComboBoxStyle.DropDown, Name = "batchPresetName" };
-        private readonly string feature;
-        private readonly Func<BatchPreset> capture;
-        private readonly Action<BatchPreset> apply;
-        private readonly Func<bool> available;
-        private readonly Action<string> message;
-        internal BatchPresetBar(string feature, Func<BatchPreset> capture, Action<BatchPreset> apply, Func<bool> available, Action<string> message)
-        {
-            this.feature = feature; this.capture = capture; this.apply = apply; this.available = available; this.message = message;
-            AutoSize = true; WrapContents = true; Dock = DockStyle.Top;
-            Controls.Add(names);
-            Add("保存预设", Save); Add("应用预设", Load); Add("导入…", Import); Add("导出…", Export); Add("删除", Delete);
-            Controls.Add(new Label { AutoSize = true, Text = "仅保存参数；先选择工作簿，应用后重新预检。", Margin = new Padding(3, 8, 3, 3) });
-            // No disk reads in settings previews or isolated constructor probes.
-            if (!DialogPreviewFactory.IsConstructing) try { RefreshNames(); } catch (Exception error) { names.AccessibleDescription = "预设库暂不可读：" + error.Message; }
-        }
-        private void Add(string text, Action action)
-        {
-            var button = Ui.Button(text, 90); Controls.Add(button);
-            button.Click += delegate
-            {
-                if (!available()) { message("当前正在执行任务或有待确认的还原批次，不能操作预设。"); return; }
-                try { action(); } catch (Exception error) { message("预设操作失败：" + error.Message); }
-            };
-        }
-        private bool Ask(string text)
-        { return UiDialog.Show(FindForm(), text, "单体功能预设", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) == DialogResult.Yes; }
-        private void RefreshNames()
-        {
-            string prior = names.Text; names.Items.Clear(); string library = BatchPresetStore.Library(feature);
-            if (Directory.Exists(library)) foreach (var file in Directory.GetFiles(library, "*.xybatch.json").OrderBy(p => p)) names.Items.Add(Path.GetFileName(file).Replace(".xybatch.json", ""));
-            names.Text = prior;
-        }
-        private BatchPreset Current()
-        {
-            var value = capture(); value.Feature = feature; value.Name = names.Text.Trim(); value.Saved = DateTime.Now.ToString("s", CultureInfo.InvariantCulture);
-            BatchPresetStore.Validate(value, feature); return value;
-        }
-        private void Save()
-        {
-            FindForm().ValidateChildren(); var value = Current(); string file = BatchPresetStore.FileFor(feature, value.Name);
-            bool exists = File.Exists(file); if (exists && !Ask("覆盖同名预设“" + value.Name + "”？")) return;
-            BatchPresetStore.Write(file, value, exists); RefreshNames(); message("已保存预设“" + value.Name + "”（仅参数，不含工作表数据）。");
-        }
-        private void Load()
-        {
-            var value = BatchPresetStore.Read(BatchPresetStore.FileFor(feature, names.Text), feature);
-            if (!Ask("应用预设“" + value.Name + "”将替换当前配置参数，需重新预检。\n保存时的文件：" + value.Context + "\n请先保存需要保留的当前设置。是否继续？")) return;
-            apply(value); message("已应用预设“" + value.Name + "”；请核对文件、表头和字段，重新预检。");
-        }
-        private void Import()
-        {
-            var files = HostDialogService.OpenFiles(FindForm(), "单体功能预设 (*.xybatch.json)|*.xybatch.json");
-            if (files.Length == 0) return; if (files.Length != 1) throw new InvalidOperationException("请每次导入一个预设。");
-            var value = BatchPresetStore.Read(files[0], feature); string file = BatchPresetStore.FileFor(feature, value.Name);
-            bool exists = File.Exists(file); if (exists && !Ask("导入将覆盖同名预设“" + value.Name + "”，是否继续？")) return;
-            BatchPresetStore.Write(file, value, exists); names.Text = value.Name; RefreshNames(); message("预设已导入，请点击“应用预设”加载。");
-        }
-        private void Export()
-        {
-            var value = BatchPresetStore.Read(BatchPresetStore.FileFor(feature, names.Text), feature);
-            string filename = value.Name + ".xybatch.json";
-            string file = HostDialogService.SaveSettings(FindForm(), filename);
-            if (file == null) return; BatchPresetStore.Write(file, value, true); message("已导出预设：" + file);
-        }
-        private void Delete()
-        {
-            string file = BatchPresetStore.FileFor(feature, names.Text);
-            if (!File.Exists(file) || !Ask("删除预设“" + names.Text + "”？此操作只删除本机预设文件。")) return;
-            File.Delete(file); names.Text = ""; RefreshNames(); message("预设已删除。");
         }
     }
 }

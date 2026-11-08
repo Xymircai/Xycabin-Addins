@@ -33,6 +33,7 @@ namespace Excel_Iterate
         private readonly Label selectionInfo = Label("在表中选择会打开临时只读模板副本；取消保留原参数，原模板修改后须重新选择模板。");
         private readonly Timer timer = new Timer { Interval = 30 };
         private BatchProgressSession progressView;
+        private readonly BatchPresetActions presets;
         private CompanyWorkbookHost host;
         private CompanyWorkbookRequest request;
         private List<CompanyWorkbookRecord> records;
@@ -53,8 +54,8 @@ namespace Excel_Iterate
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 38)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             var browse = Ui.Button("选择模板…", 115); browse.Click += delegate { PickTemplate(); };
             AddRow("模板文件", template, browse);
-            AddRow("设置预设", new BatchPresetBar("company", CapturePreset, ApplyPreset,
-                delegate { return !Running && !ticking && !preparing && (CanRun == null || CanRun()); }, Append));
+            presets = new BatchPresetActions(this, "company", CapturePreset, ApplyPreset,
+                delegate { return !Running && !ticking && !preparing && (CanRun == null || CanRun()); }, Append);
             AddRow("来源工作表", source, Label("表头行"), header, PickButton("sourceHeader"));
             AddRow("来源数据行", Label("起始（必填）"), first, Label("结束（必填，含此行）"), last, PickButton("data"));
             AddRow("命名名称", naming, PickButton("naming"));
@@ -79,7 +80,11 @@ namespace Excel_Iterate
             progressArea.Controls.Add(ProgressCounts, 0, 0); progressArea.Controls.Add(Progress, 0, 1);
             progressArea.Controls.Add(ProgressTiming, 0, 2); progressArea.Controls.Add(CurrentTask, 0, 3);
             namesTab.Controls.Add(NamePreview); logTab.Controls.Add(log); details.TabPages.Add(namesTab); details.TabPages.Add(logTab);
-            root.Controls.Add(inputs, 0, 0); root.Controls.Add(progressArea, 0, 1); root.Controls.Add(details, 0, 2);
+            var parameterArea = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+            parameterArea.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); parameterArea.RowStyles.Add(new RowStyle(SizeType.AutoSize)); parameterArea.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            parameterArea.Controls.Add(presets.Header(new Label { AutoSize = true, Text = "设置可保存为预设，应用后请重新预览。", ForeColor = Ui.InkDim, Anchor = AnchorStyles.Left }), 0, 0);
+            parameterArea.Controls.Add(inputs, 0, 1);
+            root.Controls.Add(parameterArea, 0, 0); root.Controls.Add(progressArea, 0, 1); root.Controls.Add(details, 0, 2);
             var actions = Ui.ActionBar(); var close = Ui.Button("关闭", 90);
             actions.Controls.Add(PreviewNames); actions.Controls.Add(start); actions.Controls.Add(cancel); actions.Controls.Add(close); root.Controls.Add(actions, 0, 3); Controls.Add(root);
             PreviewNames.Click += delegate { PreviewFileNames(); };
@@ -130,25 +135,50 @@ namespace Excel_Iterate
             BatchPresetStore.Validate(preset, "company");
             var fields = PresetFields(); var values = preset.Values;
             BatchPresetStore.ValidateFields(fields, values);
-            if (host == null) throw new InvalidOperationException("请先选择模板；原模板位置：" + preset.Context);
+            CompanyWorkbookHost candidate = null;
+            preparing = true; SetBusy(true);
+            try
+            {
+            if (!string.IsNullOrEmpty(preset.Context) && (host == null || !string.Equals(template.Text, preset.Context, StringComparison.OrdinalIgnoreCase)))
+            {
+                if (OpenTemplate == null) throw new InvalidOperationException("模板读取服务尚未连接。");
+                candidate = OpenTemplate(preset.Context);
+            }
+            var reading = candidate ?? host;
+            if (reading == null) throw new InvalidOperationException("请先选择模板；原模板位置：" + preset.Context);
             bool updating = bool.Parse(values["update"]);
-            if (!host.Sheets.Contains(values["source"]) || (updating && !host.Sheets.Contains(values["target"]))) throw new InvalidOperationException("当前模板缺少预设工作表，请选择对应模板或手动配置。");
-            var sourceHeaders = host.Headers(values["source"], int.Parse(values["header"]));
-            var targetHeaders = updating ? host.Headers(values["target"], int.Parse(values["targetHeader"])) : new Dictionary<string, int>();
+            if (!reading.Sheets.Contains(values["source"]) || (updating && !reading.Sheets.Contains(values["target"]))) throw new InvalidOperationException("模板缺少预设工作表，请选择对应模板或手动配置。");
+            var sourceHeaders = reading.Headers(values["source"], int.Parse(values["header"]));
+            var targetHeaders = updating ? reading.Headers(values["target"], int.Parse(values["targetHeader"])) : new Dictionary<string, int>();
             foreach (string key in new[] { "naming", "code", "full" })
-                if (values[key].Length > 0 && !sourceHeaders.ContainsKey(values[key])) throw new InvalidOperationException("当前来源表缺少预设字段：" + values[key]);
+                if ((updating || key == "naming") && values[key].Length > 0 && !sourceHeaders.ContainsKey(values[key])) throw new InvalidOperationException("来源表缺少预设字段：" + values[key]);
             foreach (string key in new[] { "targetCode", "targetName" })
                 if (updating && values[key].Length > 0 && !targetHeaders.ContainsKey(values[key])) throw new InvalidOperationException("当前目标表缺少预设字段：" + values[key]);
             loading = true;
             try
             {
+                if (candidate != null)
+                {
+                    source.Items.Clear(); target.Items.Clear(); source.Items.AddRange(candidate.Sheets.ToArray()); target.Items.AddRange(candidate.Sheets.ToArray());
+                }
                 foreach (var box in new[] { naming, code, full }) { box.Items.Clear(); box.Items.AddRange(new List<string>(sourceHeaders.Keys).ToArray()); }
                 foreach (var box in new[] { targetCode, targetName }) { box.Items.Clear(); box.Items.AddRange(new List<string>(targetHeaders.Keys).ToArray()); }
                 BatchPresetStore.Apply(fields, values);
             }
             finally { loading = false; }
+            if (candidate != null)
+            {
+                var previous = host; host = candidate; candidate = null; template.Text = preset.Context;
+                if (previous != null) try { previous.Dispose(); } catch (Exception error) { Append("旧读取副本清理失败：" + error.Message); }
+            }
             confirmed.Checked = false; InvalidateNames(); SetLeadEnabled(); ResetProgress("预设已应用，请重新预览");
             selectionInfo.Text = "预设仅应用参数，当前模板：" + template.Text + "；保存时模板：" + preset.Context;
+            }
+            finally
+            {
+                try { if (candidate != null) candidate.Dispose(); }
+                finally { preparing = false; SetBusy(false); if (closePending) Close(); }
+            }
         }
         private void RenderProgress(string state, bool running)
         {
@@ -302,7 +332,6 @@ namespace Excel_Iterate
                 row.Width = width;
                 foreach (Control control in row.Controls)
                 {
-                    if (control is BatchPresetBar) control.MaximumSize = new Size(Math.Max(240, width - titleWidth - 20), 0);
                     if (Equals(control.Tag, "companyRowTitle")) control.MinimumSize = control.MaximumSize = new Size(titleWidth, 0);
                     else if (control is Label) control.MaximumSize = new Size(Math.Min(control.MinimumSize.Width > 0 ? control.MinimumSize.Width : width - 12, width), 0);
                 }
@@ -379,6 +408,7 @@ namespace Excel_Iterate
         private void SetBusy(bool busy)
         {
             inputs.Enabled = !busy; start.Enabled = PreviewNames.Enabled = !busy; cancel.Enabled = busy;
+            presets.Gear.Enabled = !busy;
             if (!busy) SetLeadEnabled();
             if (BusyChanged != null) BusyChanged(busy);
         }

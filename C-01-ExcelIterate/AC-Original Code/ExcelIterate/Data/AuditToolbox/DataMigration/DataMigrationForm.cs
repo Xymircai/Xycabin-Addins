@@ -913,22 +913,11 @@ namespace Excel_Iterate
             var drop = new ToolStripDropDown { Padding = Padding.Empty, DropShadowEnabled = true, BackColor = Color.White, Renderer = new MigrationMenuRenderer() };
             var font = Ui.MakeFont(10f, FontStyle.Regular, Font);
             int pad = Ui.Px(this, 14), rowHeight = Ui.Px(this, 34), gap = Ui.Px(this, 28), inset = Ui.Px(this, 4);
-            var entries = new[] { new[] { "保存为预设…", "把当前整套设置存进预设库" }, new[] { "预设管理…", "查看、应用、导入、导出、删除" } };
-            int titleWidth = entries.Max(e => TextRenderer.MeasureText(e[0], font).Width), noteWidth = entries.Max(e => TextRenderer.MeasureText(e[1], font).Width);
-            string pickLabel = "行末框选按钮"; int toggleWidth = Ui.Px(this, 200);
-            int width = Math.Max(pad + titleWidth + gap + noteWidth + pad, pad + TextRenderer.MeasureText(pickLabel, font).Width + gap + toggleWidth + pad);
-            var panel = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, BackColor = Color.White, Font = font, Padding = new Padding(inset, Ui.Px(this, 6), inset, Ui.Px(this, 8)) };
-            Action<string> section = delegate(string text)
-            { panel.Controls.Add(new Label { Text = text, AutoSize = false, Size = new Size(width, Ui.Px(this, 28)), TextAlign = ContentAlignment.BottomLeft, ForeColor = Ui.InkDim, Padding = new Padding(pad, 0, 0, Ui.Px(this, 3)), Margin = Padding.Empty }); };
-            section("预设");
-            var actions = new Action[] { delegate { SavePreset(); }, delegate { ShowPresetManager(); } };
-            for (int i = 0; i < entries.Length; i++)
-            {
-                var action = actions[i];
-                var row = new MigrationMenuRow { Title = entries[i][0], Note = entries[i][1], TextLeft = pad, NoteLeft = pad + titleWidth + gap, Size = new Size(width, rowHeight), Font = font, Margin = Padding.Empty };
-                row.Click += delegate { drop.Close(); BeginInvoke(action); };
-                panel.Controls.Add(row);
-            }
+            string pickLabel="行末框选按钮"; int toggleWidth=Ui.Px(this,200);
+            int minimumWidth=pad+TextRenderer.MeasureText(pickLabel,font).Width+gap+toggleWidth+pad;
+            var panel=PresetMenuView.Rows(this,drop,font,delegate { SavePreset(); },delegate { ShowPresetManager(); },minimumWidth);
+            int width=panel.Controls[0].Width;
+            Action<string> section=delegate(string text) { panel.Controls.Add(new Label { Text=text,AutoSize=false,Size=new Size(width,Ui.Px(this,28)),TextAlign=ContentAlignment.BottomLeft,ForeColor=Ui.InkDim,Padding=new Padding(pad,0,0,Ui.Px(this,3)),Margin=Padding.Empty }); };
             panel.Controls.Add(new Panel { Size = new Size(width - pad, 1), BackColor = Ui.GridLine, Margin = new Padding(pad / 2, Ui.Px(this, 6), 0, Ui.Px(this, 2)) });
             section("框选方式");
             var pick = new TableLayoutPanel { Size = new Size(width, rowHeight + Ui.Px(this, 6)), ColumnCount = 2, RowCount = 1, BackColor = Color.White, Margin = Padding.Empty, Padding = new Padding(pad, 0, pad, 0) };
@@ -2813,35 +2802,6 @@ namespace Excel_Iterate
     // .xymigration.json file. The local library is a folder of these files;
     // export copies one out, import copies one in.
 
-    // One clickable line of the settings popup: title at TextLeft, the grey
-    // note at NoteLeft, light blue rounded hover.
-    internal sealed class MigrationMenuRow : Control
-    {
-        internal string Title = "", Note = "";
-        internal int TextLeft, NoteLeft;
-        private bool hover;
-        internal MigrationMenuRow()
-        {
-            Cursor = Cursors.Hand; TabStop = false; BackColor = Color.White;
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-        }
-        protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
-        protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            var g = e.Graphics; g.Clear(BackColor); float u = g.DpiX / 96f;
-            if (hover)
-            {
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                using (var path = Ui.RoundRect(new RectangleF(1, 1, Width - 2, Height - 2), 6 * u)) using (var brush = new SolidBrush(Ui.SelectBack)) g.FillPath(brush, path);
-                g.SmoothingMode = SmoothingMode.Default;
-            }
-            var flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix | TextFormatFlags.EndEllipsis;
-            TextRenderer.DrawText(g, Title, Font, new Rectangle(TextLeft, 0, Math.Max(0, NoteLeft - TextLeft), Height), hover ? Ui.SelectInk : Ui.Ink, flags);
-            TextRenderer.DrawText(g, Note, Font, new Rectangle(NoteLeft, 0, Math.Max(0, Width - NoteLeft - TextLeft), Height), Ui.InkDim, flags);
-        }
-    }
-
     // Two-option switch used in the settings popup.
     internal sealed class MigrationSegmented : Control
     {
@@ -2886,20 +2846,9 @@ namespace Excel_Iterate
         {
             Text = title; DialogSizing.Prepare(this, "migration.preset.name", "table", Ui.Blue);
             FormBorderStyle = FormBorderStyle.FixedDialog; MaximizeBox = MinimizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(18, 16, 18, 14), BackColor = Color.White };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            layout.Controls.Add(new Label { Text = prompt, AutoSize = true, ForeColor = Ui.Ink, Margin = new Padding(0, 0, 0, 8) }, 0, 0);
-            Input.Text = value; Input.Dock = DockStyle.Top; Input.Margin = new Padding(0, 0, 0, 12); layout.Controls.Add(Input, 0, 1);
-            var bar = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, WrapContents = false, BackColor = Color.White, Margin = Padding.Empty };
-            var ok = Ui.Button("确定", 90); Ui.StylePrimary(ok); var cancel = Ui.Button("取消", 90); Ui.StyleSecondary(cancel);
-            ok.Margin = new Padding(8, 0, 0, 0); cancel.Margin = new Padding(8, 0, 0, 0);
-            ok.Click += delegate { if (Input.Text.Trim().Length == 0) { Input.Focus(); return; } DialogResult = DialogResult.OK; };
-            cancel.Click += delegate { DialogResult = DialogResult.Cancel; };
-            bar.Controls.Add(ok); bar.Controls.Add(cancel); layout.Controls.Add(bar, 0, 2);
-            Controls.Add(layout); AcceptButton = ok; CancelButton = cancel;
-            Shown += delegate { Input.Focus(); Input.SelectAll(); };
+            PresetNameView.Build(this, Input, prompt, value, delegate { return true; });
         }
+
         internal static string Ask(IWin32Window owner, string title, string prompt, string value)
         {
             return HostDialogService.ShowIsolatedResult<string>(owner,
@@ -3006,65 +2955,25 @@ namespace Excel_Iterate
         private readonly TextBox search = new TextBox { Name = "migrationPresetSearch", Width = 220 };
         private readonly RoundedButton apply = Ui.Button("应用到窗口", 130), rename = Ui.Button("重命名", 90), remove = Ui.Button("删除", 80), export = Ui.Button("导出…", 90);
         private List<MigrationPreset> all = new List<MigrationPreset>();
-        private Font bold, title, meta, gap;
+        private readonly PresetManagerView view;
         internal MigrationPreset Chosen;
         internal MigrationPresetManager(string select)
         {
             Text = "预设管理"; DialogSizing.Prepare(this, "migration.preset.manager", "table", Ui.Blue);
             ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent; MinimizeBox = false;
-            bold = Ui.MakeFont(10f, FontStyle.Bold, Font); title = Ui.MakeFont(12f, FontStyle.Bold, Font); meta = Ui.MakeFont(9f, FontStyle.Regular, Font); gap = Ui.MakeFont(5f, FontStyle.Regular, Font);
-            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Padding = new Padding(16), BackColor = Ui.Canvas };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            layout.RowStyles.Add(new RowStyle(SizeType.AutoSize)); layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            // Top: import on the left, search on the right.
-            var top = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 3, Margin = new Padding(0, 0, 0, 10), BackColor = Ui.Canvas };
-            top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); top.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-            var import = Ui.Button("导入预设…", 120); Ui.StyleSecondary(import); import.Margin = Padding.Empty;
-            var hint = new Label { Text = "预设只保存设置，不含表格数据；应用后请检查并预检。", AutoSize = true, ForeColor = Ui.InkDim, Anchor = AnchorStyles.Left, Margin = new Padding(12, 0, 0, 0) };
-            search.Anchor = AnchorStyles.Right; search.Margin = new Padding(0, 4, 0, 0);
-            top.Controls.Add(import, 0, 0); top.Controls.Add(hint, 1, 0); top.Controls.Add(search, 2, 0);
-            layout.Controls.Add(top, 0, 0);
-            // Middle: list | detail, each in a white framed card.
-            var middle = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty, BackColor = Ui.Canvas };
-            middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 36)); middle.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 64));
-            middle.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            middle.Controls.Add(Card(list, new Padding(0, 0, 6, 0), new Padding(1)), 0, 0);
-            middle.Controls.Add(Card(detail, new Padding(6, 0, 0, 0), new Padding(14, 12, 10, 10)), 1, 0);
-            layout.Controls.Add(middle, 0, 1);
-            // Bottom: item actions on the left, apply/close on the right.
-            var bottom = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 2, Margin = new Padding(0, 12, 0, 0), BackColor = Ui.Canvas };
-            bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50)); bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            var leftBar = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty, BackColor = Ui.Canvas };
-            var rightBar = new FlowLayoutPanel { AutoSize = true, WrapContents = false, FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = Ui.Canvas };
-            var close = Ui.Button("关闭", 90); Ui.StyleSecondary(close);
-            Ui.StyleSecondary(rename); Ui.StyleSecondary(remove); Ui.StyleSecondary(export); Ui.StylePrimary(apply);
-            foreach (var b in new Control[] { rename, remove, export }) { b.Margin = new Padding(0, 0, 8, 0); leftBar.Controls.Add(b); }
-            apply.Margin = new Padding(8, 0, 0, 0); close.Margin = new Padding(8, 0, 0, 0);
-            rightBar.Controls.Add(close); rightBar.Controls.Add(apply);
-            bottom.Controls.Add(leftBar, 0, 0); bottom.Controls.Add(rightBar, 1, 0);
-            layout.Controls.Add(bottom, 0, 2);
-            Controls.Add(layout); CancelButton = close;
-
-            list.HandleCreated += delegate { list.ItemHeight = Math.Max(Ui.Px(list, 52), Font.Height * 2 + Ui.Px(list, 16)); };
-            list.DrawItem += DrawPreset;
+            view = new PresetManagerView(this,list,detail,search,apply,rename,remove,export,
+                item => ((MigrationPreset)item).Name,
+                item => { var p=(MigrationPreset)item; return (p.Saved==DateTime.MinValue ? "" : p.Saved.ToString("MM-dd HH:mm",CultureInfo.InvariantCulture)+"　·　")+"源 "+p.Sources+"　目标 "+p.Targets+"　映射 "+p.Mappings; });
+            var import=view.Import; var close=view.Close;
             list.SelectedIndexChanged += delegate { ShowDetail(); };
             list.DoubleClick += delegate { if (Current != null) Apply(); };
             list.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Delete) Remove(); else if (e.KeyCode == Keys.F2) Rename(); };
-            search.HandleCreated += delegate { MigrationPresetManagerNative.Cue(search, "搜索预设名称"); };
             detail.HandleCreated += delegate { BeginInvoke(new Action(ShowDetail)); };
             search.TextChanged += delegate { Fill(Current == null ? null : Current.FilePath); };
             import.Click += delegate { Import(); }; export.Click += delegate { Export(); };
             rename.Click += delegate { Rename(); }; remove.Click += delegate { Remove(); };
             apply.Click += delegate { Apply(); }; close.Click += delegate { DialogResult = DialogResult.Cancel; };
-            Disposed += delegate { bold.Dispose(); title.Dispose(); meta.Dispose(); gap.Dispose(); };
             Reload(select);
-        }
-        private static Control Card(Control content, Padding margin, Padding inner)
-        {
-            var card = new Panel { Dock = DockStyle.Fill, BackColor = Color.White, Padding = inner, Margin = margin };
-            card.Paint += delegate(object sender, PaintEventArgs e) { using (var pen = new Pen(Ui.GridFrame)) e.Graphics.DrawRectangle(pen, 0, 0, card.Width - 1, card.Height - 1); };
-            card.Resize += delegate { card.Invalidate(); };
-            content.Dock = DockStyle.Fill; card.Controls.Add(content); return card;
         }
         private MigrationPreset Current { get { return list.SelectedItem as MigrationPreset; } }
         private void Reload(string select)
@@ -3099,81 +3008,8 @@ namespace Excel_Iterate
             }
             ShowLines(preset.DescribeLines());
         }
-        // Each part gets its own font and color; sections and mappings are
-        // separated by a short gap, bodies are indented under their heading.
-        private void ShowLines(List<MigrationPreset.DetailLine> lines)
-        {
-            // Formats only stick once the box has a window; until then the
-            // first preset came out plain. The handler shows it again.
-            if (!detail.IsHandleCreated) { SetDetail(string.Join("\n", lines.Select(l => l.Text).ToArray())); return; }
-            detail.SuspendLayout();
-            try
-            {
-                Color warn = Color.FromArgb(180, 83, 9);
-                int body = Ui.Px(detail, 16), number = 0;
-                // Build the plain text first, then format each range: setting
-                // the indent while appending landed on the previous paragraph.
-                var text = new System.Text.StringBuilder();
-                var runs = new List<Tuple<int, int, Font, Color>>();
-                var paragraphs = new List<Tuple<int, int, int>>();
-                foreach (var line in lines)
-                {
-                    if (text.Length > 0) text.Append('\n');
-                    if (line.Space) { runs.Add(Tuple.Create(text.Length, 1, gap, Ui.Ink)); text.Append('\n'); }
-                    int start = text.Length;
-                    foreach (var part in line.Parts)
-                    {
-                        Font font; Color color;
-                        switch (part.Key)
-                        {
-                            case MigrationPreset.DetailKind.Title: font = title; color = Ui.Ink; break;
-                            case MigrationPreset.DetailKind.Meta: font = meta; color = Ui.InkDim; break;
-                            case MigrationPreset.DetailKind.Heading: font = bold; color = Ui.Blue; break;
-                            case MigrationPreset.DetailKind.Number:
-                                font = bold; color = Ui.Blue;
-                                number = TextRenderer.MeasureText(part.Value, bold, Size.Empty, TextFormatFlags.NoPadding).Width;
-                                break;
-                            case MigrationPreset.DetailKind.Label: case MigrationPreset.DetailKind.Dim: font = list.Font; color = Ui.InkDim; break;
-                            case MigrationPreset.DetailKind.Tag: font = list.Font; color = Ui.Blue; break;
-                            case MigrationPreset.DetailKind.Warn: font = list.Font; color = warn; break;
-                            case MigrationPreset.DetailKind.Ok: font = list.Font; color = Ui.Green; break;
-                            default: font = list.Font; color = Ui.Ink; break;
-                        }
-                        runs.Add(Tuple.Create(text.Length, part.Value.Length, font, color)); text.Append(part.Value);
-                    }
-                    int indent = line.Indent == 0 ? 0 : line.Indent == 1 ? body : body + number;
-                    paragraphs.Add(Tuple.Create(start, Math.Max(1, text.Length - start), indent));
-                }
-                SetDetail(text.ToString());
-                foreach (var run in runs) { detail.Select(run.Item1, run.Item2); detail.SelectionFont = run.Item3; detail.SelectionColor = run.Item4; }
-                foreach (var paragraph in paragraphs) { detail.Select(paragraph.Item1, paragraph.Item2); detail.SelectionIndent = paragraph.Item3; }
-                // Leave the caret plain so the next preset does not inherit a format.
-                detail.Select(0, 0); detail.SelectionFont = list.Font; detail.SelectionColor = Ui.Ink; detail.SelectionIndent = 0;
-            }
-            finally { detail.ResumeLayout(); }
-        }
-        // A RichTextBox keeps the format at the caret for new text, so after a
-        // bold title the next preset would come out all bold. Reset first.
-        private void SetDetail(string text)
-        {
-            detail.Clear(); detail.SelectionFont = list.Font; detail.SelectionColor = Ui.Ink; detail.SelectionIndent = 0;
-            detail.Text = text;
-            detail.SelectAll(); detail.SelectionFont = list.Font; detail.SelectionColor = Ui.Ink; detail.Select(0, 0);
-        }
-        private void DrawPreset(object sender, DrawItemEventArgs e)
-        {
-            if (e.Index < 0 || e.Index >= list.Items.Count) return;
-            var preset = (MigrationPreset)list.Items[e.Index]; var g = e.Graphics; var r = e.Bounds;
-            bool selected = (e.State & DrawItemState.Selected) != 0;
-            using (var back = new SolidBrush(selected ? Ui.SelectBack : Color.White)) g.FillRectangle(back, r);
-            if (selected) using (var bar = new SolidBrush(Ui.Blue)) g.FillRectangle(bar, r.Left, r.Top + 6, 3, r.Height - 12);
-            using (var line = new Pen(Ui.GridLine)) g.DrawLine(line, r.Left + 12, r.Bottom - 1, r.Right - 12, r.Bottom - 1);
-            var flags = TextFormatFlags.Left | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
-            int pad = Ui.Px(list, 14), half = r.Height / 2;
-            TextRenderer.DrawText(g, preset.Name, bold, new Rectangle(r.Left + pad, r.Top + 4, r.Width - pad * 2, half - 2), selected ? Ui.SelectInk : Ui.Ink, flags | TextFormatFlags.Bottom);
-            string info = (preset.Saved == DateTime.MinValue ? "" : preset.Saved.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture) + "　·　") + "源 " + preset.Sources + "　目标 " + preset.Targets + "　映射 " + preset.Mappings;
-            TextRenderer.DrawText(g, info, list.Font, new Rectangle(r.Left + pad, r.Top + half + 1, r.Width - pad * 2, half - 4), Ui.InkDim, flags | TextFormatFlags.Top);
-        }
+        private void ShowLines(List<PresetDetailLine> lines) { view.ShowLines(lines); }
+        private void SetDetail(string text) { view.SetDetail(text); }
         private void Import()
         {
             string[] files = HostDialogService.OpenFiles(this, "迁移预设 (*" + MigrationPreset.Extension + ")|*" + MigrationPreset.Extension + "|JSON 文件 (*.json)|*.json", "导入预设", true, "");
@@ -3225,13 +3061,6 @@ namespace Excel_Iterate
         }
         private void Apply() { if (Current == null) return; Chosen = Current; DialogResult = DialogResult.OK; }
     }
-    internal static class MigrationPresetManagerNative
-    {
-        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
-        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, string lParam);
-        internal static void Cue(TextBox box, string text) { try { SendMessage(box.Handle, 0x1501, (IntPtr)1, text); } catch (Exception) { } }
-    }
-
     // Read-only snapshot of one worksheet, read straight from the .xlsx/.xlsm
     // package: no WPS window opens and nothing is written. Only text needed to
     // recognise a position is kept (values, merges, row/column sizes).
@@ -3441,3 +3270,5 @@ namespace Excel_Iterate
         }
     }
 }
+
+

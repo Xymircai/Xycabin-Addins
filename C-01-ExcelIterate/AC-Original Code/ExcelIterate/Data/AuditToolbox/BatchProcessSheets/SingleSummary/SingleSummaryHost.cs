@@ -15,6 +15,7 @@ namespace Excel_Iterate
         internal object Application { get { return application; } }
         internal string Path { get; private set; }
         internal long Version { get; private set; }
+        internal bool OpenedByBrowse { get; private set; }
         internal SummaryWorkbookBinding(object app) { application = app; Path = ""; }
         internal List<SummaryWorkbookChoice> Choices()
         {
@@ -76,7 +77,7 @@ namespace Excel_Iterate
                         restore.Add(delegate { app.AutomationSecurity = (dynamic)security; }); app.AutomationSecurity = 3;
                         dynamic books = bag.Own(app.Workbooks);
                         opened = bag.Own(books.Open(full, 0, false));
-                        try { Bind(opened, bag); }
+                        try { Bind(opened, bag); OpenedByBrowse = true; }
                         catch { if (opened != null) ((dynamic)opened).Close(false); throw; }
                     }
                     finally
@@ -103,7 +104,7 @@ namespace Excel_Iterate
         }
         internal void Clear()
         {
-            selected = null; Path = ""; Version++;
+            selected = null; Path = ""; Version++; OpenedByBrowse = false;
             held.Dispose(); held = new ComBag();
         }
         public void Dispose() { Clear(); }
@@ -911,3 +912,4 @@ namespace Excel_Iterate
         }
     }
 }
+

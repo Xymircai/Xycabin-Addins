@@ -228,28 +228,17 @@ namespace Excel_Iterate
         // The manager's detail pane, as styled lines: title, a dim meta line,
         // then sections (保存方式 / 映射 / 工作簿) with blue headings,
         // numbered mapping blocks and ✓/⚠ workbook lines.
-        internal enum DetailKind { Title, Meta, Heading, Number, Label, Text, Dim, Tag, Warn, Ok }
-        internal sealed class DetailLine
-        {
-            // 0: flush left; 1: section body; 2: under a mapping number.
-            internal int Indent;
-            // Leave a little room above (a new section or mapping).
-            internal bool Space;
-            internal readonly List<KeyValuePair<DetailKind, string>> Parts = new List<KeyValuePair<DetailKind, string>>();
-            internal DetailLine Add(DetailKind kind, string text) { if (!string.IsNullOrEmpty(text)) Parts.Add(new KeyValuePair<DetailKind, string>(kind, text)); return this; }
-            internal string Text { get { return string.Concat(Parts.Select(p => p.Value).ToArray()); } }
-        }
         private static string Circled(int index) { return index >= 1 && index <= 20 ? ((char)(0x2460 + index - 1)).ToString() : index + "."; }
-        internal List<DetailLine> DescribeLines()
+        internal List<PresetDetailLine> DescribeLines()
         {
-            var lines = new List<DetailLine>();
-            Func<bool, int, DetailLine> line = delegate(bool space, int indent) { var item = new DetailLine { Space = space, Indent = indent }; lines.Add(item); return item; };
-            line(false, 0).Add(DetailKind.Title, Name);
-            line(false, 0).Add(DetailKind.Meta, "保存于 " + (Saved == DateTime.MinValue ? "未知" : Saved.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)) + "　·　源区域 " + Sources + "　·　目标区域 " + Targets + "　·　映射 " + Mappings);
+            var lines = new List<PresetDetailLine>();
+            Func<bool, int, PresetDetailLine> line = delegate(bool space, int indent) { var item = new PresetDetailLine { Space = space, Indent = indent }; lines.Add(item); return item; };
+            line(false, 0).Add(PresetDetailKind.Title, Name);
+            line(false, 0).Add(PresetDetailKind.Meta, "保存于 " + (Saved == DateTime.MinValue ? "未知" : Saved.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)) + "　·　源区域 " + Sources + "　·　目标区域 " + Targets + "　·　映射 " + Mappings);
             var options = MigrationJson.Map(Data, "options");
-            line(true, 0).Add(DetailKind.Heading, "保存方式");
-            line(false, 1).Add(DetailKind.Text, MigrationJson.Flag(options, "replaceTargets", true) ? "更新目标原文件（自动备份）" : "另存结果副本")
-                .Add(DetailKind.Dim, MigrationJson.Flag(options, "allowEmptySource", false) ? "　·　允许全空白源区域" : "");
+            line(true, 0).Add(PresetDetailKind.Heading, "保存方式");
+            line(false, 1).Add(PresetDetailKind.Text, MigrationJson.Flag(options, "replaceTargets", true) ? "更新目标原文件（自动备份）" : "另存结果副本")
+                .Add(PresetDetailKind.Dim, MigrationJson.Flag(options, "allowEmptySource", false) ? "　·　允许全空白源区域" : "");
             Func<Dictionary<string, object>, string> books = delegate(Dictionary<string, object> side)
             {
                 var names = MigrationJson.Maps(side, "books").Select(b => System.IO.Path.GetFileName(MigrationJson.Str(b, "path"))).ToList();
@@ -260,8 +249,8 @@ namespace Excel_Iterate
             var sources = MigrationJson.Maps(Data, "sources").ToDictionary(s => MigrationJson.Str(s, "id"), s => s);
             var targets = MigrationJson.Maps(Data, "targets").ToDictionary(s => MigrationJson.Str(s, "id"), s => s);
             var mappings = MigrationJson.Maps(Data, "mappings").ToList();
-            line(true, 0).Add(DetailKind.Heading, "映射（" + mappings.Count + "）");
-            if (mappings.Count == 0) line(false, 1).Add(DetailKind.Dim, "（没有映射）");
+            line(true, 0).Add(PresetDetailKind.Heading, "映射（" + mappings.Count + "）");
+            if (mappings.Count == 0) line(false, 1).Add(PresetDetailKind.Dim, "（没有映射）");
             int index = 0;
             foreach (var mapping in mappings)
             {
@@ -269,24 +258,24 @@ namespace Excel_Iterate
                 Dictionary<string, object> source, target;
                 sources.TryGetValue(MigrationJson.Str(mapping, "source"), out source); targets.TryGetValue(MigrationJson.Str(mapping, "target"), out target);
                 var trigger = source == null ? null : MigrationJson.Map(source, "trigger");
-                var head = line(index > 1, 1).Add(DetailKind.Number, Circled(index) + " ").Add(DetailKind.Label, "源　　");
-                if (source == null) head.Add(DetailKind.Dim, "（未配对）"); else head.Add(DetailKind.Text, place(source)).Add(DetailKind.Dim, "　" + books(source));
-                var to = line(false, 2).Add(DetailKind.Label, "目标　");
-                if (target == null) to.Add(DetailKind.Dim, "（未配对）"); else to.Add(DetailKind.Text, place(target)).Add(DetailKind.Dim, "　" + (trigger != null ? "按文件名匹配" : books(target)));
-                var tags = line(false, 2).Add(DetailKind.Tag, MigrationPair.ModeText(trigger != null || MigrationJson.Flag(mapping, "valuesOnly", false), MigrationJson.Flag(mapping, "keepFormat", true), trigger == null && MigrationJson.Flag(mapping, "formatOnly", false)));
-                if (!MigrationJson.Flag(mapping, "enabled", true)) tags.Add(DetailKind.Dim, "　·　").Add(DetailKind.Warn, "未启用");
-                if (trigger != null) tags.Add(DetailKind.Dim, "　·　").Add(DetailKind.Tag, "逐行重算 ")
-                    .Add(DetailKind.Dim, MigrationJson.Str(trigger, "values") + " → " + MigrationJson.Str(trigger, "cell") + "，目标文件区域 " + MigrationJson.Str(trigger, "nameColumn")
+                var head = line(index > 1, 1).Add(PresetDetailKind.Number, Circled(index) + " ").Add(PresetDetailKind.Label, "源　　");
+                if (source == null) head.Add(PresetDetailKind.Dim, "（未配对）"); else head.Add(PresetDetailKind.Text, place(source)).Add(PresetDetailKind.Dim, "　" + books(source));
+                var to = line(false, 2).Add(PresetDetailKind.Label, "目标　");
+                if (target == null) to.Add(PresetDetailKind.Dim, "（未配对）"); else to.Add(PresetDetailKind.Text, place(target)).Add(PresetDetailKind.Dim, "　" + (trigger != null ? "按文件名匹配" : books(target)));
+                var tags = line(false, 2).Add(PresetDetailKind.Tag, MigrationPair.ModeText(trigger != null || MigrationJson.Flag(mapping, "valuesOnly", false), MigrationJson.Flag(mapping, "keepFormat", true), trigger == null && MigrationJson.Flag(mapping, "formatOnly", false)));
+                if (!MigrationJson.Flag(mapping, "enabled", true)) tags.Add(PresetDetailKind.Dim, "　·　").Add(PresetDetailKind.Warn, "未启用");
+                if (trigger != null) tags.Add(PresetDetailKind.Dim, "　·　").Add(PresetDetailKind.Tag, "逐行重算 ")
+                    .Add(PresetDetailKind.Dim, MigrationJson.Str(trigger, "values") + " → " + MigrationJson.Str(trigger, "cell") + "，目标文件区域 " + MigrationJson.Str(trigger, "nameColumn")
                         + string.Concat(MigrationJson.Maps(trigger, "conditions").Select(c => "，" + MigrationJson.Str(c, "range") + (MigrationJson.Str(c, "range").Length == 0 && MigrationJson.Str(c, "column").Length > 0 ? MigrationJson.Str(c, "column") + " 列" : MigrationJson.Str(c, "range").Length == 0 ? MigrationJson.Str(c, "value") : "") + " → " + MigrationJson.Str(c, "cell")).ToArray()));
             }
             var files = Files().ToList(); int missing = files.Count(f => !System.IO.File.Exists(f));
-            line(true, 0).Add(DetailKind.Heading, "工作簿（" + files.Count + "）")
-                .Add(missing > 0 ? DetailKind.Warn : DetailKind.Ok, missing > 0 ? "　" + missing + " 个在本机找不到，应用时可重新定位" : "　均可找到");
+            line(true, 0).Add(PresetDetailKind.Heading, "工作簿（" + files.Count + "）")
+                .Add(missing > 0 ? PresetDetailKind.Warn : PresetDetailKind.Ok, missing > 0 ? "　" + missing + " 个在本机找不到，应用时可重新定位" : "　均可找到");
             foreach (string file in files)
             {
                 bool found = System.IO.File.Exists(file);
-                line(false, 1).Add(found ? DetailKind.Ok : DetailKind.Warn, found ? "✓  " : "⚠  ").Add(found ? DetailKind.Text : DetailKind.Warn, System.IO.Path.GetFileName(file))
-                    .Add(DetailKind.Dim, "　" + System.IO.Path.GetDirectoryName(file));
+                line(false, 1).Add(found ? PresetDetailKind.Ok : PresetDetailKind.Warn, found ? "✓  " : "⚠  ").Add(found ? PresetDetailKind.Text : PresetDetailKind.Warn, System.IO.Path.GetFileName(file))
+                    .Add(PresetDetailKind.Dim, "　" + System.IO.Path.GetDirectoryName(file));
             }
             return lines;
         }
@@ -395,3 +384,4 @@ namespace Excel_Iterate
         }
     }
 }
+

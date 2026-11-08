@@ -22,6 +22,7 @@ namespace Excel_Iterate
         public string GetLabel_menuOneClickConversion(object control) { return RibbonCustomization.Label("menuOneClickConversion"); }
         public string GetContent_menuOneClickConversion(object control) { return RibbonCustomization.Content("menuOneClickConversion"); }
         public string GetLabel_btnTextExtractFilter(object control) { return RibbonCustomization.Label("btnTextExtractFilter"); }
+        public string GetLabel_btnBatchInsertTrimDelete(object control) { return RibbonCustomization.Label("btnBatchInsertTrimDelete"); }
         public string GetLabel_menuOneClickFormula(object control) { return RibbonCustomization.Label("menuOneClickFormula"); }
         public string GetContent_menuOneClickFormula(object control) { return RibbonCustomization.Content("menuOneClickFormula"); }
         public string GetLabel_menuWrapFormula(object control) { return RibbonCustomization.Label("menuWrapFormula"); }

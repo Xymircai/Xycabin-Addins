@@ -15,7 +15,7 @@
 //   网络盘文档的回调代理读不出 control.Id，靠名字才能认对按钮。
 //   新增按钮时记得在 Connect.cs 加对应的一行包装方法（本脚本会校验）。
 //
-// 生成时间：2026-11-07 15:21:21
+// 生成时间：2026-11-08 14:37:16
 // =====================================================================
 using System;
 using System.Collections.Generic;
@@ -79,8 +79,9 @@ namespace Excel_Iterate
           </menu>
         </group>
         <group id=""grpAction"" label=""操作"">
-          <menu id=""menuOneClickConversion"" label=""一键转换"" size=""large"" getImage=""GetImage_menuOneClickConversion"" screentip=""按字符类型提取或过滤选区文字"" itemSize=""normal"">
+          <menu id=""menuOneClickConversion"" label=""一键转换"" size=""large"" getImage=""GetImage_menuOneClickConversion"" screentip=""提取、过滤、插入、截取或删除选区文字及公式原文"" itemSize=""normal"">
             <button id=""btnTextExtractFilter"" label=""文本提取与过滤"" getImage=""GetImage_btnTextExtractFilter"" supertip=""选择区域，自由组合空格、英文、中文、数字和其他；提取保留所选类型，过滤删除所选类型。结果按文本原位写回。"" onAction=""OnTextExtractFilter"" />
+            <button id=""btnBatchInsertTrimDelete"" label=""批量插入与删截"" getImage=""GetImage_btnBatchInsertTrimDelete"" supertip=""批量插入、截取和删除字符，支持首格示例。移除原开头等号后保留原格式，不加单引号；剩余公式语法无效时先整批确认，再转为文本。"" onAction=""OnBatchInsertTrimDelete"" />
           </menu>
           <menu id=""menuOneClickFormula"" label=""一键公式"" size=""large"" getImage=""GetImage_menuOneClickFormula"" screentip=""封装、计算、引用方式及公式与数值转换"" supertip=""仅点击最终选项才修改公式；支持连续选区和 Ctrl 多选。"" itemSize=""normal"">
             <menu id=""menuWrapFormula"" label=""进行公式封装"" getImage=""GetImage_menuWrapFormula"" itemSize=""normal"">
@@ -297,6 +298,7 @@ namespace Excel_Iterate
             d["btnSingleSummary"] = 16;
             d["menuOneClickConversion"] = 32;
             d["btnTextExtractFilter"] = 16;
+            d["btnBatchInsertTrimDelete"] = 16;
             d["menuOneClickFormula"] = 32;
             d["menuWrapFormula"] = 16;
             d["menuIFErrorWrap"] = 16;
@@ -393,6 +395,7 @@ namespace Excel_Iterate
             d["btnSingleSummary"] = BuiltinTable;
             d["menuOneClickConversion"] = BuiltinUpdate;
             d["btnTextExtractFilter"] = BuiltinFilter;
+            d["btnBatchInsertTrimDelete"] = BuiltinUpdate;
             d["menuOneClickFormula"] = BuiltinFormula;
             d["menuWrapFormula"] = BuiltinFormula;
             d["menuIFErrorWrap"] = BuiltinFormula;

@@ -350,24 +350,24 @@ namespace Excel_Iterate.TestHarness
             List<EliminationColumn> matrixMap = MatrixMap(true);
             List<EliminationRow> matrixRows = new List<EliminationRow>();
 
-            // 组1 · 宿州一号→宿州十一号 · 2024：无损益列值 → 现算 (O−P)×V = 73714.038
-            matrixRows.Add(Row(3, EliminationRole.Entity, "宿州一号", EliminationRole.Year, "2024",
-                EliminationRole.Counterparty, "宿州十一号", EliminationRole.Condition, "是",
+            // 组1 · 销售主体A→客户A · 2024：无损益列值 → 现算 (O−P)×V = 73714.038
+            matrixRows.Add(Row(3, EliminationRole.Entity, "销售主体A", EliminationRole.Year, "2024",
+                EliminationRole.Counterparty, "客户A", EliminationRole.Condition, "是",
                 EliminationRole.Revenue, "2217860.59", EliminationRole.Cost, "1849290.40",
                 EliminationRole.UnsoldRatio, "20%"));
             // 组1 · 2025：有损益列 → 直接 ΣW（负值，验证 U<0 时恒等式仍成立）
-            matrixRows.Add(Row(4, EliminationRole.Entity, "宿州一号", EliminationRole.Year, "2025",
-                EliminationRole.Counterparty, "宿州十一号", EliminationRole.Condition, "是",
+            matrixRows.Add(Row(4, EliminationRole.Entity, "销售主体A", EliminationRole.Year, "2025",
+                EliminationRole.Counterparty, "客户A", EliminationRole.Condition, "是",
                 EliminationRole.Revenue, "1998483.64", EliminationRole.Cost, "2258286.52",
                 EliminationRole.UnsoldRatio, "0%", EliminationRole.UnrealizedProfit, "-46492.5225"));
-            // 组2 · 宿州二号→宿州十二号 · 2024：V=0% → 现算 U=0
-            matrixRows.Add(Row(5, EliminationRole.Entity, "宿州二号", EliminationRole.Year, "2024",
-                EliminationRole.Counterparty, "宿州十二号", EliminationRole.Condition, "是",
+            // 组2 · 销售主体B→客户B · 2024：V=0% → 现算 U=0
+            matrixRows.Add(Row(5, EliminationRole.Entity, "销售主体B", EliminationRole.Year, "2024",
+                EliminationRole.Counterparty, "客户B", EliminationRole.Condition, "是",
                 EliminationRole.Revenue, "151503.00", EliminationRole.Cost, "147503.00",
                 EliminationRole.UnsoldRatio, "0%"));
             // 干扰行：条件列为「否」，必须被筛掉
-            matrixRows.Add(Row(6, EliminationRole.Entity, "宿州三号", EliminationRole.Year, "2025",
-                EliminationRole.Counterparty, "宿州十三号", EliminationRole.Condition, "否",
+            matrixRows.Add(Row(6, EliminationRole.Entity, "销售主体C", EliminationRole.Year, "2025",
+                EliminationRole.Counterparty, "客户C", EliminationRole.Condition, "否",
                 EliminationRole.Revenue, "999999", EliminationRole.Cost, "1",
                 EliminationRole.UnsoldRatio, "50%"));
 
@@ -388,32 +388,32 @@ namespace Excel_Iterate.TestHarness
             Assert("无跳过行", matrix.SkippedRows == 0, "实际 " + matrix.SkippedRows);
 
             Assert("组1·2024 收入 R = 2217860.59",
-                Near(MatrixCell(matrix, "宿州一号", "宿州十一号", "Revenue", "2024").Value, 2217860.59m),
-                MatrixCell(matrix, "宿州一号", "宿州十一号", "Revenue", "2024").Value.ToString());
+                Near(MatrixCell(matrix, "销售主体A", "客户A", "Revenue", "2024").Value, 2217860.59m),
+                MatrixCell(matrix, "销售主体A", "客户A", "Revenue", "2024").Value.ToString());
             Assert("组1·2024 成本 C = 1849290.40",
-                Near(MatrixCell(matrix, "宿州一号", "宿州十一号", "Cost", "2024").Value, 1849290.40m), "");
+                Near(MatrixCell(matrix, "销售主体A", "客户A", "Cost", "2024").Value, 1849290.40m), "");
             Assert("组1·2024 存货 U = 73714.04（现算分支）",
-                Near(MatrixCell(matrix, "宿州一号", "宿州十一号", "Unrealized", "2024").Value, 73714.04m),
-                MatrixCell(matrix, "宿州一号", "宿州十一号", "Unrealized", "2024").Value.ToString());
+                Near(MatrixCell(matrix, "销售主体A", "客户A", "Unrealized", "2024").Value, 73714.04m),
+                MatrixCell(matrix, "销售主体A", "客户A", "Unrealized", "2024").Value.ToString());
             Assert("组1·2024 成本还原 = 294856.15",
-                Near(MatrixCell(matrix, "宿州一号", "宿州十一号", "Restore", "2024").Value, 294856.15m),
-                MatrixCell(matrix, "宿州一号", "宿州十一号", "Restore", "2024").Value.ToString());
+                Near(MatrixCell(matrix, "销售主体A", "客户A", "Restore", "2024").Value, 294856.15m),
+                MatrixCell(matrix, "销售主体A", "客户A", "Restore", "2024").Value.ToString());
 
             Assert("组1·2025 收入 R = 1998483.64",
-                Near(MatrixCell(matrix, "宿州一号", "宿州十一号", "Revenue", "2025").Value, 1998483.64m), "");
+                Near(MatrixCell(matrix, "销售主体A", "客户A", "Revenue", "2025").Value, 1998483.64m), "");
             Assert("组1·2025 成本 C = 2258286.52",
-                Near(MatrixCell(matrix, "宿州一号", "宿州十一号", "Cost", "2025").Value, 2258286.52m), "");
+                Near(MatrixCell(matrix, "销售主体A", "客户A", "Cost", "2025").Value, 2258286.52m), "");
             Assert("组1·2025 存货 U = −46492.52（损益列分支，负值）",
-                Near(MatrixCell(matrix, "宿州一号", "宿州十一号", "Unrealized", "2025").Value, -46492.52m),
-                MatrixCell(matrix, "宿州一号", "宿州十一号", "Unrealized", "2025").Value.ToString());
+                Near(MatrixCell(matrix, "销售主体A", "客户A", "Unrealized", "2025").Value, -46492.52m),
+                MatrixCell(matrix, "销售主体A", "客户A", "Unrealized", "2025").Value.ToString());
             Assert("组1·2025 成本还原 = −213310.36",
-                Near(MatrixCell(matrix, "宿州一号", "宿州十一号", "Restore", "2025").Value, -213310.36m),
-                MatrixCell(matrix, "宿州一号", "宿州十一号", "Restore", "2025").Value.ToString());
+                Near(MatrixCell(matrix, "销售主体A", "客户A", "Restore", "2025").Value, -213310.36m),
+                MatrixCell(matrix, "销售主体A", "客户A", "Restore", "2025").Value.ToString());
 
             Assert("组2·2024 收入 R = 151503.00",
-                Near(MatrixCell(matrix, "宿州二号", "宿州十二号", "Revenue", "2024").Value, 151503.00m), "");
+                Near(MatrixCell(matrix, "销售主体B", "客户B", "Revenue", "2024").Value, 151503.00m), "");
             Assert("组2·2024 成本还原 = 4000.00（U=0）",
-                Near(MatrixCell(matrix, "宿州二号", "宿州十二号", "Restore", "2024").Value, 4000.00m), "");
+                Near(MatrixCell(matrix, "销售主体B", "客户B", "Restore", "2024").Value, 4000.00m), "");
 
             Assert("恒等式成立（每组每年借贷平衡）", matrix.Balanced, "");
             Assert("无阻断错误", matrix.Errors.Count == 0, string.Join("；", matrix.Errors.ToArray()));
@@ -422,24 +422,24 @@ namespace Excel_Iterate.TestHarness
             EliminationMatrix noProfit = EliminationMatrixBuilder.Build(matrixRows, MatrixMap(false), MatrixOpt(true));
 
             // ---- 公式文本（整列引用，锚点：主体/客商列绝对行相对，年度表头列相对行绝对）----
-            string revenue2025 = MatrixCell(matrix, "宿州一号", "宿州十一号", "Revenue", "2025").Formula;
+            string revenue2025 = MatrixCell(matrix, "销售主体A", "客户A", "Revenue", "2025").Formula;
             Assert("收入行公式 = SUMIFS(整列 O，锚点 $A4/$B4/G$2/\"是\")",
                 revenue2025 == "=SUMIFS(内部交易明细!$O:$O,内部交易明细!$A:$A,$A4,"
                     + "内部交易明细!$J:$J,$B4,内部交易明细!$E:$E,G$2,内部交易明细!$N:$N,\"是\")",
                 revenue2025 ?? "null");
-            string cost2025 = MatrixCell(matrix, "宿州一号", "宿州十一号", "Cost", "2025").Formula;
+            string cost2025 = MatrixCell(matrix, "销售主体A", "客户A", "Cost", "2025").Formula;
             Assert("成本行公式引用整列 P 且锚点为自身行 $A5",
                 cost2025 != null && cost2025.Contains("$P:$P") && cost2025.Contains("$A5"),
                 cost2025 ?? "null");
-            string restore2025 = MatrixCell(matrix, "宿州一号", "宿州十一号", "Restore", "2025").Formula;
+            string restore2025 = MatrixCell(matrix, "销售主体A", "客户A", "Restore", "2025").Formula;
             Assert("成本还原行引用本组单元格 =(G4-H5)-H7", restore2025 == "=(G4-H5)-H7", restore2025 ?? "null");
-            string unrealized2025 = MatrixCell(matrix, "宿州一号", "宿州十一号", "Unrealized", "2025").Formula;
+            string unrealized2025 = MatrixCell(matrix, "销售主体A", "客户A", "Unrealized", "2025").Formula;
             Assert("存货行有损益列时走 SUMIFS(W)",
                 unrealized2025 != null && unrealized2025.StartsWith("=SUMIFS(内部交易明细!$W:$W"),
                 unrealized2025 ?? "null");
-            string revenue2024 = MatrixCell(matrix, "宿州一号", "宿州十一号", "Revenue", "2024").Formula;
+            string revenue2024 = MatrixCell(matrix, "销售主体A", "客户A", "Revenue", "2024").Formula;
             Assert("2024 年度锚点切到 J$2", revenue2024 != null && revenue2024.Contains(",J$2,"), revenue2024 ?? "null");
-            string revenueNoProfit2024 = MatrixCell(noProfit, "宿州一号", "宿州十一号", "Unrealized", "2024").Formula;
+            string revenueNoProfit2024 = MatrixCell(noProfit, "销售主体A", "客户A", "Unrealized", "2024").Formula;
             // 实机验收教训：①整列引用会把源表头/汇总行文本卷入乘法，且 WPS 对 SUMPRODUCT 内
             // IFERROR 的数组语义支持不完整拦不住传染（#VALUE!）；②更要命的是**维度必须一致**——
             // 条件数组用整列（1048576 行）而因子用区间（2693 行）会直接返回 #N/A。
@@ -464,15 +464,15 @@ namespace Excel_Iterate.TestHarness
             MatrixOptions limited = MatrixOpt(true);
             limited.LimitComputedRange = true;
             EliminationMatrix limitedMatrix = EliminationMatrixBuilder.Build(matrixRows, MatrixMap(false), limited);
-            string limitedFormula = MatrixCell(limitedMatrix, "宿州一号", "宿州十一号", "Unrealized", "2024").Formula;
+            string limitedFormula = MatrixCell(limitedMatrix, "销售主体A", "客户A", "Unrealized", "2024").Formula;
             Assert("限定当前数据区时退回 $O$3:$O$200（性能优先）",
                 limitedFormula != null && limitedFormula.Contains("$O$3:$O$200"), limitedFormula ?? "null");
 
             Assert("无损益列：组1·2025 U 改由现算 = 0（V=0%）",
-                Near(MatrixCell(noProfit, "宿州一号", "宿州十一号", "Unrealized", "2025").Value, 0m),
-                MatrixCell(noProfit, "宿州一号", "宿州十一号", "Unrealized", "2025").Value.ToString());
+                Near(MatrixCell(noProfit, "销售主体A", "客户A", "Unrealized", "2025").Value, 0m),
+                MatrixCell(noProfit, "销售主体A", "客户A", "Unrealized", "2025").Value.ToString());
             Assert("无损益列：组1·2024 U 仍为 73714.04",
-                Near(MatrixCell(noProfit, "宿州一号", "宿州十一号", "Unrealized", "2024").Value, 73714.04m), "");
+                Near(MatrixCell(noProfit, "销售主体A", "客户A", "Unrealized", "2024").Value, 73714.04m), "");
             Assert("无损益列仍然平衡", noProfit.Balanced, "");
 
             // ===== 11. 矩阵写入计划 =====
@@ -498,8 +498,8 @@ namespace Excel_Iterate.TestHarness
                 Assert("A2 = 核算主体 且 A3 留空（纵向合并）",
                     Convert.ToString(c[1, 0]) == "核算主体" && c[2, 0] == null, Convert.ToString(c[2, 0]));
                 Assert("数据首行：主体/客商/备注/调整事项/科目",
-                    Convert.ToString(c[3, 0]) == "宿州一号" && Convert.ToString(c[3, 1]) == "宿州十一号"
-                    && Convert.ToString(c[3, 2]) == "宿州一号 → 宿州十一号：收入抵消"
+                    Convert.ToString(c[3, 0]) == "销售主体A" && Convert.ToString(c[3, 1]) == "客户A"
+                    && Convert.ToString(c[3, 2]) == "销售主体A → 客户A：收入抵消"
                     && Convert.ToString(c[3, 3]) == "收入成本抵消"
                     && Convert.ToString(c[3, 4]) == "营业收入", Convert.ToString(c[3, 2]));
                 Assert("收入行写借列 G（年度 2025）",
@@ -511,7 +511,7 @@ namespace Excel_Iterate.TestHarness
                 Assert("存货行（有损益列）走 SUMIFS(W)",
                     Convert.ToString(c[6, 7]).StartsWith("=SUMIFS(内部交易明细!$W:$W"), Convert.ToString(c[6, 7]));
                 Assert("第二组从第 8 行起且 2025 列留空",
-                    Convert.ToString(c[7, 0]) == "宿州二号" && c[7, 6] == null, Convert.ToString(c[7, 6]));
+                    Convert.ToString(c[7, 0]) == "销售主体B" && c[7, 6] == null, Convert.ToString(c[7, 6]));
                 Assert("第二组 2024 收入写在 J 列",
                     Convert.ToString(c[7, 9]).StartsWith("=SUMIFS(内部交易明细!$O:$O"), Convert.ToString(c[7, 9]));
             }
@@ -528,8 +528,8 @@ namespace Excel_Iterate.TestHarness
                 "行数 " + gapMatrix.Rows.Count + " 跨行 " + gapMatrix.GroupStride
                 + " 第二组首行 " + (gapMatrix.Rows.Count > 4 ? gapMatrix.Rows[4].RowNumber.ToString() : "无"));
             Assert("空行：组内引用随行号平移 =(J9-K10)-K12",
-                MatrixCell(gapMatrix, "宿州二号", "宿州十二号", "Restore", "2024").Formula == "=(J9-K10)-K12",
-                MatrixCell(gapMatrix, "宿州二号", "宿州十二号", "Restore", "2024").Formula ?? "null");
+                MatrixCell(gapMatrix, "销售主体B", "客户B", "Restore", "2024").Formula == "=(J9-K10)-K12",
+                MatrixCell(gapMatrix, "销售主体B", "客户B", "Restore", "2024").Formula ?? "null");
             Assert("空行：仍满足借贷恒等式", gapMatrix.Balanced, "");
             MergeWritePlan gapPlan = EliminationGateway.BuildMatrixPlan(gapMatrix, gapOpt);
             MergeWriteBlock gb = gapPlan.Blocks.Count > 0 ? gapPlan.Blocks[0] : null;
@@ -539,8 +539,8 @@ namespace Excel_Iterate.TestHarness
             {
                 Assert("空行：第 8 行（索引 7）整行留空", gb.Cells[7, 0] == null && gb.Cells[7, 10] == null,
                     Convert.ToString(gb.Cells[7, 0]));
-                Assert("空行：索引 8 对应工作第 9 行 = 宿州二号",
-                    Convert.ToString(gb.Cells[8, 0]) == "宿州二号", Convert.ToString(gb.Cells[8, 0]));
+                Assert("空行：索引 8 对应工作第 9 行 = 销售主体B",
+                    Convert.ToString(gb.Cells[8, 0]) == "销售主体B", Convert.ToString(gb.Cells[8, 0]));
                 Assert("空行：组内引用写入 =(J9-K10)-K12",
                     Convert.ToString(gb.Cells[10, 10]) == "=(J9-K10)-K12", Convert.ToString(gb.Cells[10, 10]));
             }
@@ -567,23 +567,23 @@ namespace Excel_Iterate.TestHarness
 
             // ===== 12. 往来抵消：差异表 + 结果表 =====
             Console.WriteLine("--- 12. 往来抵消（净额法、以小抵大）---");
-            string wuhua = "芜湖市繁昌区五华鸡产业发展有限公司";
-            string xiangcun = "芜湖市繁昌区乡村振兴发展集团有限公司";
+            string entityA = "主体A有限公司";
+            string entityB = "主体B有限公司";
             List<EliminationRow> wlRows = new List<EliminationRow>();
-            // 五华鸡账上：其他应收款—对方=乡村振兴 65,950,000
-            wlRows.Add(Row(4, EliminationRole.Entity, wuhua, EliminationRole.Counterparty, xiangcun,
+            // 主体A账上：其他应收款—对方=主体B 65,950,000
+            wlRows.Add(Row(4, EliminationRole.Entity, entityA, EliminationRole.Counterparty, entityB,
                 EliminationRole.Account, "其他应收款", EliminationRole.Deadline, "20260630",
                 EliminationRole.Amount, "65950000", EliminationRole.Condition, "是"));
-            // 乡村振兴账上：其他应收款—对方=五华鸡 50,000
-            wlRows.Add(Row(5, EliminationRole.Entity, xiangcun, EliminationRole.Counterparty, wuhua,
+            // 主体B账上：其他应收款—对方=主体A 50,000
+            wlRows.Add(Row(5, EliminationRole.Entity, entityB, EliminationRole.Counterparty, entityA,
                 EliminationRole.Account, "其他应收款", EliminationRole.Deadline, "20260630",
                 EliminationRole.Amount, "50000", EliminationRole.Condition, "是"));
-            // 乡村振兴账上：其他应付款—对方=五华鸡 66,000,000
-            wlRows.Add(Row(6, EliminationRole.Entity, xiangcun, EliminationRole.Counterparty, wuhua,
+            // 主体B账上：其他应付款—对方=主体A 66,000,000
+            wlRows.Add(Row(6, EliminationRole.Entity, entityB, EliminationRole.Counterparty, entityA,
                 EliminationRole.Account, "其他应付款", EliminationRole.Deadline, "20260630",
                 EliminationRole.Amount, "66000000", EliminationRole.Condition, "是"));
             // 干扰：非合并内关联方，须被筛掉
-            wlRows.Add(Row(7, EliminationRole.Entity, wuhua, EliminationRole.Counterparty, "外部客户",
+            wlRows.Add(Row(7, EliminationRole.Entity, entityA, EliminationRole.Counterparty, "外部客户",
                 EliminationRole.Account, "其他应收款", EliminationRole.Deadline, "20260630",
                 EliminationRole.Amount, "999", EliminationRole.Condition, "否"));
 
@@ -600,8 +600,8 @@ namespace Excel_Iterate.TestHarness
                 diff != null && diff.Years.Count == 1 && diff.Years[0] == "2026", "");
 
             EliminationDiffRow other = diff == null ? null : FindDiff(diff, "其他应收款");
-            // 净额法：netA = 五华鸡应收(65,950,000) − 应付(0) = 65,950,000；
-            //         netB = 乡村振兴应收(50,000) − 应付(66,000,000) = −65,950,000
+            // 净额法：netA = 主体A应收(65,950,000) − 应付(0) = 65,950,000；
+            //         netB = 主体B应收(50,000) − 应付(66,000,000) = −65,950,000
             Assert("资产端账面净额 = 65,950,000（净额法：资产−负债）",
                 other != null && Near(other.Asset.Value, 65950000m),
                 other == null ? "无行" : other.Asset.Value.ToString());
@@ -612,21 +612,21 @@ namespace Excel_Iterate.TestHarness
                 other != null && Near(other.Offset.Value, 65950000m),
                 other == null ? "无行" : other.Offset.Value.ToString());
             // 净额计算过程四列：债权方资产/负债余额、债务方资产/负债余额
-            Assert("债权方资产余额 = 65,950,000（五华鸡对其他应收款）",
+            Assert("债权方资产余额 = 65,950,000（主体A对其他应收款）",
                 other != null && Near(other.CreditorAsset.Value, 65950000m),
                 other == null ? "无行" : other.CreditorAsset.Value.ToString());
-            Assert("债权方负债余额 = 0（五华鸡对其他应付款）",
+            Assert("债权方负债余额 = 0（主体A对其他应付款）",
                 other != null && Near(other.CreditorLiability.Value, 0m),
                 other == null ? "无行" : other.CreditorLiability.Value.ToString());
-            Assert("债务方资产余额 = 50,000（乡村振兴对其他应收款）",
+            Assert("债务方资产余额 = 50,000（主体B对其他应收款）",
                 other != null && Near(other.DebtorAsset.Value, 50000m),
                 other == null ? "无行" : other.DebtorAsset.Value.ToString());
-            Assert("债务方负债余额 = 66,000,000（乡村振兴对其他应付款）",
+            Assert("债务方负债余额 = 66,000,000（主体B对其他应付款）",
                 other != null && Near(other.DebtorLiability.Value, 66000000m),
                 other == null ? "无行" : other.DebtorLiability.Value.ToString());
-            // 动态方向：净额较大方（五华鸡）为债权方、乡村振兴为债务方
-            Assert("动态债权方 = 五华鸡、债务方 = 乡村振兴",
-                other != null && other.Creditor == wuhua && other.Debtor == xiangcun,
+            // 动态方向：净额较大方（主体A）为债权方、主体B为债务方
+            Assert("动态债权方 = 主体A、债务方 = 主体B",
+                other != null && other.Creditor == entityA && other.Debtor == entityB,
                 other == null ? "无行" : other.Creditor + "/" + other.Debtor);
             // 差额 = 资产端账面净额 − 负债端账面净额（不是 资产−抵消）
             Assert("差额 = 资产 − 负债 = 0（相等情形）",
@@ -646,7 +646,7 @@ namespace Excel_Iterate.TestHarness
             Assert("债权方资产余额走 SUMPRODUCT 精确匹配（方向合计），区间自动扩展到工作表末尾",
                 other != null && other.CreditorAsset.Formula != null
                 && other.CreditorAsset.Formula.StartsWith("=SUMPRODUCT((")
-                && other.CreditorAsset.Formula.Contains("\"" + wuhua + "\"") && other.CreditorAsset.Formula.Contains("\"" + xiangcun + "\"")
+                && other.CreditorAsset.Formula.Contains("\"" + entityA + "\"") && other.CreditorAsset.Formula.Contains("\"" + entityB + "\"")
                 && other.CreditorAsset.Formula.Contains("其他应收款")
                 && other.CreditorAsset.Formula.Contains("$U$4:$U$1048576")
                 // 括号必须平衡（曾出现提前闭合导致语法错误）
@@ -672,11 +672,11 @@ namespace Excel_Iterate.TestHarness
             if (wlResult != null && wlResult.Rows.Count == 2)
             {
                 Assert("结果表：第 1 行 债权方借 其他应收款 65,950,000",
-                    wlResult.Rows[0].Entity == wuhua && wlResult.Rows[0].Account == "其他应收款"
+                    wlResult.Rows[0].Entity == entityA && wlResult.Rows[0].Account == "其他应收款"
                     && Near(wlResult.Rows[0].Debit.ContainsKey("2026") ? wlResult.Rows[0].Debit["2026"].Value : 0m, 65950000m),
                     wlResult.Rows[0].Entity + "/" + wlResult.Rows[0].Account);
                 Assert("结果表：第 2 行 债务方贷 其他应付款 65,950,000",
-                    wlResult.Rows[1].Entity == xiangcun && wlResult.Rows[1].Account == "其他应付款"
+                    wlResult.Rows[1].Entity == entityB && wlResult.Rows[1].Account == "其他应付款"
                     && Near(wlResult.Rows[1].Credit.ContainsKey("2026") ? wlResult.Rows[1].Credit["2026"].Value : 0m, 65950000m),
                     wlResult.Rows[1].Entity + "/" + wlResult.Rows[1].Account);
                 Assert("结果表：调整事项 = 往来抵消", wlResult.Rows[0].Adjustment == "往来抵消", wlResult.Rows[0].Adjustment);
@@ -781,21 +781,21 @@ namespace Excel_Iterate.TestHarness
             // ===== 12c. 结果表合并同类行（同标签多年度合并为一行）=====
             Console.WriteLine("--- 12c. 结果表合并同类行 ---");
             List<EliminationRow> mergeRows = new List<EliminationRow>();
-            // 其他应收款 2026：五华鸡应收乡村振兴 65,950,000；乡村振兴应付五华鸡 66,000,000、应收 50,000
-            mergeRows.Add(Row(4, EliminationRole.Entity, wuhua, EliminationRole.Counterparty, xiangcun,
+            // 其他应收款 2026：主体A应收主体B 65,950,000；主体B应付主体A 66,000,000、应收 50,000
+            mergeRows.Add(Row(4, EliminationRole.Entity, entityA, EliminationRole.Counterparty, entityB,
                 EliminationRole.Account, "其他应收款", EliminationRole.Deadline, "20260630",
                 EliminationRole.Amount, "65950000", EliminationRole.Condition, "是"));
-            mergeRows.Add(Row(5, EliminationRole.Entity, xiangcun, EliminationRole.Counterparty, wuhua,
+            mergeRows.Add(Row(5, EliminationRole.Entity, entityB, EliminationRole.Counterparty, entityA,
                 EliminationRole.Account, "其他应付款", EliminationRole.Deadline, "20260630",
                 EliminationRole.Amount, "66000000", EliminationRole.Condition, "是"));
-            mergeRows.Add(Row(6, EliminationRole.Entity, xiangcun, EliminationRole.Counterparty, wuhua,
+            mergeRows.Add(Row(6, EliminationRole.Entity, entityB, EliminationRole.Counterparty, entityA,
                 EliminationRole.Account, "其他应收款", EliminationRole.Deadline, "20260630",
                 EliminationRole.Amount, "50000", EliminationRole.Condition, "是"));
-            // 其他应收款 2025：五华鸡应收乡村振兴 30,000,000；乡村振兴应付五华鸡 30,000,000
-            mergeRows.Add(Row(7, EliminationRole.Entity, wuhua, EliminationRole.Counterparty, xiangcun,
+            // 其他应收款 2025：主体A应收主体B 30,000,000；主体B应付主体A 30,000,000
+            mergeRows.Add(Row(7, EliminationRole.Entity, entityA, EliminationRole.Counterparty, entityB,
                 EliminationRole.Account, "其他应收款", EliminationRole.Deadline, "20251231",
                 EliminationRole.Amount, "30000000", EliminationRole.Condition, "是"));
-            mergeRows.Add(Row(8, EliminationRole.Entity, xiangcun, EliminationRole.Counterparty, wuhua,
+            mergeRows.Add(Row(8, EliminationRole.Entity, entityB, EliminationRole.Counterparty, entityA,
                 EliminationRole.Account, "其他应付款", EliminationRole.Deadline, "20251231",
                 EliminationRole.Amount, "30000000", EliminationRole.Condition, "是"));
 
@@ -808,14 +808,14 @@ namespace Excel_Iterate.TestHarness
                 mergeResult == null ? "null" : mergeResult.Rows.Count + " 行");
             if (mergeResult != null && mergeResult.Rows.Count == 2)
             {
-                bool creditOk = mergeResult.Rows[0].Entity == wuhua
+                bool creditOk = mergeResult.Rows[0].Entity == entityA
                     && mergeResult.Rows[0].Account == "其他应收款"
                     && mergeResult.Rows[0].Debit.ContainsKey("2026") && mergeResult.Rows[0].Debit.ContainsKey("2025")
                     && Near(mergeResult.Rows[0].Debit["2026"].Value, 65950000m)
                     && Near(mergeResult.Rows[0].Debit["2025"].Value, 30000000m);
                 Assert("合并：债权方借其他应收款 2026=65,950,000、2025=30,000,000 同在一行",
                     creditOk, mergeResult.Rows[0].Entity + "/" + mergeResult.Rows[0].Account);
-                bool debtOk = mergeResult.Rows[1].Entity == xiangcun
+                bool debtOk = mergeResult.Rows[1].Entity == entityB
                     && mergeResult.Rows[1].Account == "其他应付款"
                     && mergeResult.Rows[1].Credit.ContainsKey("2026") && mergeResult.Rows[1].Credit.ContainsKey("2025")
                     && Near(mergeResult.Rows[1].Credit["2026"].Value, 65950000m)
@@ -827,15 +827,15 @@ namespace Excel_Iterate.TestHarness
             // ===== 12d. 坏账准备抵消（借坏账准备 / 贷管理费用，全额、联动）=====
             Console.WriteLine("--- 12d. 坏账准备抵消 ---");
             List<EliminationRow> bdRows = new List<EliminationRow>();
-            // 五华鸡→乡村振兴 其他应收款 2025：审定数 30000000、坏账准备 150000
-            bdRows.Add(Row(4, EliminationRole.Entity, wuhua, EliminationRole.Counterparty, xiangcun,
+            // 主体A→主体B 其他应收款 2025：审定数 30000000、坏账准备 150000
+            bdRows.Add(Row(4, EliminationRole.Entity, entityA, EliminationRole.Counterparty, entityB,
                 EliminationRole.Account, "其他应收款", EliminationRole.Deadline, "20251231",
                 EliminationRole.Amount, "30000000", EliminationRole.BadDebt, "150000", EliminationRole.Condition, "是"));
-            bdRows.Add(Row(5, EliminationRole.Entity, xiangcun, EliminationRole.Counterparty, wuhua,
+            bdRows.Add(Row(5, EliminationRole.Entity, entityB, EliminationRole.Counterparty, entityA,
                 EliminationRole.Account, "其他应付款", EliminationRole.Deadline, "20251231",
                 EliminationRole.Amount, "30000000", EliminationRole.Condition, "是"));
             // 干扰：非合并内，坏账准备不参与
-            bdRows.Add(Row(6, EliminationRole.Entity, wuhua, EliminationRole.Counterparty, "外部客户",
+            bdRows.Add(Row(6, EliminationRole.Entity, entityA, EliminationRole.Counterparty, "外部客户",
                 EliminationRole.Account, "应收账款", EliminationRole.Deadline, "20251231",
                 EliminationRole.Amount, "999", EliminationRole.BadDebt, "888", EliminationRole.Condition, "否"));
 
@@ -853,20 +853,20 @@ namespace Excel_Iterate.TestHarness
                 MatrixRow bdMgmt = bdResult.Rows[2];
                 MatrixRow bdDebt = bdResult.Rows[3];
                 Assert("坏账准备抵消：第 1 行 债权方借其他应收款",
-                    bdCredit.Entity == wuhua && bdCredit.Account == "其他应收款" && bdCredit.Adjustment == "往来抵消",
+                    bdCredit.Entity == entityA && bdCredit.Account == "其他应收款" && bdCredit.Adjustment == "往来抵消",
                     bdCredit.Entity + "/" + bdCredit.Account);
                 Assert("坏账准备抵消：第 2 行 借坏账准备（紧跟债权方行、金额全额、D列区分）",
-                    bdBad.Entity == wuhua && bdBad.Customer == xiangcun && bdBad.Account == "坏账准备"
+                    bdBad.Entity == entityA && bdBad.Customer == entityB && bdBad.Account == "坏账准备"
                     && bdBad.Adjustment == "坏账准备抵消"
                     && bdBad.Debit.ContainsKey("2025") && Near(bdBad.Debit["2025"].Value, 150000m),
                     bdBad.Entity + "/" + bdBad.Account + "/" + bdBad.Adjustment);
                 Assert("坏账准备抵消：第 3 行 贷管理费用（B列=—、金额全额）",
-                    bdMgmt.Entity == wuhua && bdMgmt.Customer == "—" && bdMgmt.Account == "管理费用"
+                    bdMgmt.Entity == entityA && bdMgmt.Customer == "—" && bdMgmt.Account == "管理费用"
                     && bdMgmt.Adjustment == "坏账准备抵消"
                     && bdMgmt.Credit.ContainsKey("2025") && Near(bdMgmt.Credit["2025"].Value, 150000m),
                     bdMgmt.Entity + "/" + bdMgmt.Customer + "/" + bdMgmt.Account);
                 Assert("坏账准备抵消：第 4 行 债务方贷其他应付款",
-                    bdDebt.Entity == xiangcun && bdDebt.Account == "其他应付款" && bdDebt.Adjustment == "往来抵消",
+                    bdDebt.Entity == entityB && bdDebt.Account == "其他应付款" && bdDebt.Adjustment == "往来抵消",
                     bdDebt.Entity + "/" + bdDebt.Account);
             }
 

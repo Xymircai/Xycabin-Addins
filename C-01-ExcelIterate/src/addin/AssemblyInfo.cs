@@ -35,3 +35,4 @@ using System.Runtime.InteropServices;
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("RuntimeQualityProbe")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DataMigrationProbe")]
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("DataMigrationLiveProbe")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("BatchTextEditLiveProbe")]

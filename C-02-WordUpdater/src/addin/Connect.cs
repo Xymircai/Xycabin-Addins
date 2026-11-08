@@ -316,13 +316,6 @@ namespace WordUpdater
             }
             catch { }
         }
-
-        private static string ComTypeName(object o)
-        {
-            if (o == null) return "(null)";
-            try { return o.GetType().Name; }
-            catch { return "?"; }
-        }
         public IPictureDisp GetImage_menuBatchProcessing(object control) { return GetButtonImageCore("menuBatchProcessing"); }
     }
 }

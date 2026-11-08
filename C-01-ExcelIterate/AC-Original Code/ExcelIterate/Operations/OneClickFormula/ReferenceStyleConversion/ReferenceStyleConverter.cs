@@ -76,7 +76,7 @@ namespace Excel_Iterate
                 string value = part.Replace("$", ""); int split = 0;
                 while (split < value.Length && char.IsLetter(value[split])) split++;
                 string column = value.Substring(0, split), row = value.Substring(split); int col = 0; long rowNumber;
-                foreach (char c in column) col = col * 26 + char.ToUpperInvariant(c) - 'A' + 1;
+                col = CellAddress.ColumnNumber(column);
                 if (column.Length > 0 && (col < 1 || col > 16384) || row.Length > 0 && (!long.TryParse(row, NumberStyles.None, CultureInfo.InvariantCulture, out rowNumber) || rowNumber < 1 || rowNumber > 1048576))
                 { rendered = null; return false; }
                 if (output.Length > 0) output.Append(':');

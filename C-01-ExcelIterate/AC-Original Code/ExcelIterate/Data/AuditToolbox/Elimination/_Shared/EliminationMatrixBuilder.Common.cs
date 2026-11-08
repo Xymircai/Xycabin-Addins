@@ -74,20 +74,10 @@ namespace Excel_Iterate
             Match match = Regex.Match(text.Trim(), "(19|20)\\d{2}");
             return match.Success ? match.Value : null;
         }
-
-        /// <summary>列号 → 列字母（1 → "A"，27 → "AA"）。</summary>
+        /// <summary>列号 → 列字母；缺省起点为 A。</summary>
         public static string Letter(int column)
         {
-            if (column <= 0) return "A";
-            StringBuilder sb = new StringBuilder();
-            int rest = column;
-            while (rest > 0)
-            {
-                int mod = (rest - 1) % 26;
-                sb.Insert(0, (char)('A' + mod));
-                rest = (rest - mod - 1) / 26;
-            }
-            return sb.ToString();
+            return CellAddress.ColumnLetters(Math.Max(1, column));
         }
     }
 }

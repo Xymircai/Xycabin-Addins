@@ -1,11 +1,12 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using Excel_Iterate;
 
-internal static class CellConversionProbe
+internal static partial class CellConversionProbe
 {
     private static int checks;
     private static void Check(bool value, string message) { checks++; if (!value) throw new Exception(message); }
@@ -20,6 +21,8 @@ internal static class CellConversionProbe
         internal ConversionCellState Current;
         internal int Writes;
         internal bool FailWrite, FailRestore, Locked;
+        internal string RejectFormula;
+        internal bool FailTextFallback;
         internal Action AfterWrite;
         internal Cell(string address, ConversionCellState state) { Address = address; Original = state.Copy(); Current = state.Copy(); }
         public void CheckWritable() { if (Locked) throw new InvalidOperationException("protected"); }
@@ -29,10 +32,12 @@ internal static class CellConversionProbe
             Writes++;
             if (FailRestore && Writes > 1) throw new InvalidOperationException("restore denied");
             Current = state.Copy(); if (AfterWrite != null) AfterWrite();
+            if (state.IsFormula && state.Formula == RejectFormula) throw new FormulaInputRejectedException(new COMException("invalid expression", unchecked((int)0x800a03ec)));
+            if (FailTextFallback && !state.IsFormula && state.NumberFormat == "@") throw new InvalidOperationException("text fallback failed");
             if (FailWrite && Writes == 1) throw new InvalidOperationException("setter mutated then threw");
         }
     }
-    private sealed class Host : IConversionHost
+    private sealed class Host : IConversionHost, IBatchFormulaSyntax, IConversionCalculationControl
     {
         internal readonly List<IConversionCell> Cells = new List<IConversionCell>();
         internal int Disposals, Rechecks;
@@ -41,7 +46,10 @@ internal static class CellConversionProbe
         internal Action<IList<IConversionCell>> OnCalculate;
         public bool EnableEvents { get; set; }
         public bool ScreenUpdating { get; set; }
-        internal Host(params Cell[] cells) { Cells.AddRange(cells); EnableEvents = ScreenUpdating = true; }
+        public int Calculation { get; set; }
+        internal Host(params Cell[] cells) { Cells.AddRange(cells); EnableEvents = ScreenUpdating = true; Calculation = -4105; }
+        public IList<BatchEditChange> ValidateFormulaSyntax(IList<BatchEditChange> candidates)
+        { var rejected = new List<BatchEditChange>(); foreach (var change in candidates) if (((Cell)change.Cell).RejectFormula == change.After.Formula) rejected.Add(change); return rejected; }
         public IList<IConversionCell> Collect() { return Cells; }
         public void RecheckScope() { Rechecks++; if (Recheck != null) Recheck(); }
         public void Calculate(IList<IConversionCell> targets) { Calculations++; Check(!EnableEvents && !ScreenUpdating, "calculation remains inside transaction"); if (OnCalculate != null) OnCalculate(targets); }
@@ -51,9 +59,9 @@ internal static class CellConversionProbe
     private static CellConversionResult Run(Host host, ConversionRequest request) { return CellConversionEngine.Run(host, request, recovery); }
     private static void TextChecks()
     {
-        string sample = "文化旅游开发有限公司1231ADSF！！！";
-        Equal(CellCharacterClassifier.Filter(sample, CellCharacterKinds.Chinese, true), "文化旅游开发有限公司", "extract Chinese");
-        Equal(CellCharacterClassifier.Filter(sample, CellCharacterKinds.Chinese | CellCharacterKinds.English, true), "文化旅游开发有限公司ADSF", "extract combined");
+        string sample = "甲乙丙1231ADSF！！！";
+        Equal(CellCharacterClassifier.Filter(sample, CellCharacterKinds.Chinese, true), "甲乙丙", "extract Chinese");
+        Equal(CellCharacterClassifier.Filter(sample, CellCharacterKinds.Chinese | CellCharacterKinds.English, true), "甲乙丙ADSF", "extract combined");
         Equal(CellCharacterClassifier.Filter(sample, CellCharacterKinds.Chinese, false), "1231ADSF！！！", "remove Chinese");
         string[] fragments = { " \u3000\t\r\n", "AaＺｂ", "中𠀀", "19０２", "！🙂é" };
         string mixed = string.Concat(fragments);
@@ -128,7 +136,11 @@ internal static class CellConversionProbe
         Check(ConversionRangeAddress.Cells("A1:B2,B2:C2").Count == 5, "range union deduplicates");
         Equal(ConversionRangeAddress.Normalize("$B$2:a1,c3"), "A1:B2,C3", "normalize typed A1 ranges");
         Check(ConversionRangeAddress.Cells("A1:A100000").Count == 100000, "maximum supported range");
-        foreach (string invalid in new[] { "", "A1:A100001", "XFE1", "A1048577", "Other!A1", "[Book.xlsx]Sheet1!A1", "A:A" })
+        Equal(ConversionRangeAddress.Normalize("A1:A60000,A40001:A100000"), "A1:A60000,A40001:A100000", "overlapping areas may exceed the summed limit when their union fits");
+        Equal(ConversionRangeAddress.Normalize("A1:A100000,A1:A100000"), "A1:A100000,A1:A100000", "repeated maximum areas retain the unique-cell limit");
+        Check(ConversionRangeAddress.Cells("C2:D3,B1:C2").SequenceEqual(new[] { "C2", "D2", "C3", "D3", "B1", "C1", "B2" }), "cell enumeration preserves area order and removes overlap");
+        Check(CellAddress.ColumnNumber("XFE") == 0 && CellAddress.ColumnNumber("AAAAAAAAAAAA") == 0 && CellAddress.ColumnNumber("$aA") == 27, "shared column conversion handles bounds, overflow, dollars and case");
+        foreach (string invalid in new[] { "", "A1:A100001", "A1:A60000,B1:B60000", "XFE1", "A1048577", "Other!A1", "[Book.xlsx]Sheet1!A1", "A:A" })
         { bool refused = false; try { ConversionRangeAddress.Normalize(invalid); } catch (FormatException) { refused = true; } Check(refused, "reject invalid or oversized address " + invalid); }
     }
     private static void RestoreChecks()
@@ -168,6 +180,42 @@ internal static class CellConversionProbe
         Equal(ConversionRangeAddress.FirstCell("J5:J1,A1"), "J1", "first preview cell normalizes rectangle bounds");
         var rectangles = ConversionRangeAddress.Rectangles(new[] { "A1", "B1", "A2", "B2", "D5", "D6" });
         Check(rectangles.Count == 2 && rectangles[0] == "A1:B2" && rectangles[1] == "D5:D6", "calculation targets compact into rectangles");
+    }
+    private static void BoundApplicationChecks()
+    {
+        var before = Connect.HostApplication;
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
+        var bind = typeof(Connect).GetMethod("BindHostApplication", flags);
+        var read = typeof(Connect).Assembly.GetType("Excel_Iterate.ThisAddIn").GetMethod("ReadHostApplication", flags);
+        var hidden = new ConversionProbeApplication { ActiveSheet = null };
+        var current = new ConversionProbeApplication(); var provider = new ConversionHostProvider(current);
+        try
+        {
+            Connect.HostApplication = hidden;
+            Func<object> source = delegate { return read.Invoke(null, new object[] { provider }); };
+            if (bind != null && read != null) bind.Invoke(null, new object[] { source });
+            string failure = null;
+            try
+            {
+                Check(Connect.EnsureApplication(), "current VSTO host is available");
+                using (var host = new ComConversionHost(Connect.HostApplication)) host.ReadPreview("A1");
+                using (var names = new FileNameWorksheet(Connect.HostApplication)) Check(names.Description == current.ActiveSheet.Name, "file-name extraction uses the bound worksheet");
+            }
+            catch (Exception error) { failure = error.Message; }
+            Check(failure == null && ReferenceEquals(Connect.HostApplication, current), "VSTO current host overrides a live empty global instance; observed: " + failure);
+            Check(provider.Requests == 1 && Connect.EnsureApplication() && provider.Requests == 1, "bound host is cached without repeated COM acquisition");
+            provider.Application = null; bind.Invoke(null, new object[] { source });
+            Check(!Connect.EnsureApplication() && Connect.HostApplication == null, "unavailable VSTO host stops instead of selecting a global instance");
+            provider.Application = current;
+            Check(Connect.EnsureApplication() && ReferenceEquals(Connect.HostApplication, current), "current host resolution retries after startup is ready");
+            provider.Application = hidden; bind.Invoke(null, new object[] { source });
+            Check(Connect.EnsureApplication() && ReferenceEquals(Connect.HostApplication, hidden), "an empty authoritative host never switches to another instance");
+        }
+        finally
+        {
+            if (bind != null) bind.Invoke(null, new object[] { null });
+            Connect.HostApplication = before;
+        }
     }
     private static void HostChecks()
     {
@@ -218,7 +266,7 @@ internal static class CellConversionProbe
     [STAThread] private static int Main()
     {
         recovery = Path.Combine(Path.GetTempPath(), "CellConversionProbe-" + Guid.NewGuid().ToString("N"));
-        try { TextChecks(); ReferenceChecks(); ConversionChecks(); TransactionChecks(); RestoreChecks(); HostChecks(); Console.WriteLine("PASS CellConversionProbe: " + checks + " assertions; pure algorithms, transactions and production adapter; no host connection"); if (Directory.Exists(recovery)) { foreach (string file in Directory.GetFiles(recovery, "ConversionRecovery-*.txt")) File.Delete(file); Directory.Delete(recovery); } return 0; }
+        try { TextChecks(); ReferenceChecks(); ConversionChecks(); TransactionChecks(); RestoreChecks(); BoundApplicationChecks(); HostChecks(); BatchTextEditChecks(); Console.WriteLine("PASS CellConversionProbe: " + checks + " assertions; pure algorithms, transactions and production adapter; no host connection"); if (Directory.Exists(recovery)) { foreach (string file in Directory.GetFiles(recovery, "ConversionRecovery-*.txt")) File.Delete(file); Directory.Delete(recovery); } return 0; }
         catch (Exception error) { Console.WriteLine("FAIL CellConversionProbe: " + error); Console.WriteLine("Retained recovery fixtures: " + recovery); return 1; }
     }
 }
@@ -240,6 +288,8 @@ public sealed class ConversionProbeRange
     public ConversionProbeCount Rows = new ConversionProbeCount(), Columns = new ConversionProbeCount();
     public ConversionProbeAreas Areas { get { return new ConversionProbeAreas(this); } }
     public bool HasArray, HasSpill, Locked, MissingFormula2;
+    public string RefusedExpression;
+    public int RefusalCode;
     public bool MergeCells { get { return false; } }
     public string NumberFormat = "General", LastFormulaWrite;
     private string formula;
@@ -251,7 +301,7 @@ public sealed class ConversionProbeRange
     public string Formula
     {
         get { return formula; }
-        set { LastFormulaWrite = value; if (value.StartsWith("'", StringComparison.Ordinal)) { formula = null; Result = value.Substring(1); } else { formula = value; if (value == "=1+") throw new InvalidOperationException("invalid expression"); } }
+        set { LastFormulaWrite = value; if (value.StartsWith("'", StringComparison.Ordinal)) { formula = null; Result = value.Substring(1); } else { formula = value; if (value == RefusedExpression) throw new COMException("fixture formula setter refusal", RefusalCode); if (value == "=1+") throw new COMException("invalid expression", unchecked((int)0x800a03ec)); } }
     }
     public string Formula2 { get { if (MissingFormula2) throw new MissingMemberException("Formula2"); return Formula; } set { if (MissingFormula2) throw new MissingMemberException("Formula2"); Formula = value; } }
     public string Text { get { return Result is double && NumberFormat == "0000" ? ((double)Result).ToString("0000", CultureInfo.InvariantCulture) : System.Convert.ToString(Result, CultureInfo.InvariantCulture); } }
@@ -285,6 +335,7 @@ public sealed class ConversionProbeSheet
 public sealed class ConversionProbeWindow { public ConversionProbeCount SelectedSheets = new ConversionProbeCount(); }
 public sealed class ConversionProbeApplication
 {
+    public object Workbooks { get { return new ConversionProbeCount { Count = ActiveSheet == null ? 0 : 1 }; } }
     public ConversionProbeSheet ActiveSheet = new ConversionProbeSheet(new ConversionProbeBook());
     public ConversionProbeWindow ActiveWindow = new ConversionProbeWindow();
     public object Selection { get { return ActiveSheet.Range["A1"]; } }
@@ -293,4 +344,19 @@ public sealed class ConversionProbeApplication
     public object Picked = false;
     public object InputBox(object prompt, object title, object initial, object left, object top, object help, object context, object type) { return Picked; }
     public object Union(object first, object second) { var a = (ConversionProbeRange)first; var b = (ConversionProbeRange)second; var result = new ConversionProbeRange(ActiveSheet, 1) { Members = new List<ConversionProbeRange>() }; if (a.Members == null) result.Members.Add(a); else foreach (var item in a.Members) result.Members.Add(item); if (b.Members == null) result.Members.Add(b); else foreach (var item in b.Members) result.Members.Add(item); return result; }
+}
+
+public sealed class ConversionHostProvider : Microsoft.Office.Tools.IHostItemProvider
+{
+    public object Application;
+    public int Requests;
+    public ConversionHostProvider(object application) { Application = application; }
+    public object GetHostObject(Type type, string cookie)
+    {
+        Requests++;
+        if (type.GUID != new Guid("000208D5-0000-0000-C000-000000000046") || cookie != "Application") throw new InvalidOperationException("incorrect VSTO application identity");
+        return Application;
+    }
+    public object GetHostExtender(Type type, string cookie) { return null; }
+    public void SetHostObjectOnExtender(string primaryCookie, string extenderCookie, object extender) { }
 }

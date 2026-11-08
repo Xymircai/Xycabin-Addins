@@ -149,8 +149,8 @@ namespace Excel_Iterate
                 using (ComBag chunk = new ComBag())
                 {
                     dynamic range = chunk.Own(s.Range[
-                        ComFormulaHost.Address(headerRow + 1 + offset, column.Number) + ":"
-                        + ComFormulaHost.Address(headerRow + offset + height, column.Number)]);
+                        CellAddress.Name(headerRow + 1 + offset, column.Number) + ":"
+                        + CellAddress.Name(headerRow + offset + height, column.Number)]);
                     bool merged = false;
                     try { merged = ComFormulaHost.Boolean(range.MergeCells, "MergeCells"); }
                     catch { }
@@ -425,8 +425,8 @@ namespace Excel_Iterate
         {
             if (target == null || target.Sheet == null) return;
             dynamic s = target.Sheet;
-            string address = ComFormulaHost.Address(headerRow, startColumn) + ":"
-                + ComFormulaHost.Address(headerRow, startColumn + columns - 1);
+            string address = CellAddress.Name(headerRow, startColumn) + ":"
+                + CellAddress.Name(headerRow, startColumn + columns - 1);
             using (ComBag bag = new ComBag())
             {
                 dynamic range = bag.Own(s.Range[address]);
@@ -479,8 +479,8 @@ namespace Excel_Iterate
                     // 「格式维护」样张：全表（含 R1 SUBTOTAL 行）统一 Times New Roman 11；
                     // 表头 Bold 由 StyleMatrixHeader 保留
                     int fontTop = headerRow > 1 ? headerRow - 1 : headerRow;
-                    dynamic whole = bag.Own(s.Range[ComFormulaHost.Address(fontTop, startColumn) + ":"
-                        + ComFormulaHost.Address(dataTop + rowCount - 1, startColumn + columnCount - 1)]);
+                    dynamic whole = bag.Own(s.Range[CellAddress.Name(fontTop, startColumn) + ":"
+                        + CellAddress.Name(dataTop + rowCount - 1, startColumn + columnCount - 1)]);
                     dynamic font = bag.Own(whole.Font);
                     font.Name = "Times New Roman";
                     font.Size = 11;
@@ -493,21 +493,21 @@ namespace Excel_Iterate
                     for (int i = 0; i < moneyColumns.Length; i++)
                     {
                         int col = startColumn + moneyColumns[i];
-                        string addr = ComFormulaHost.Address(dataTop, col) + ":"
-                            + ComFormulaHost.Address(dataTop + rowCount - 1, col);
+                        string addr = CellAddress.Name(dataTop, col) + ":"
+                            + CellAddress.Name(dataTop + rowCount - 1, col);
                         dynamic range = bag.Own(s.Range[addr]);
                         range.NumberFormat = moneyFmt;
                         if (subtotalRow >= 1)
                         {
-                            string subAddr = ComFormulaHost.Address(subtotalRow, col) + ":"
-                                + ComFormulaHost.Address(subtotalRow, col);
+                            string subAddr = CellAddress.Name(subtotalRow, col) + ":"
+                                + CellAddress.Name(subtotalRow, col);
                             dynamic subRange = bag.Own(s.Range[subAddr]);
                             subRange.NumberFormat = moneyFmt;
                         }
                     }
                 }
                 // 数据区垂直居中
-                string bodyAddr = ComFormulaHost.Address(dataTop, startColumn) + ":" + ComFormulaHost.Address(dataTop + rowCount - 1, startColumn + columnCount - 1);
+                string bodyAddr = CellAddress.Name(dataTop, startColumn) + ":" + CellAddress.Name(dataTop + rowCount - 1, startColumn + columnCount - 1);
                 dynamic body = bag.Own(s.Range[bodyAddr]);
                 body.VerticalAlignment = -4108;
                 // 指定列水平居中
@@ -516,7 +516,7 @@ namespace Excel_Iterate
                     for (int i = 0; i < centerColumns.Length; i++)
                     {
                         int col = startColumn + centerColumns[i];
-                        string addr = ComFormulaHost.Address(dataTop, col) + ":" + ComFormulaHost.Address(dataTop + rowCount - 1, col);
+                        string addr = CellAddress.Name(dataTop, col) + ":" + CellAddress.Name(dataTop + rowCount - 1, col);
                         dynamic range = bag.Own(s.Range[addr]);
                         range.HorizontalAlignment = -4108;
                     }
@@ -524,8 +524,8 @@ namespace Excel_Iterate
                 // 「格式参考」样张边框：内部 slantDashDot（斜点划线）、左边缘与顶边 medium
                 if (referenceStyle)
                 {
-                    string allAddr = ComFormulaHost.Address(headerRow, startColumn) + ":"
-                        + ComFormulaHost.Address(dataTop + rowCount - 1, startColumn + columnCount - 1);
+                    string allAddr = CellAddress.Name(headerRow, startColumn) + ":"
+                        + CellAddress.Name(dataTop + rowCount - 1, startColumn + columnCount - 1);
                     dynamic all = bag.Own(s.Range[allAddr]);
                     dynamic borders = bag.Own(all.Borders);
                     borders.LineStyle = 13;      // xlSlantDashDot
@@ -537,15 +537,15 @@ namespace Excel_Iterate
                     edgeTop.Weight = -4138;
                 }
                 // 列宽 AutoFit（含表头+数据，规范 ii）；表头不换行，AutoFit 保证单行显示
-                string fitAddr = ComFormulaHost.Address(headerRow, startColumn) + ":"
-                    + ComFormulaHost.Address(dataTop + rowCount - 1, startColumn + columnCount - 1);
+                string fitAddr = CellAddress.Name(headerRow, startColumn) + ":"
+                    + CellAddress.Name(dataTop + rowCount - 1, startColumn + columnCount - 1);
                 dynamic fit = bag.Own(s.Range[fitAddr]);
                 fit.WrapText = false;
                 dynamic cols = bag.Own(fit.Columns); cols.AutoFit();
                 // 表头行高 26 下限（双层表头每行都设）
                 for (int r = 0; r < headerRows; r++)
                 {
-                    dynamic header = bag.Own(s.Range[ComFormulaHost.Address(headerRow + r, startColumn) + ":" + ComFormulaHost.Address(headerRow + r, startColumn + columnCount - 1)]);
+                    dynamic header = bag.Own(s.Range[CellAddress.Name(headerRow + r, startColumn) + ":" + CellAddress.Name(headerRow + r, startColumn + columnCount - 1)]);
                     object h = header.RowHeight;
                     double hd = h == null ? 0 : Convert.ToDouble(h, CultureInfo.InvariantCulture);
                     if (hd < 26) header.RowHeight = 26;
@@ -574,8 +574,8 @@ namespace Excel_Iterate
             dynamic s = target.Sheet;
             foreach (MergeWriteBlock block in plan.Blocks)
             {
-                string address = ComFormulaHost.Address(block.StartRow, block.FirstColumn) + ":"
-                    + ComFormulaHost.Address(block.StartRow + block.RowCount - 1,
+                string address = CellAddress.Name(block.StartRow, block.FirstColumn) + ":"
+                    + CellAddress.Name(block.StartRow + block.RowCount - 1,
                                              block.FirstColumn + block.ColumnCount - 1);
                 using (ComBag bag = new ComBag())
                 {
@@ -622,8 +622,8 @@ namespace Excel_Iterate
                 try
                 {
                     dynamic range = bag.Own(sheet.Range[
-                        ComFormulaHost.Address(row1, column1) + ":"
-                        + ComFormulaHost.Address(row2, column2)]);
+                        CellAddress.Name(row1, column1) + ":"
+                        + CellAddress.Name(row2, column2)]);
                     range.Merge();
                     range.HorizontalAlignment = -4108;
                     range.VerticalAlignment = -4108;
@@ -644,8 +644,8 @@ namespace Excel_Iterate
             if (target == null || target.Sheet == null || matrix == null) return;
             dynamic s = target.Sheet;
             int rows = totalRow ? 2 : 2;   // 第 1 层年度 + 第 2 层借/贷
-            string address = ComFormulaHost.Address(firstHeaderRow, startColumn) + ":"
-                + ComFormulaHost.Address(firstHeaderRow + rows - 1, startColumn + matrix.Columns.Count - 1);
+            string address = CellAddress.Name(firstHeaderRow, startColumn) + ":"
+                + CellAddress.Name(firstHeaderRow + rows - 1, startColumn + matrix.Columns.Count - 1);
             using (ComBag bag = new ComBag())
             {
                 dynamic range = bag.Own(s.Range[address]);
@@ -664,7 +664,7 @@ namespace Excel_Iterate
                 // 规范 (2)i：表头行按字体适配、保留 26 磅下限（双层表头每行都设）
                 for (int r = 0; r < rows; r++)
                 {
-                    dynamic hr = bag.Own(s.Range[ComFormulaHost.Address(firstHeaderRow + r, startColumn) + ":" + ComFormulaHost.Address(firstHeaderRow + r, startColumn + matrix.Columns.Count - 1)]);
+                    dynamic hr = bag.Own(s.Range[CellAddress.Name(firstHeaderRow + r, startColumn) + ":" + CellAddress.Name(firstHeaderRow + r, startColumn + matrix.Columns.Count - 1)]);
                     object h = hr.RowHeight;
                     double hd = h == null ? 0 : Convert.ToDouble(h, CultureInfo.InvariantCulture);
                     if (hd < 26) hr.RowHeight = 26;
@@ -680,8 +680,8 @@ namespace Excel_Iterate
                     try
                     {
                         dynamic cell = bag.Own(s.Range[
-                            ComFormulaHost.Address(firstHeaderRow, debit.Number) + ":"
-                            + ComFormulaHost.Address(firstHeaderRow, debit.Number + 1)]);
+                            CellAddress.Name(firstHeaderRow, debit.Number) + ":"
+                            + CellAddress.Name(firstHeaderRow, debit.Number + 1)]);
                         cell.NumberFormat = "General\"年\"\"度\"";
                     }
                     catch { }
@@ -698,12 +698,8 @@ namespace Excel_Iterate
             int i = 0;
             while (i < s.Length && s[i] >= 'A' && s[i] <= 'Z') i++;
             if (i == 0 || i >= s.Length) return false;
-            int letters = 0;
-            for (int k = 0; k < i; k++)
-            {
-                letters = letters * 26 + (s[k] - 'A' + 1);
-                if (letters > MergeLimits.MaxColumn) return false;
-            }
+            int letters = CellAddress.ColumnNumber(s.Substring(0, i), MergeLimits.MaxColumn);
+            if (letters == 0) return false;
             int digits = 0;
             for (int k = i; k < s.Length; k++)
             {

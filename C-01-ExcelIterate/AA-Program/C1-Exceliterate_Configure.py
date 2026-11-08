@@ -290,10 +290,13 @@ BUTTONS = [
     {
         "type": "menu", "id": "menuOneClickConversion", "group": ("grpAction", "操作"),
         "label": "一键转换", "size": "large", "builtin_icon": "update",
-        "screentip": "按字符类型提取或过滤选区文字",
+        "screentip": "提取、过滤、插入、截取或删除选区文字及公式原文",
         "children": [{"id": "btnTextExtractFilter", "label": "文本提取与过滤", "builtin_icon": "filter",
                       "action": "feature", "callback": "OnTextExtractFilter",
-                      "supertip": "选择区域，自由组合空格、英文、中文、数字和其他；提取保留所选类型，过滤删除所选类型。结果按文本原位写回。"}],
+                      "supertip": "选择区域，自由组合空格、英文、中文、数字和其他；提取保留所选类型，过滤删除所选类型。结果按文本原位写回。"},
+                     {"id": "btnBatchInsertTrimDelete", "label": "批量插入与删截", "builtin_icon": "update",
+                      "action": "feature", "callback": "OnBatchInsertTrimDelete",
+                      "supertip": "批量插入、截取和删除字符，支持首格示例。移除原开头等号后保留原格式，不加单引号；剩余公式语法无效时先整批确认，再转为文本。"}],
     },
     {
         "type": "menu", "id": "menuOneClickFormula", "group": ("grpAction", "操作"),

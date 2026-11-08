@@ -150,138 +150,6 @@ namespace WordUpdater
         }
 
         // ==================================================================
-        //                          动作：更新 / 中断
-        // ==================================================================
-
-        public static LinkActionResult UpdateAll(object application)
-        {
-            LinkActionResult r = new LinkActionResult();
-            try
-            {
-                dynamic app = application;
-                dynamic doc = app.ActiveDocument;
-                List<RawLink> links = CollectAllLinks(doc);
-                r.Total = links.Count;
-                if (links.Count == 0) { r.Executed = true; return r; }
-
-                WordHostStateScope st = WordHostStateScope.Enter(application);
-                HashSet<int> before = EtCleanup.SnapshotEtPids();
-                try
-                {
-                    for (int i = 0; i < links.Count; i++)
-                    {
-                        RawLink rl = links[i];
-                        try
-                        {
-                            bool ok;
-                            dynamic d = rl.Com;
-                            if (rl.IsField)
-                            {
-                                object ret = d.Update();
-                                if (ret == null) ok = true;
-                                else
-                                {
-                                    try { ok = Convert.ToBoolean(ret); }
-                                    catch { ok = true; }   // 返回值解析不了但没抛异常，视为成功
-                                }
-                            }
-                            else
-                            {
-                                d.LinkFormat.Update();
-                                ok = true;
-                            }
-                            if (ok) r.Success++;
-                            else
-                            {
-                                r.Failed++;
-                                AddFail(r, LabelOf(rl, i), "源返回失败（源文件不可用或链接已损坏）");
-                            }
-                        }
-                        catch (COMException ex)
-                        {
-                            r.Failed++;
-                            AddFail(r, LabelOf(rl, i),
-                                string.Format("{0} (0x{1:X8})", ex.Message, ex.ErrorCode));
-                        }
-                        catch (Exception ex)
-                        {
-                            r.Failed++;
-                            AddFail(r, LabelOf(rl, i), ex.Message);
-                        }
-                    }
-                }
-                finally
-                {
-                    st.Dispose();
-                }
-
-                // 诊断新出现的实例，不关闭任何非自有进程。
-                r.CleanedHiddenHosts = EtCleanup.CleanupSpawnedHiddenEt(before);
-                r.Executed = true;
-                return r;
-            }
-            catch (Exception ex)
-            {
-                r.ErrorMessage = ex.Message;
-                r.Executed = false;
-                return r;
-            }
-        }
-
-        public static LinkActionResult BreakAll(object application)
-        {
-            LinkActionResult r = new LinkActionResult();
-            try
-            {
-                dynamic app = application;
-                dynamic doc = app.ActiveDocument;
-                List<RawLink> links = CollectAllLinks(doc);
-                r.Total = links.Count;
-                if (links.Count == 0) { r.Executed = true; return r; }
-
-                WordHostStateScope st = WordHostStateScope.Enter(application);
-                try
-                {
-                    // 倒序：先处理靠后的位置，尽量避免前面的取消/转换影响后续 COM 引用
-                    for (int i = links.Count - 1; i >= 0; i--)
-                    {
-                        RawLink rl = links[i];
-                        try
-                        {
-                            dynamic d = rl.Com;
-                            if (rl.IsField) d.Unlink();
-                            else d.LinkFormat.BreakLink();
-                            r.Success++;
-                        }
-                        catch (COMException ex)
-                        {
-                            r.Failed++;
-                            AddFail(r, LabelOf(rl, i),
-                                string.Format("{0} (0x{1:X8})", ex.Message, ex.ErrorCode));
-                        }
-                        catch (Exception ex)
-                        {
-                            r.Failed++;
-                            AddFail(r, LabelOf(rl, i), ex.Message);
-                        }
-                    }
-                }
-                finally
-                {
-                    st.Dispose();
-                }
-                r.Executed = true;
-                return r;
-            }
-            catch (Exception ex)
-            {
-                r.ErrorMessage = ex.Message;
-                r.Executed = false;
-                return r;
-            }
-        }
-
-        // ==================================================================
         //                      动作：跳转到某条链接的位置
         // ==================================================================
 
@@ -294,6 +162,55 @@ namespace WordUpdater
         /// 取之前核对类型代号 / 字段代码 / 源路径，对不上说明列表已过期，
         /// 让 UI 提示用户刷新而不是跳错位置。
         /// </summary>
+        public static LinkActionResult UpdateAll(object application) { return RunAll(application, false); }
+        public static LinkActionResult BreakAll(object application) { return RunAll(application, true); }
+        private static LinkActionResult RunAll(object application, bool unlink)
+        {
+            var result = new LinkActionResult();
+            try
+            {
+                dynamic app = application;
+                List<RawLink> links = CollectAllLinks(app.ActiveDocument);
+                result.Total = links.Count;
+                if (links.Count == 0) { result.Executed = true; return result; }
+                var state = WordHostStateScope.Enter(application);
+                HashSet<int> before = unlink ? null : EtCleanup.SnapshotEtPids();
+                try
+                {
+                    for (int step = 0; step < links.Count; step++)
+                    {
+                        int index = unlink ? links.Count - 1 - step : step;
+                        var link = links[index];
+                        try
+                        {
+                            dynamic item = link.Com; bool success = true;
+                            if (unlink)
+                            {
+                                if (link.IsField) item.Unlink(); else item.LinkFormat.BreakLink();
+                            }
+                            else if (link.IsField)
+                            {
+                                object value = item.Update();
+                                if (value != null) try { success = Convert.ToBoolean(value); } catch { }
+                            }
+                            else item.LinkFormat.Update();
+                            if (success) result.Success++;
+                            else { result.Failed++; AddFail(result, LabelOf(link, index), "源返回失败（源文件不可用或链接已损坏）"); }
+                        }
+                        catch (Exception error)
+                        {
+                            result.Failed++; var com = error as COMException;
+                            AddFail(result, LabelOf(link, index), com == null ? error.Message : string.Format("{0} (0x{1:X8})", com.Message, com.ErrorCode));
+                        }
+                    }
+                }
+                finally { state.Dispose(); }
+                if (!unlink) result.CleanedHiddenHosts = EtCleanup.CleanupSpawnedHiddenEt(before);
+                result.Executed = true;
+            }
+            catch (Exception error) { result.ErrorMessage = error.Message; result.Executed = false; }
+            return result;
+        }
         public static string JumpToItem(object application, LinkItemInfo item)
         {
             object flashRange; int prevHighlight;
@@ -460,7 +377,7 @@ namespace WordUpdater
             for (int i = 1; i <= count; i++)
             {
                 object first = null;
-                try { first = UpdateEngine.GetItem(ranges, i); }
+                try { first = WordComCollection.Item(ranges, i); }
                 catch { continue; }
                 object cur = first;
                 for (int guard = 0; guard < 64 && cur != null; guard++)
@@ -496,7 +413,7 @@ namespace WordUpdater
                 try
                 {
                     object of = null;
-                    try { of = UpdateEngine.GetItem(fields, i); }
+                    try { of = WordComCollection.Item(fields, i); }
                     catch { of = null; }
                     if (of == null) continue;
 
@@ -538,7 +455,7 @@ namespace WordUpdater
                 try
                 {
                     object os = null;
-                    try { os = UpdateEngine.GetItem(shapes, i); }
+                    try { os = WordComCollection.Item(shapes, i); }
                     catch { os = null; }
                     if (os == null) continue;
                     dynamic sh = os;
@@ -570,7 +487,7 @@ namespace WordUpdater
                 try
                 {
                     object os = null;
-                    try { os = UpdateEngine.GetItem(shapes, i); }
+                    try { os = WordComCollection.Item(shapes, i); }
                     catch { os = null; }
                     if (os == null) continue;
                     dynamic sh = os;
@@ -643,8 +560,8 @@ namespace WordUpdater
             // 首选：复用「链接Excel」里那套成熟的 LINK/DDE 解析器
             bool multiArea = false;
             string parseError = null;
-            LinkPasteEngine.SourceTemplate t = null;
-            try { t = LinkPasteEngine.ParseLinkCode(code, out multiArea, out parseError); }
+            LinkFieldCode.SourceTemplate t = null;
+            try { t = LinkFieldCode.ParseLinkCode(code, out multiArea, out parseError); }
             catch { t = null; }
 
             if (t != null)
@@ -656,8 +573,8 @@ namespace WordUpdater
                 {
                     // 多区域（Ctrl 多选复制）要列出全部片区，否则会误显示成只有第 1 片
                     rangeText = multiArea
-                        ? LinkPasteEngine.DescribeAreas(t)
-                        : LinkPasteEngine.DescribeRange(t);
+                        ? LinkFieldCode.DescribeAreas(t)
+                        : LinkFieldCode.DescribeRange(t);
                 }
                 catch { rangeText = ""; }
                 if (multiArea) info.ItemKind = "链接字段（复合）";
@@ -884,11 +801,6 @@ namespace WordUpdater
             if (t.Length >= 2 && t[0] == '\'' && t[t.Length - 1] == '\'')
                 t = t.Substring(1, t.Length - 2);          // 'My Sheet' 这种带引号的写法
             return t;
-        }
-
-        private static string TrimSuffix(string s, char suffix)
-        {
-            return TrimSuffix(s, suffix.ToString());
         }
 
         private static string TrimSuffix(string s, string suffix)

@@ -63,6 +63,7 @@ namespace Excel_Iterate
                     case "formula.divide":form=new FormulaOptionsForm(FormulaOperation.Divide);break;
                     case "formula.custom":form=new CustomFunctionForm();break;
                     case "conversion.text":form=new CellConversionForm(CellConversionKind.TextFilter,"工作簿：示例.xlsx\r\n工作表：数据","J1:J5",new ConversionPreview("J1:J5",new ConversionCellState { Value="MIRCAI文化旅游公司2025!!",Display="MIRCAI文化旅游公司2025!!",NumberFormat="General" }));break;
+                    case "conversion.batchInsertTrimDelete":form=new CellConversionForm(CellConversionKind.BatchInsertTrimDelete,"工作簿：示例.xlsx\r\n工作表：数据","A1:A5",new ConversionPreview("A1:A5",new ConversionCellState { Value="甲乙丙丁戊123",Display="甲乙丙丁戊123",NumberFormat="General" }));((TextBox)form.Controls.Find("batchInsertText",true)[0]).Text="示例";break;
                     case "formula.references":form=new CellConversionForm(CellConversionKind.ReferenceStyle,"工作簿：示例.xlsx\r\n工作表：数据","G11:G14,G16:G18",new ConversionPreview("G11:G14,G16:G18",new ConversionCellState { IsFormula=true,Formula="=H23+H24+H26",Value=100.0,Display="100",NumberFormat="General" }));break;
                     case "links.assistant":form=new LinkAssistantForm(null);break;
                     case "file.organize":form=new OrganizeFilesForm();break;

@@ -14,6 +14,7 @@ from verify_package import verify
 sys.path.insert(0, str(SITE_ROOT / "src"))
 from build_cache import inputs, key, digest, receipt, save
 from build_report import BuildReport, relay_omissions, write_json
+from tool_catalog import validation
 
 
 def main():
@@ -50,38 +51,17 @@ def validate(args, report):
              (Path(sys.executable), [ROOT / 'src/tools/window_thread_probe.py']),
              (Path(sys.executable), [SITE_ROOT / 'src/tools/document_assets_probe.py', '--root', ROOT]),
              (Path(sys.executable), [SITE_ROOT / 'src/tools/site_probe.py', '--html', args.site_html])]
-    # --skip-ui alone does not suppress forms opened by business/Agent probes.
-    background_tools = {'CellConversionProbe', 'ConversionInteractionProbe', 'CompanyWorkbookProbe', 'SingleSummaryProbe', 'RuntimeQualityProbe', 'HostDialogProbe', 'FormulaProbe', 'FormulaInteractionProbe', 'Feature099Probe', 'TrackerProbe', 'ErrorSourceProbe', 'WorkbookToolsProbe', 'FileOperationsProbe', 'MergeHeadersProbe', 'DataMigrationProbe', 'EliminationProbe', 'DisciplineProbe',
-                        'LinkViewProbe', 'LinkMapProbe', 'UpdateProbe', 'LinkViewFormProbe', 'EtCleanupProbe', 'EtSelectionReaderProbe', 'ClipboardBoundaryFixture'}
-    pending = []
-    for tool in PROJECT['tools']:
-        if not tool.get('offline'):
-            continue
-        if args.background and tool['name'] not in background_tools:
-            pending.append(tool['name'])
-        else:
-            tests.append((BUILD / (tool['name'] + '.exe'), ['--core'] if args.background and tool['name'] == 'FormulaProbe' else []))
-            if args.background and tool['name'] == 'FormulaProbe':
-                pending.append('FormulaProbe 前台窗口路径')
-    tests += [(BUILD / 'AgentDocumentCoreProbe.exe', [dll]),
-              (BUILD / 'GripProbe.exe', [dll]), (BUILD / 'LiveProbeSafetyFixture.exe', []),
-              (BUILD / 'InstallFlowProbe.exe', []),
-              (BUILD / 'RibbonProbe.exe', [dll]),
-              (BUILD / 'ValidateManifest.exe', [BUILD / (PROJECT['assembly'] + '.dll.manifest'), BUILD / (PROJECT['assembly'] + '.vsto')])]
-    if args.background:
-        tests += [(BUILD / 'DialogSizesProbe.exe', [dll, '--core'])]
-        pending += ['DialogSizesProbe 前台预览/拖动', 'AgentExtensionProbe', 'UiPreviewProbe']
-    else:
-        tests += [(BUILD / 'DialogSizesProbe.exe', [dll]),
-                  (BUILD / 'AgentExtensionProbe.exe', [dll, args.site_html])]
     render_ui = not (args.skip_ui or args.background)
+    rendered = BUILD / 'ui-preview-current'
     if render_ui:
-        installer = args.installer
-        if not installer.is_file():
-            raise FileNotFoundError('Installer preview requires a packaged installer: ' + str(installer))
-        rendered = BUILD / 'ui-preview-current'
+        if not args.installer.is_file():
+            raise FileNotFoundError('Installer preview requires a packaged installer: ' + str(args.installer))
         rendered.mkdir(exist_ok=True)
-        tests += [(BUILD / 'UiPreviewProbe.exe', [dll, installer, rendered])]
+    context = dict(dll=str(dll), manifest=str(BUILD / (PROJECT['assembly'] + '.dll.manifest')),
+                   vsto=str(BUILD / (PROJECT['assembly'] + '.vsto')), site_html=str(args.site_html),
+                   installer=str(args.installer), rendered=str(rendered))
+    selected, pending, background_tools = validation(PROJECT, args.background, render_ui, context)
+    tests += [(BUILD / (name + '.exe'), arguments) for name, arguments in selected]
     logs = ['待前台验收（本轮未运行）：' + ', '.join(pending)] if pending else []
     if args.skip_ui:
         logs.append('SKIP: --skip-ui，窗口布局截图未执行')

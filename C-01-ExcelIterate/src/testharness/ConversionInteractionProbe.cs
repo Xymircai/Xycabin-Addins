@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Windows.Forms;
@@ -88,6 +89,7 @@ internal static class ConversionInteractionProbe
         });
         Pump(() => inspected && editor.Apply.Enabled); OnUi(f => f.Apply.PerformClick()); Settled(); Check(!result.Failed && (string)host.Cell.Current.Value == "7" && host.Cell.Current.NumberFormat == "@", "manual address and text settings delivered");
         PreviewChecks();
+        BatchUiChecks();
         for (int i = 0; i < 3; i++)
         {
             host = Open(); long stale = ticket; ConversionInteraction.Shutdown(); Settled();
@@ -100,6 +102,42 @@ internal static class ConversionInteractionProbe
     }
     private static string Before(CellConversionForm f) { return f.Controls.Find("conversionBefore", true)[0].Text; }
     private static string After(CellConversionForm f) { return f.Controls.Find("conversionPreview", true)[0].Text; }
+    private static void BatchUiChecks()
+    {
+        var host = Open(CellConversionKind.BatchInsertTrimDelete); bool done = false;
+        OnUi(delegate(CellConversionForm f)
+        {
+            var tabs = (TabControl)f.Controls.Find("batchEditTabs", true)[0];
+            Check(tabs.TabPages.Count == 3 && tabs.TabPages[0].Text == "插入" && tabs.TabPages[1].Text == "截取" && tabs.TabPages[2].Text == "删除", "three batch edit pages");
+            Check(!f.Apply.Enabled && Before(f).Contains("=$A$2"), "empty insertion disables execute but shows actual formula source");
+            Check(!Descendants(f).Any(c => c is Label && c.Text.StartsWith("可输入 A1:B10", StringComparison.Ordinal)), "batch dialog omits the range explanation requested by user");
+            var panel = f.Controls.Find("batchEditPanel", true)[0]; int insertionHeight = panel.Height;
+            ((TextBox)f.Controls.Find("batchInsertText", true)[0]).Text = "X";
+            Check(f.Apply.Enabled && After(f).Contains("X=$A$2"), "insertion preview edits formula source");
+            ((NumericUpDown)f.Controls.Find("batch0Count", true)[0]).Value = 2;
+            tabs.SelectedIndex = 1; ((RadioButton)f.Controls.Find("batch1Middle", true)[0]).Checked = true;
+            Check(panel.Height < insertionHeight, "trim page compacts the parameter area without insertion whitespace");
+            ((NumericUpDown)f.Controls.Find("batch1Last", true)[0]).Value = 5; ((NumericUpDown)f.Controls.Find("batch1First", true)[0]).Value = 3;
+            Check(f.Apply.Enabled && After(f).Contains("A$2"), "inclusive formula preview counts leading equal sign");
+            ((NumericUpDown)f.Controls.Find("batch1First", true)[0]).Value = 6; Check(!f.Apply.Enabled, "reversed middle disables execute");
+            ((NumericUpDown)f.Controls.Find("batch1First", true)[0]).Value = 3;
+            tabs.SelectedIndex = 2; Check(f.Request().TextEdit.Count == 1, "delete has independent default count");
+            tabs.SelectedIndex = 0; Check(f.Request().TextEdit.Text == "X" && f.Request().TextEdit.Count == 2, "page switching retains insertion parameters");
+            tabs.SelectedIndex = 1; Check(f.Request().TextEdit.Start == 3 && f.Request().TextEdit.End == 5, "page switching retains trim parameters"); done = true;
+        });
+        Pump(() => done); OnUi(f => f.Pick.PerformClick()); Pump(() => host.Picks == 1 && editor.Enabled);
+        Check(host.Cell.Writes == 0 && editor.RangeInput.Text == "A1", "batch picker cancel retains range without writes");
+        OnUi(f => f.Apply.PerformClick()); Settled();
+        Check(!result.Failed && (string)host.Cell.Current.Value == "A$2" && !host.Cell.Current.IsFormula && result.PlainResults == 1 && result.FormulasAsText == 0 && host.Cell.Current.NumberFormat == "General", "batch controls submit ordinary result without a text-format fallback");
+        host = Open(CellConversionKind.BatchInsertTrimDelete); done = false;
+        OnUi(delegate(CellConversionForm f)
+        {
+            ((TextBox)f.Controls.Find("batchInsertText", true)[0]).Text = "X";
+            f.ReceivePreview(0, "A1", new ConversionPreview("A1", new ConversionCellState { Value = null, Display = "", NumberFormat = "General" }), null);
+            Check(After(f).Contains("（空白）") && f.Validation.Text.Contains("跳过") && f.Apply.Enabled, "true blank preview stays blank while batch remains usable"); done = true;
+        });
+        Pump(() => done); OnUi(f => f.Cancel.PerformClick()); Settled(); Check(host.Cell.Writes == 0, "batch cancel is zero write");
+    }
     private static void PreviewChecks()
     {
         var host = new Host(); host.Cell.Current = new ConversionCellState { Value = "MIRCAI文化旅游公司2025!!", Display = "MIRCAI文化旅游公司2025!!", NumberFormat = "General" };
@@ -139,7 +177,7 @@ internal static class ConversionInteractionProbe
     private static void Render(string folder)
     {
         Directory.CreateDirectory(folder);
-        foreach (string id in new[] { "conversion.text", "formula.references" })
+        foreach (string id in new[] { "conversion.text", "formula.references", "conversion.batchInsertTrimDelete" })
         using (var form = DialogPreviewFactory.CreateProgramDefault(id))
         using (var parking = new Panel { Size = form.Size })
         {
@@ -148,22 +186,32 @@ internal static class ConversionInteractionProbe
             ((CellConversionForm)form).SuppressActivation = true;
             typeof(Form).GetMethod("OnShown", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(form, new object[] { EventArgs.Empty }); form.PerformLayout();
             if (id == "conversion.text") ((CheckBox)form.Controls.Find("conversionKind1", true)[0]).Checked = true;
-            else ((RadioButton)form.Controls.Find("conversionReference2", true)[0]).Checked = true;
+            else if (id == "formula.references") ((RadioButton)form.Controls.Find("conversionReference2", true)[0]).Checked = true;
             using (var overlay = new PreviewSelectionOverlay(form))
             {
                 overlay.RefreshSnapshot();
                 using (var bitmap = new Bitmap(overlay.Width, overlay.Height)) { overlay.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(Path.Combine(folder, id + ".png"), ImageFormat.Png); }
             }
             var range = form.Controls.Find("conversionRange", true)[0];
-            Check(range.Width >= 200 && range.Height >= 18 && range.Text == (id == "conversion.text" ? "J1:J5" : "G11:G14,G16:G18"), "usable range editor bounds for " + id);
+            Check(range.Width >= 200 && range.Height >= 18 && range.Text == (id == "conversion.text" ? "J1:J5" : id == "formula.references" ? "G11:G14,G16:G18" : "A1:A5"), "usable range editor bounds for " + id);
             Check(form.Controls.Find("conversionApply", true).Length == 1, "real preview controls for " + id);
+            if (id == "conversion.batchInsertTrimDelete")
+            {
+                var tabs = (TabControl)form.Controls.Find("batchEditTabs", true)[0];
+                for (int page = 1; page <= 2; page++)
+                {
+                    tabs.SelectedIndex = page; ((RadioButton)form.Controls.Find("batch" + page + "Middle", true)[0]).Checked = true;
+                    ((NumericUpDown)form.Controls.Find("batch" + page + "Last", true)[0]).Value = 6; ((NumericUpDown)form.Controls.Find("batch" + page + "First", true)[0]).Value = 3;
+                    form.PerformLayout(); using (var pageOverlay = new PreviewSelectionOverlay(form)) { pageOverlay.RefreshSnapshot(); using (var bitmap = new Bitmap(pageOverlay.Width, pageOverlay.Height)) { pageOverlay.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(Path.Combine(folder, id + "." + page + ".png"), ImageFormat.Png); } }
+                }
+            }
         }
     }
     private static IEnumerable<Control> Descendants(Control root)
     { foreach (Control item in root.Controls) { yield return item; foreach (Control child in Descendants(item)) yield return child; } }
     private static void LayoutChecks()
     {
-        foreach (string id in new[] { "conversion.text", "formula.references" })
+        foreach (string id in new[] { "conversion.text", "formula.references", "conversion.batchInsertTrimDelete" })
         foreach (float factor in new[] { 1f, 1.25f, 1.5f, 2f })
         {
             var fonts = new List<Font>();
@@ -185,6 +233,7 @@ internal static class ConversionInteractionProbe
                     var state = new ConversionCellState { Display = "MIRCAI文化旅游公司2025!!", Value = "MIRCAI文化旅游公司2025!!", NumberFormat = "General" };
                     if (id == "formula.references") { state.IsFormula = true; state.Formula = "=H23+H24+H26"; state.Value = 100.0; }
                     f.ReceivePreview(0, address, new ConversionPreview(address, state), null); f.PerformLayout();
+                    if (id == "conversion.batchInsertTrimDelete") Check(f.Request().TextEdit.Operation == BatchTextEditOperation.Insert && After(f).Contains("示例"), "factory batch preview stays valid during native tab creation " + factor);
                     var bar = f.Apply.Parent; var root = bar.Parent;
                     int buttonBottom = root.Top + bar.Top + Math.Max(f.Apply.Bottom, f.Cancel.Bottom);
                     int gap = f.ClientSize.Height - buttonBottom;
@@ -206,7 +255,7 @@ internal static class ConversionInteractionProbe
             }
             finally { foreach (Font font in fonts) font.Dispose(); }
         }
-        foreach (string id in new[] { "conversion.text", "formula.references" })
+        foreach (string id in new[] { "conversion.text", "formula.references", "conversion.batchInsertTrimDelete" })
         using (var form = (CellConversionForm)DialogPreviewFactory.Create(id, new Size(900, 680)))
         using (var parking = new Panel { Size = form.Size })
         {

@@ -91,14 +91,18 @@
     "AC-Original Code/WordUpdater/Links/_Shared/EtCleanup.cs",
     "AC-Original Code/WordUpdater/Links/_Shared/WordHostStateScope.cs",
     "AC-Original Code/WordUpdater/Links/LinkToExcel/Connect.LinkPasteResult.cs",
-    "AC-Original Code/WordUpdater/Links/UpdateLinks/Connect.UpdateResult.cs"
+    "AC-Original Code/WordUpdater/Links/UpdateLinks/Connect.UpdateResult.cs",
+    "@shared/src/addin/CellAddress.cs",
+    "AC-Original Code/WordUpdater/Links/_Shared/LinkFieldCode.cs",
+    "AC-Original Code/WordUpdater/Links/_Shared/WordComCollection.cs"
   ],
   "tools": [
     {
       "name": "ClipboardBoundaryFixture",
       "source": "src/testharness/ClipboardBoundaryFixture.cs",
       "references": [],
-      "offline": true
+      "offline": true,
+      "background": []
     },
     {
       "name": "EtSelectionReaderProbe",
@@ -107,7 +111,8 @@
         "@addin",
         "System.Windows.Forms.dll"
       ],
-      "offline": true
+      "offline": true,
+      "background": []
     },
     {
       "name": "EtCleanupProbe",
@@ -115,7 +120,8 @@
       "references": [
         "@addin"
       ],
-      "offline": true
+      "offline": true,
+      "background": []
     },
     {
       "name": "LinkPasteTest",
@@ -161,7 +167,8 @@
         "System.Windows.Forms.dll",
         "@addin"
       ],
-      "offline": true
+      "offline": true,
+      "background": []
     },
     {
       "name": "LinkMapProbe",
@@ -170,7 +177,8 @@
         "System.Windows.Forms.dll",
         "@addin"
       ],
-      "offline": true
+      "offline": true,
+      "background": []
     },
     {
       "name": "UpdateProbe",
@@ -179,7 +187,8 @@
         "System.Windows.Forms.dll",
         "@addin"
       ],
-      "offline": true
+      "offline": true,
+      "background": []
     },
     {
       "name": "LinkViewFormProbe",
@@ -188,7 +197,8 @@
         "System.Windows.Forms.dll",
         "@addin"
       ],
-      "offline": true
+      "offline": true,
+      "background": []
     },
     {
       "name": "Feature099Probe",
@@ -201,7 +211,8 @@
       "offline": true,
       "additional_sources": [
         "@shared/src/testharness/GridHeadersProbe.cs"
-      ]
+      ],
+      "background": []
     },
     {
       "name": "HostDialogProbe",
@@ -212,7 +223,8 @@
         "System.Drawing.dll",
         "lib/Interop.Microsoft.Office.Core.dll"
       ],
-      "offline": true
+      "offline": true,
+      "background": []
     },
     {
       "name": "PdfToolsProbe",
@@ -246,7 +258,8 @@
         "build/UpdateProbe.exe",
         "build/LinkViewProbe.exe"
       ],
-      "offline": true
+      "offline": true,
+      "background": []
     }
   ],
   "pdf_worker": true,
@@ -261,7 +274,9 @@
         "AC-Original Code/WordUpdater/Links/_Shared/LinkPasteEngine.cs",
         "AC-Original Code/WordUpdater/Links/_Shared/LinkViewEngine.cs",
         "AC-Original Code/WordUpdater/Links/_Shared/WordHostStateScope.cs",
-        "AC-Original Code/WordUpdater/Links/_Shared/EtCleanup.cs"
+        "AC-Original Code/WordUpdater/Links/_Shared/EtCleanup.cs",
+        "AC-Original Code/WordUpdater/Links/_Shared/LinkFieldCode.cs",
+        "AC-Original Code/WordUpdater/Links/_Shared/WordComCollection.cs"
       ],
       "tests": [
         "src/tools/UpdateProbe.cs"
@@ -278,7 +293,9 @@
         "AC-Original Code/WordUpdater/Links/_Shared/LinkPasteEngine.cs",
         "AC-Original Code/WordUpdater/Links/_Shared/LinkViewEngine.cs",
         "AC-Original Code/WordUpdater/Links/_Shared/WordHostStateScope.cs",
-        "AC-Original Code/WordUpdater/Links/_Shared/EtCleanup.cs"
+        "AC-Original Code/WordUpdater/Links/_Shared/EtCleanup.cs",
+        "AC-Original Code/WordUpdater/Links/_Shared/LinkFieldCode.cs",
+        "AC-Original Code/WordUpdater/Links/_Shared/WordComCollection.cs"
       ],
       "tests": [
         "src/testharness/EtSelectionReaderProbe.cs",
@@ -294,7 +311,9 @@
         "AC-Original Code/WordUpdater/Links/_Shared/LinkPasteEngine.cs",
         "AC-Original Code/WordUpdater/Links/_Shared/LinkViewEngine.cs",
         "AC-Original Code/WordUpdater/Links/_Shared/WordHostStateScope.cs",
-        "AC-Original Code/WordUpdater/Links/_Shared/EtCleanup.cs"
+        "AC-Original Code/WordUpdater/Links/_Shared/EtCleanup.cs",
+        "AC-Original Code/WordUpdater/Links/_Shared/LinkFieldCode.cs",
+        "AC-Original Code/WordUpdater/Links/_Shared/WordComCollection.cs"
       ],
       "tests": [
         "src/tools/LinkViewProbe.cs",

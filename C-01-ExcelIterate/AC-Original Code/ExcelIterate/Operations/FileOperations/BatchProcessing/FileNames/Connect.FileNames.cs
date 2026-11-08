@@ -131,7 +131,7 @@ namespace Excel_Iterate
                 if(started) {
                     if(addedFilter)RestoreAttempt(()=>((dynamic)sheet).AutoFilterMode=false,"筛选状态",errors);
                     for(int r=0;r<rows;r++)for(int c=0;c<width;c++) {
-                        int rr=r,cc=c;string address=ComFormulaHost.Address(r+1,column+c);
+                        int rr=r,cc=c;string address=CellAddress.Name(r+1,column+c);
                         RestoreAttempt(delegate {
                             object cell=((dynamic)cells)[rr+1,column+cc],font=null,fill=null;
                             try {

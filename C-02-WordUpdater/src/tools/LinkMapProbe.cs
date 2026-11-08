@@ -348,7 +348,7 @@ internal static class LinkMapProbe
     {
         Assembly assembly = typeof(LinkPasteEngine).Assembly;
         Type infoType = assembly.GetType("WordUpdater.EtSelectionInfo", true);
-        Type areaType = assembly.GetType("WordUpdater.LinkPasteEngine+SourceArea", true);
+        Type areaType = assembly.GetType("WordUpdater.LinkFieldCode+SourceArea", true);
         object info = Activator.CreateInstance(infoType, true);
         infoType.GetField("WorkbookPath").SetValue(info, path); infoType.GetField("SheetName").SetValue(info, sheet);
         IList areas = (IList)infoType.GetField("Areas").GetValue(info);
@@ -365,7 +365,7 @@ internal static class LinkMapProbe
     private static void CheckMultiAreaCandidate(string name, bool expected, params object[] candidates)
     {
         Type engine = typeof(LinkPasteEngine);
-        MethodInfo parse = engine.GetMethod("ParseLinkCode", BindingFlags.Static | BindingFlags.NonPublic);
+        MethodInfo parse = typeof(LinkPasteEngine).Assembly.GetType("WordUpdater.LinkFieldCode", true).GetMethod("ParseLinkCode", BindingFlags.Static | BindingFlags.NonPublic);
         object[] parseArguments = { "LINK Excel.Sheet.12 \"C:\\sample\\source.xlsx\" \"Sheet1!R2C1:R4C4\" \\t \\a", false, null };
         object template = parse.Invoke(null, parseArguments);
         Type info = engine.Assembly.GetType("WordUpdater.EtSelectionInfo", true);
@@ -373,7 +373,7 @@ internal static class LinkMapProbe
         foreach (object candidate in candidates) list.Add(candidate);
         object[] arguments = { template, list, 8, null };
         bool applied = (bool)engine.GetMethod("TryApplyEtSelections", BindingFlags.NonPublic | BindingFlags.Static).Invoke(null, arguments);
-        IList cells = (IList)engine.GetMethod("ExpandSource", BindingFlags.NonPublic | BindingFlags.Static).Invoke(null, new[] { template });
+        IList cells = (IList)typeof(LinkPasteEngine).Assembly.GetType("WordUpdater.LinkFieldCode", true).GetMethod("ExpandSource", BindingFlags.NonPublic | BindingFlags.Static).Invoke(null, new[] { template });
         Check(name, applied == expected && cells.Count == (expected ? 8 : 12), "applied=" + applied + " cells=" + cells.Count + " " + arguments[3]);
         if (applied)
         {

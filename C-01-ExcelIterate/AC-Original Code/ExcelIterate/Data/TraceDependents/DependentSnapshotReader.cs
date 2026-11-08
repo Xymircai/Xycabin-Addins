@@ -73,7 +73,7 @@ namespace Excel_Iterate
                     if(string.IsNullOrEmpty(formula)||!formula.StartsWith("=",StringComparison.Ordinal))continue;
                     Result.ScannedFormulas++;
                     DependentTrackerEngine.MatchFormula(formula,block.WorkbookName,block.WorkbookPath,block.SheetName,
-                        DependentTrackerEngine.ColToLetters(block.FirstColumn+c)+(block.FirstRow+r).ToString(),
+                        CellAddress.ColumnLetters(block.FirstColumn+c)+(block.FirstRow+r).ToString(),
                         Result.TargetWorkbookName,Result.TargetSheetName,Result.TargetCellAddress,Result);
                 }
             }
@@ -157,7 +157,7 @@ namespace Excel_Iterate
             var source=sheets[sheetIndex];int height=Math.Min(rows-rowOffset,Math.Min(4096,65536/columns));
             using(var bag=new ComBag())
             {
-                dynamic range=bag.Own(((dynamic)source.Value).Range[ComFormulaHost.Address(firstRow+rowOffset,firstColumn)+":"+ComFormulaHost.Address(firstRow+rowOffset+height-1,firstColumn+columns-1)]);
+                dynamic range=bag.Own(((dynamic)source.Value).Range[CellAddress.Name(firstRow+rowOffset,firstColumn)+":"+CellAddress.Name(firstRow+rowOffset+height-1,firstColumn+columns-1)]);
                 Current=FormulaBlock.Capture(range.Formula,height,columns);
             }
             Current.FirstRow=firstRow+rowOffset;Current.FirstColumn=firstColumn;Current.WorkbookName=source.Book.Name;Current.WorkbookPath=source.Book.Path;Current.SheetName=source.Name;

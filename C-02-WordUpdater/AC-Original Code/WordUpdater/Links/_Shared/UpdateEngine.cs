@@ -244,7 +244,7 @@ namespace WordUpdater
             {
                 try
                 {
-                    dynamic f = GetItem(fields, i);
+                    dynamic f = WordComCollection.Item(fields, i);
                     if (IsLinkField(f))
                     {
                         int pos = -1;
@@ -274,7 +274,7 @@ namespace WordUpdater
             {
                 try
                 {
-                    dynamic sh = GetItem(shapes, i);
+                    dynamic sh = WordComCollection.Item(shapes, i);
                     dynamic lf = null;
                     try { lf = sh.LinkFormat; }
                     catch { }
@@ -304,7 +304,7 @@ namespace WordUpdater
                 {
                     try
                     {
-                        dynamic sh = GetItem(sr, i);
+                        dynamic sh = WordComCollection.Item(sr, i);
                         dynamic lf = null;
                         try { lf = sh.LinkFormat; }
                         catch { }
@@ -374,15 +374,6 @@ namespace WordUpdater
         {
             try { return (string)linkFormat.SourceFullName; }
             catch { return ""; }
-        }
-
-        // ---------- COM 集合索引访问：先试 coll[i]，再试 coll.Item(i) ----------
-        internal static object GetItem(object coll, int i)
-        {
-            dynamic d = coll;
-            try { return d[i]; }
-            catch { }
-            return d.Item(i);
         }
 
         private static void AddFailure(RunResult r, int index, string kind, string source, string reason)
@@ -495,7 +486,7 @@ namespace WordUpdater
                 int n = (int)cells.Count;
                 if (n > 0)
                 {
-                    dynamic cell = GetItem(cells, 1);
+                    dynamic cell = WordComCollection.Item(cells, 1);
                     int row = (int)cell.RowIndex;
                     int col = (int)cell.ColumnIndex;
                     if (row > 0 && col > 0)

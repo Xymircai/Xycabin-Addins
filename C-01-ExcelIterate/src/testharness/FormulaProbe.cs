@@ -58,7 +58,7 @@ internal static class FormulaProbe
         Equal(wrapped, FormulaOperation.Unwrap, "=ROUND(ABS(A1),2)");
         for (int i = 0; i < 3; i++) wrapped = FormulaWrapper.Transform(wrapped, FormulaOperation.Unwrap);
         Check("one layer per removal", wrapped == "=A1");
-        Check("column encoding", ComFormulaHost.Address(1048576, 16384) == "XFD1048576");
+        Check("column encoding", CellAddress.Name(1048576, 16384) == "XFD1048576");
     }
     private static void Parameters()
     {
@@ -674,7 +674,7 @@ public sealed class FakeRange
     public bool Locked { get { return Cell.Locked; } }
     public object Value2 { get { return Read(); } set { Worksheet.ValueWrites++; Write(value); Cell.IsFormula=false; if(Cell.BadNumericRestore)Cell.Value=Convert.ToString(value); } }
     public string Text { get { return Convert.ToString(Cell.Value); } }
-    public string Address { get { return "$"+ComFormulaHost.Address(Row,Column)+":$"+ComFormulaHost.Address(Row+Rows.Count-1,Column+Columns.Count-1); } }
+    public string Address { get { return "$"+CellAddress.Name(Row,Column)+":$"+CellAddress.Name(Row+Rows.Count-1,Column+Columns.Count-1); } }
     public FakeRange CurrentRegion { get { return Worksheet.Region(Row,Column); } }
     public FakeRange EntireColumn { get { return this; } }
     public object Hidden

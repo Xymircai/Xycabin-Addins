@@ -298,7 +298,8 @@ namespace WpsShared.Tools
                 XmlElement conversion = (XmlElement)document.SelectSingleNode("//r:menu[@id='menuOneClickConversion']", ns);
                 Assert(conversion != null && conversion.GetAttribute("label") == "一键转换" && conversion.GetAttribute("size") == "large", "Conversion root menu");
                 Assert(conversion.ParentNode == root.ParentNode && conversion.NextSibling == root, "Conversion sits immediately before formula");
-                Assert(conversion.ChildNodes.Count == 1 && ((XmlElement)conversion.FirstChild).GetAttribute("onAction") == "OnTextExtractFilter", "Text extraction action");
+                Assert(conversion.ChildNodes.Count == 2 && ((XmlElement)conversion.FirstChild).GetAttribute("onAction") == "OnTextExtractFilter", "Text extraction action");
+                Assert(((XmlElement)conversion.LastChild).GetAttribute("id") == "btnBatchInsertTrimDelete" && ((XmlElement)conversion.LastChild).GetAttribute("label") == "批量插入与删截" && ((XmlElement)conversion.LastChild).GetAttribute("onAction") == "OnBatchInsertTrimDelete", "Batch insert trim delete action");
                 Assert(((XmlElement)root.ChildNodes[3]).GetAttribute("label") == "相对-绝对转换" && ((XmlElement)root.ChildNodes[3]).GetAttribute("onAction") == "OnReferenceStyleConversion", "Reference conversion action");
                 XmlElement valueConversion = (XmlElement)root.ChildNodes[4];
                 Assert(valueConversion.GetAttribute("id") == "menuFormulaValueConversion" && valueConversion.ChildNodes.Count == 3 && !valueConversion.HasAttribute("onAction"), "Formula/value submenu");

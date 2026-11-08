@@ -42,6 +42,7 @@ namespace Excel_Iterate
             new DialogDefinition("formula.divide", "除：自定义参数", "操作 / 一键公式",620,420,560,350),
             new DialogDefinition("formula.custom", "自定义函数", "操作 / 一键公式",620,420,560,350),
             new DialogDefinition("conversion.text", "文本提取与过滤", "操作 / 一键转换",700,320,600,320),
+            new DialogDefinition("conversion.batchInsertTrimDelete", "批量插入与删截", "操作 / 一键转换",700,540,600,400),
             new DialogDefinition("formula.references", "相对-绝对转换", "操作 / 一键公式",700,320,620,320),
             new DialogDefinition("links.assistant", "链接助手", "操作 / 链接助手",1340,650,640,480),
             new DialogDefinition("file.organize", "文件批量整理", "操作 / 文件操作 / 批量处理",840,480,550,310),
@@ -169,7 +170,7 @@ namespace Excel_Iterate
         }
         private static Size DefaultFor(Form context,DialogDefinition definition)
         {
-            if(resolving || !(definition.Id.StartsWith("formula.",StringComparison.Ordinal)||definition.Id.StartsWith("file.",StringComparison.Ordinal)||definition.Id=="conversion.text")) return definition.BaseDefault;
+            if(resolving || !(definition.Id.StartsWith("formula.",StringComparison.Ordinal)||definition.Id.StartsWith("file.",StringComparison.Ordinal)||definition.Id.StartsWith("conversion.",StringComparison.Ordinal))) return definition.BaseDefault;
             string fontName;using(var font=Ui.MakeFont(10f,FontStyle.Regular,null))fontName=font.Name;
             string key=definition.Id+"|"+Scale(context).ToString("R",CultureInfo.InvariantCulture)+"|"+fontName;
             lock(initialization)

@@ -27,7 +27,7 @@ namespace Excel_Iterate
         {
             long shifted = absoluteColumn ? column : (long)column + delta;
             if (shifted < 1 || shifted > FormulaRefRewriter.MaxColumn) throw new InvalidOperationException("内部公式引用平移后超出工作表列范围，请调整模板列或生成数量。");
-            return (absoluteColumn ? "$" : "") + FormulaRefRewriter.ColumnLetters((int)shifted)
+            return (absoluteColumn ? "$" : "") + CellAddress.ColumnLetters((int)shifted)
                 + (wholeColumn ? "" : (absoluteRow ? "$" : "") + row.ToString(CultureInfo.InvariantCulture));
         }
     }
@@ -335,15 +335,7 @@ namespace Excel_Iterate
         internal static string Letter(int column)
         {
             if (column < 1 || column > 16384) throw new ArgumentOutOfRangeException("column");
-            StringBuilder text = new StringBuilder(3);
-            int value = column;
-            while (value > 0)
-            {
-                int digit = (value - 1) % 26;
-                text.Insert(0, (char)('A' + digit));
-                value = (value - 1) / 26;
-            }
-            return text.ToString();
+            return CellAddress.ColumnLetters(column);
         }
 
         internal static bool TryParse(string text, out int column)
@@ -352,15 +344,8 @@ namespace Excel_Iterate
             if (text == null) return false;
             string value = text.Trim().ToUpperInvariant().Replace("$", "");
             if (value.Length == 0 || value.Length > 3) return false;
-            int result = 0;
-            foreach (char c in value)
-            {
-                if (c < 'A' || c > 'Z') return false;
-                result = result * 26 + (c - 'A' + 1);
-            }
-            if (result < 1 || result > 16384) return false;
-            column = result;
-            return true;
+            column = CellAddress.ColumnNumber(value);
+            return column > 0;
         }
     }
 

@@ -233,22 +233,6 @@ namespace Excel_Iterate
                 return result;
             }
         }
-        private void ValidateStage(string file, IEnumerable<string> expected)
-        {
-            using (ComBag bag = new ComBag())
-            {
-                dynamic books = bag.Own(((dynamic)App).Workbooks); object temp = null;
-                try
-                {
-                    temp = bag.Own(books.Open(file, 0, true));
-                    object raw = ((dynamic)temp).LinkSources(1); List<string> actual = new List<string>();
-                    Array array = raw as Array; if (array != null) foreach (object value in array) { string path = XlsxLinkPackage.Resolve(file, Convert.ToString(value)); if (path != null) actual.Add(path); }
-                    HashSet<string> wanted = new HashSet<string>(expected, StringComparer.OrdinalIgnoreCase);
-                    if (!wanted.SetEquals(actual)) throw new InvalidOperationException("WPS 打开测试副本后的外部链接核对失败，未替换原文件。\r\n预期：" + string.Join("\r\n", wanted) + "\r\n实际：" + string.Join("\r\n", actual));
-                }
-                finally { if (temp != null) ((dynamic)temp).Close(false); }
-            }
-        }
         internal string Execute(Action<string> progress)
         { foreach(string step in Steps(false,()=>false))if(progress!=null)progress(step);return LastResult; }
         internal string LastResult;

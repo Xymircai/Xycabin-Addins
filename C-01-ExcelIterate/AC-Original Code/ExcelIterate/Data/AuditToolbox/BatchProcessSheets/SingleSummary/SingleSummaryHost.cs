@@ -233,8 +233,8 @@ namespace Excel_Iterate
 
                 // 表头行：整行读一次，按归一化后的名字定位列
                 dynamic headerRange = bag.Own(s.Range[
-                    ComFormulaHost.Address(headerRow, left) + ":"
-                    + ComFormulaHost.Address(headerRow, lastColumn)]);
+                    CellAddress.Name(headerRow, left) + ":"
+                    + CellAddress.Name(headerRow, lastColumn)]);
                 object headerValues = ReadValues(headerRange);
                 int columns = lastColumn - left + 1;
                 int headerLast = 0;
@@ -308,7 +308,7 @@ namespace Excel_Iterate
         {
             if (lastRow < firstRow || column < 1) return null;
             dynamic range = bag.Own(((dynamic)sheet).Range[
-                ComFormulaHost.Address(firstRow, column) + ":" + ComFormulaHost.Address(lastRow, column)]);
+                CellAddress.Name(firstRow, column) + ":" + CellAddress.Name(lastRow, column)]);
             return ReadValues(range);
         }
 
@@ -603,8 +603,8 @@ namespace Excel_Iterate
                 double width = ReadColumnWidth(bag, s, firstColumn);
 
                 dynamic sourceRange = bag.Own(s.Range[
-                    ComFormulaHost.Address(startRow, firstColumn) + ":"
-                    + ComFormulaHost.Address(lastRow, firstColumn)]);
+                    CellAddress.Name(startRow, firstColumn) + ":"
+                    + CellAddress.Name(lastRow, firstColumn)]);
 
                 // 3) 逐列铺开：List[0] 就是模板列本身，从第 2 家公司起复制到右侧
                 for (int i = 1; i < columns.Count; i++)
@@ -613,8 +613,8 @@ namespace Excel_Iterate
                         + "/" + columns.Count.ToString(CultureInfo.InvariantCulture) + " 列…");
                     int column = firstColumn + i;
                     dynamic targetRange = bag.Own(s.Range[
-                        ComFormulaHost.Address(startRow, column) + ":"
-                        + ComFormulaHost.Address(lastRow, column)]);
+                        CellAddress.Name(startRow, column) + ":"
+                        + CellAddress.Name(lastRow, column)]);
                     ClearBlock(targetRange);
                     sourceRange.Copy(targetRange);
                     report.CopiedColumns++;
@@ -741,11 +741,11 @@ namespace Excel_Iterate
                     int column = firstColumn + i;
                     // 还原范围与生成范围一致：第 1 行到末行（表头行只是其中一行）
                     dynamic target = bag.Own(s.Range[
-                        ComFormulaHost.Address(1, column) + ":"
-                        + ComFormulaHost.Address(lastRow, column)]);
+                        CellAddress.Name(1, column) + ":"
+                        + CellAddress.Name(lastRow, column)]);
                     dynamic original = bag.Own(b.Range[
-                        ComFormulaHost.Address(1, column) + ":"
-                        + ComFormulaHost.Address(lastRow, column)]);
+                        CellAddress.Name(1, column) + ":"
+                        + CellAddress.Name(lastRow, column)]);
                     ClearBlock(target);
                     original.Copy(target);
                     double width = ReadColumnWidth(bag, b, column);
@@ -837,7 +837,7 @@ namespace Excel_Iterate
         private static object ReadFormulas(ComBag bag, object sheet, int column, int firstRow, int lastRow)
         {
             dynamic range = bag.Own(((dynamic)sheet).Range[
-                ComFormulaHost.Address(firstRow, column) + ":" + ComFormulaHost.Address(lastRow, column)]);
+                CellAddress.Name(firstRow, column) + ":" + CellAddress.Name(lastRow, column)]);
             try { return range.Formula; }
             catch (Exception ex) { if (!ComFormulaHost.Missing(ex)) throw; return null; }
         }

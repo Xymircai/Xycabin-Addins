@@ -278,7 +278,7 @@ namespace Excel_Iterate
         private static RefSpan Parse(Match m, bool wholeColumn)
         {
             string c1 = m.Groups["c1"].Value;
-            int column1 = ColumnNumber(c1);
+            int column1 = CellAddress.ColumnNumber(c1);
             if (column1 <= 0) return null;
             RefSpan span = new RefSpan();
             span.Start = m.Index;
@@ -297,7 +297,7 @@ namespace Excel_Iterate
             }
             if (m.Groups["c2"].Success)
             {
-                int column2 = ColumnNumber(m.Groups["c2"].Value);
+                int column2 = CellAddress.ColumnNumber(m.Groups["c2"].Value);
                 if (column2 <= 0) return null;
                 span.IsRange = true;
                 span.Column2 = column2;
@@ -389,7 +389,7 @@ namespace Excel_Iterate
         private static string MapColumn(int column, bool absolute, RefKind kind, IMergeColumnMapper map,
             RewriteContext context, List<RefIssue> issues, string fragment)
         {
-            string letters = ColumnLetters(column);
+            string letters = CellAddress.ColumnLetters(column);
             if (absolute) return "$" + letters;              // 绝对列：任何类别都原样不动
 
             if (kind == RefKind.Local)
@@ -407,7 +407,7 @@ namespace Excel_Iterate
                     issues.Add(new RefIssue { Kind = RefIssueKind.ColumnOutOfRange, Column = column, Fragment = fragment });
                     return letters;
                 }
-                return ColumnLetters(target);
+                return CellAddress.ColumnLetters(target);
             }
 
             // 跨表/跨簿引用：只遵循相对引用规律，随单元格整体平移（物理列差）。
@@ -418,7 +418,7 @@ namespace Excel_Iterate
                 issues.Add(new RefIssue { Kind = RefIssueKind.ColumnOutOfRange, Column = column, Fragment = fragment });
                 return letters;
             }
-            return ColumnLetters(shifted);
+            return CellAddress.ColumnLetters(shifted);
         }
 
         private static string MapRow(int row, bool absolute, int delta, List<RefIssue> issues, string fragment)
@@ -481,39 +481,6 @@ namespace Excel_Iterate
             }
             string result = builder.ToString();
             return leading ? "=" + result : result;
-        }
-
-        // ---- 列号 ↔ 列字母 ----
-
-        internal static int ColumnNumber(string letters)
-        {
-            if (string.IsNullOrEmpty(letters)) return 0;
-            int value = 0;
-            for (int i = 0; i < letters.Length; i++)
-            {
-                char c = letters[i];
-                if (c == '$') continue;
-                int digit = (c >= 'A' && c <= 'Z') ? c - 'A' + 1
-                          : (c >= 'a' && c <= 'z') ? c - 'a' + 1 : 0;
-                if (digit == 0) return 0;
-                value = value * 26 + digit;
-                if (value > MaxColumn) return 0;
-            }
-            return value;
-        }
-
-        internal static string ColumnLetters(int column)
-        {
-            if (column <= 0) return "";
-            string result = "";
-            int value = column;
-            while (value > 0)
-            {
-                int remainder = (value - 1) % 26;
-                result = (char)('A' + remainder) + result;
-                value = (value - 1) / 26;
-            }
-            return result;
         }
     }
 }

@@ -316,7 +316,7 @@ namespace Excel_Iterate
                     map.SourceColumn = sourceColumn.Number;
                     map.TargetColumn = targetColumn;
                     map.SourceLetter = sourceColumn.Letter;
-                    map.TargetLetter = FormulaRefRewriter.ColumnLetters(targetColumn);
+                    map.TargetLetter = CellAddress.ColumnLetters(targetColumn);
                     map.Header = sourceColumn.Text;
                     map.RowCount = plan.RowCount;
                     map.SourceFirstRow = source.HeaderRow + 1;

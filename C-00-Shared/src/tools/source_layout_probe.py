@@ -1,6 +1,8 @@
 """Exercise shared source confinement and both products' cache dependencies."""
 from pathlib import Path
 import argparse
+import json
+import re
 import sys
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -9,6 +11,7 @@ sys.dont_write_bytecode = True
 COMMON = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(COMMON))
 from source_layout import resolve_source, addin_sources
+from tool_catalog import tools, validation
 
 
 def verify(project_root):
@@ -25,6 +28,8 @@ def verify(project_root):
     sources = addin_sources(root)
     check(len(sources) == len(set(sources)), 'a product cannot compile the same implementation twice')
     check(all(path.is_file() for path in sources), 'all compiled source references exist')
+    verify_architecture(root, sources, check)
+    verify_tool_catalog(root, check)
     for reference in ('@shared/../verify_shared.py', '../AGENTS.md', '@shared/missing-source.cs'):
         try:
             resolve_source(root, reference)
@@ -42,6 +47,49 @@ def verify(project_root):
         snapshot = build(site, target=Path(temporary) / 'snapshot.html')
         verify_cache_dependencies(root, build_cache, snapshot, check)
     print('SourceLayoutProbe: %d PASS, 0 FAIL' % checks)
+
+
+def verify_architecture(root, sources, check):
+    by_name = {path.name: path for path in sources}
+    names = ('MigrationPlanner.cs', 'MigrationConfiguration.cs', 'MigrationNameIndex.cs') if root.name == 'C-01-ExcelIterate' else ('LinkFieldCode.cs',)
+    forbidden = r'Windows\.Forms|\bdynamic\b|Marshal\.|\b(?:File|Directory)\.|DataMigrationForm|DataMigrationHost|LinkPasteEngine|UpdateEngine'
+    for name in names:
+        text = by_name[name].read_text(encoding='utf-8-sig')
+        check(not re.search(forbidden, text), name + ' has no UI, COM, file access or business-engine dependency')
+    if root.name == 'C-01-ExcelIterate':
+        form = by_name['DataMigrationForm.cs'].read_text(encoding='utf-8-sig')
+        for method in ('TriggerSummary', 'TriggerTag', 'MatchedFiles', 'ShowPairDetails'):
+            body = re.search(r'^        private [^\n]+\b' + method + r'\([^\n]+\n.*?^        }', form, re.M | re.S)
+            check(body is not None and not re.search(r'RefreshTrigger\(|TargetIndex\(|MigrationPlanner.UnusedTargets\(', body[0]),
+                  method + ' consumes prepared matches instead of querying the target pool')
+    if root.name == 'C-02-WordUpdater':
+        update = by_name['UpdateEngine.cs'].read_text(encoding='utf-8-sig')
+        check('static object GetItem(' not in update, 'COM collection access belongs to the Word adapter')
+        for path in sources:
+            check('UpdateEngine.GetItem(' not in path.read_text(encoding='utf-8-sig'), 'no business borrows update-engine adapters')
+
+
+def verify_tool_catalog(root, check):
+    project = json.loads((root / 'project.json').read_text(encoding='utf-8-sig'))
+    catalog = tools(project)
+    check(all(resolve_source(root, tool['source']).is_file() for tool in catalog), 'all tool sources resolve')
+    context = dict(dll='addin.dll', manifest='addin.manifest', vsto='addin.vsto', site_html='site.html', installer='setup.exe', rendered='preview')
+    background, pending, cacheable = validation(project, True, False, context)
+    common = ['AgentDocumentCoreProbe', 'GripProbe', 'LiveProbeSafetyFixture', 'InstallFlowProbe', 'RibbonProbe', 'ValidateManifest', 'DialogSizesProbe']
+    expected = [tool['name'] for tool in project['tools'] if tool.get('offline')]
+    check([name for name, _ in background] == expected + common, 'all previous mandatory background tools retain their order')
+    check(len(background) + 8 == (32 if project['host'] == 'Excel' else 25), 'background regression count is unchanged')
+    check(cacheable == set(expected), 'only previously cacheable product probes use validation receipts')
+    check(all(not tool.get('background') and 'background' not in tool for tool in project['tools'] if not tool.get('offline')), 'live tools cannot enter background validation')
+    arguments = dict(background)
+    check(arguments['DialogSizesProbe'] == ['addin.dll', '--core'], 'background dialog check never creates forms')
+    if project['host'] == 'Excel':
+        check(arguments['FormulaProbe'] == ['--core'] and 'FormulaProbe 前台窗口路径' in pending, 'formula core and foreground paths stay distinct')
+    foreground, _, foreground_cache = validation(project, False, True, context)
+    check([name for name, _ in foreground] == expected + common + ['AgentExtensionProbe', 'UiPreviewProbe'], 'foreground sequence retains UI and Agent checks')
+    check(dict(foreground)['UiPreviewProbe'] == ['addin.dll', 'setup.exe', 'preview'], 'UI preview consumes catalog arguments')
+    check(cacheable == foreground_cache, 'execution mode does not redefine the cache boundary')
+    check(pending[-3:] == ['DialogSizesProbe 前台预览/拖动', 'AgentExtensionProbe', 'UiPreviewProbe'], 'background omissions remain explicit')
 
 
 def verify_cache_dependencies(root, build_cache, snapshot, check):

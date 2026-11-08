@@ -7,7 +7,7 @@ using System.Text;
 
 namespace Excel_Iterate
 {
-    internal enum CellConversionKind { TextFilter, ReferenceStyle, FormulaAsText, ResultAsText, ValuesOnly, RestoreTextFormula }
+    internal enum CellConversionKind { TextFilter, ReferenceStyle, FormulaAsText, ResultAsText, ValuesOnly, RestoreTextFormula, BatchInsertTrimDelete }
     internal enum ReferenceStyle { Absolute, RelativeColumnAbsoluteRow, AbsoluteColumnRelativeRow, Relative }
     internal sealed class ConversionRequest
     {
@@ -16,11 +16,13 @@ namespace Excel_Iterate
         internal bool Extract = true;
         internal CellCharacterKinds Kinds = CellCharacterKinds.Chinese;
         internal ReferenceStyle Style = ReferenceStyle.Relative;
+        internal BatchTextEditOptions TextEdit;
         internal void Validate()
         {
-            if (Kind < CellConversionKind.TextFilter || Kind > CellConversionKind.RestoreTextFormula) throw new ArgumentException("转换命令无效。");
+            if (Kind < CellConversionKind.TextFilter || Kind > CellConversionKind.BatchInsertTrimDelete) throw new ArgumentException("转换命令无效。");
             if (Kind == CellConversionKind.TextFilter && (Kinds == CellCharacterKinds.None || (Kinds & ~CellCharacterKinds.All) != 0)) throw new ArgumentException("请至少勾选一种字符类型。");
             if (Kind == CellConversionKind.ReferenceStyle && (Style < ReferenceStyle.Absolute || Style > ReferenceStyle.Relative)) throw new ArgumentException("请选择有效引用方式。");
+            if (Kind == CellConversionKind.BatchInsertTrimDelete) { if (TextEdit == null) throw new ArgumentException("请设置插入、截取或删除参数。"); TextEdit.Validate(); }
         }
     }
     internal sealed class ConversionCellState
@@ -75,15 +77,22 @@ namespace Excel_Iterate
     internal sealed class CellConversionResult
     {
         internal int Changed;
+        internal int FormulasKept, FormulasAsText, PlainResults;
+        internal bool Cancelled;
+        internal string Timings;
         internal bool Failed, RollbackIncomplete;
         internal string Details, RecoveryLog;
     }
+    // Only a rejection at the formula setter is eligible for a literal-text retry.
+    internal sealed class FormulaInputRejectedException : Exception
+    { internal FormulaInputRejectedException(Exception error) : base("宿主不接受修改后的公式表达式。", error) { } }
     internal static class CellConversionEngine
     {
         private sealed class Change { internal IConversionCell Cell; internal ConversionCellState Before, After; }
         internal static ConversionCellState Transform(ConversionCellState original, ConversionRequest request)
         {
             request.Validate(); var next = original.Copy();
+            if (request.Kind == CellConversionKind.BatchInsertTrimDelete) return BatchTextEdit.TransformState(original, request.TextEdit);
             if (request.Kind == CellConversionKind.ReferenceStyle)
             { if (!original.IsFormula) return null; next.Formula = ReferenceStyleConverter.Convert(original.Formula, request.Style); return next; }
             if (request.Kind == CellConversionKind.FormulaAsText)
@@ -110,8 +119,9 @@ namespace Excel_Iterate
             if (value is int && ((uint)(int)value & 0xffff0000u) == 0x800a0000u || value is uint && ((uint)value & 0xffff0000u) == 0x800a0000u) return false;
             return value is double || value is float || value is decimal || value is int || value is long || value is short || value is byte || value is uint || value is ulong || value is ushort || value is sbyte;
         }
-        internal static CellConversionResult Run(IConversionHost host, ConversionRequest request, string recoveryDirectory)
+        internal static CellConversionResult Run(IConversionHost host, ConversionRequest request, string recoveryDirectory, Func<BatchSyntaxReport, bool> confirm = null)
         {
+            if (request.Kind == CellConversionKind.BatchInsertTrimDelete) return BatchTextEditEngine.Run(host, request, recoveryDirectory, confirm);
             var result = new CellConversionResult(); var changes = new List<Change>(); var attempted = new List<Change>();
             bool captured = false, events = false, screen = false;
             try
@@ -152,8 +162,8 @@ namespace Excel_Iterate
                 if (request.Kind == CellConversionKind.RestoreTextFormula)
                 {
                     host.RecheckScope();
-                    var targets = new List<IConversionCell>(); foreach (var change in changes) targets.Add(change.Cell);
-                    host.Calculate(targets);
+                    var targets = new List<IConversionCell>(); foreach (var change in changes) if (change.After.IsFormula) targets.Add(change.Cell);
+                    if (targets.Count > 0) host.Calculate(targets);
                     foreach (var change in changes)
                     {
                         change.Cell.CheckWritable();

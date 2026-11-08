@@ -503,16 +503,6 @@ namespace Excel_Iterate
             return options;
         }
 
-        /// <summary>差异表与结果表共用一套输出选项（起始位置一致）。</summary>
-        private static MatrixOptions DiffOptions(EliminationRequest request, MergeHeaderSet headers,
-            int startRow, int startColumn)
-        {
-            MatrixOptions options = BuildMatrixOptions(request, headers);
-            options.StartRow = startRow;
-            options.StartColumn = startColumn;
-            return options;
-        }
-
         /// <summary>往来抵消的确认文案（差异表 + 结果表两张表，各自按下拉选择）。</summary>
         private static string ConfirmationText(EliminationRequest request, EliminationDiffTable diff,
             EliminationMatrix matrix, MergeWritePlan plan, string targetDesc, bool sameSheet)

@@ -149,10 +149,18 @@ namespace Excel_Iterate
         internal Dictionary<string, object> Data;
         internal int Sources, Targets, Mappings;
         internal static string Library
-        { get { return System.IO.Path.Combine(DialogSizeStore.RootOverride ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), typeof(Connect).Assembly.GetName().Name, "迁移预设"); } }
+        {
+            get
+            {
+                string root = System.IO.Path.Combine(DialogSizeStore.RootOverride ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), typeof(Connect).Assembly.GetName().Name);
+                string folder = System.IO.Path.Combine(root, "复制预设"), old = System.IO.Path.Combine(root, "迁移预设");
+                try { if (!Directory.Exists(folder) && Directory.Exists(old)) Directory.Move(old, folder); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                return Directory.Exists(folder) || !Directory.Exists(old) ? folder : old;
+            }
+        }
         internal static MigrationPreset From(Dictionary<string, object> data, string file)
         {
-            if (data == null || MigrationJson.Str(data, "format") != Format) throw new InvalidOperationException("不是批量迁移数据的预设文件");
+            if (data == null || MigrationJson.Str(data, "format") != Format) throw new InvalidOperationException("不是批量复制数据的预设文件");
             long version = MigrationJson.Num(data, "version");
             if (version < 1) throw new InvalidOperationException("预设文件缺少版本号");
             if (version > Version) throw new InvalidOperationException("预设由更新版本的加载项创建（格式版本 " + version + "），请先升级加载项");

@@ -54,7 +54,7 @@ namespace Excel_Iterate
                             using (var host = new DataMigrationHost(_app))
                             { var names = host.Sheets(path); form.AddBook(target, path, names); }
                         }
-                        catch (Exception error) { Log("迁移工作簿读取失败：" + path + " " + error); form.AddBook(target, path, new string[0], error.Message); }
+                        catch (Exception error) { Log("复制工作簿读取失败：" + path + " " + error); form.AddBook(target, path, new string[0], error.Message); }
                     }
                 };
                 // Pick button in workbook mode: open the workbook read-only (or use
@@ -76,7 +76,7 @@ namespace Excel_Iterate
                     // another top-level window than the one we started from).
                     Action<Action> ready = delegate(Action reselect) { IntPtr frame = MigrationForeground.ActiveFrame(_app, wps); MigrationForeground.Bring(frame); focusTimer = MigrationForeground.BringSoon(frame, reselect); };
                     try { using (var host = new DataMigrationHost(_app)) address = host.PickSourceRange(path, sheet, current, null, target ? "目标" : "源", ready); }
-                    catch (Exception error) { failure = error; Log("迁移框选区域：" + error); }
+                    catch (Exception error) { failure = error; Log("复制框选区域：" + error); }
                     finally { if (focusTimer != null) { focusTimer.Stop(); focusTimer.Dispose(); } form.Show(); form.Activate(); }
                     if (failure != null) form.Message("框选失败：" + failure.Message);
                     else if (address == null) form.Message("已取消框选，区域保持不变。");
@@ -86,7 +86,7 @@ namespace Excel_Iterate
                 DefaultMigrationSource(form);
                 IntPtr owner = GetHostWindowHandle(); if (owner == IntPtr.Zero) form.Show(); else form.Show(new WindowWrapper(owner));
             }
-            catch (Exception error) { Log("批量迁移数据：" + error); UiDialog.Show(error.Message, "批量迁移数据", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+            catch (Exception error) { Log("批量复制数据：" + error); UiDialog.Show(error.Message, "批量复制数据", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
         }
         // The workbook the user is looking at becomes the first source, with
         // its active sheet. Names come from the open workbook itself, so
@@ -115,7 +115,7 @@ namespace Excel_Iterate
                         + (ComFormulaHost.Boolean(book.Saved, "Saved") ? "" : "当前工作簿有未保存修改，预检前请先保存。"));
                 }
             }
-            catch (Exception error) { Log("批量迁移数据默认源：" + error); }
+            catch (Exception error) { Log("批量复制数据默认源：" + error); }
         }
         // Runs every pass of a plan through the existing single-source engine.
         // A pass that fails only marks its own mappings; the other passes go
@@ -150,7 +150,7 @@ namespace Excel_Iterate
                     bool reuse = host != null && (hostSource != null || batch);
                     if (!reuse)
                     {
-                        if (host != null) { _migrationHost = null; try { host.Dispose(); } catch (Exception error) { Log("迁移会话释放：" + error); } }
+                        if (host != null) { _migrationHost = null; try { host.Dispose(); } catch (Exception error) { Log("复制会话释放：" + error); } }
                         host = new DataMigrationHost(_app) { HoldTargets = !chain }; hostSource = pass.Request.SourcePath;
                     }
                     _migrationHost = host;
@@ -192,12 +192,12 @@ namespace Excel_Iterate
                 }
                 if (!execute) plan.PrecheckMilliseconds = clock.ElapsedMilliseconds;
                 plan.Finished = DateTime.Now; plan.Executed = execute; plan.RunMilliseconds = clock.ElapsedMilliseconds;
-                Log("迁移耗时：" + (execute ? "执行" : "预检") + "合计 " + clock.ElapsedMilliseconds + " ms");
+                Log("复制耗时：" + (execute ? "执行" : "预检") + "合计 " + clock.ElapsedMilliseconds + " ms");
             }
             finally
             {
                 _migrationHost = null;
-                if (host != null) try { host.Dispose(); } catch (Exception error) { Log("迁移会话释放：" + error); }
+                if (host != null) try { host.Dispose(); } catch (Exception error) { Log("复制会话释放：" + error); }
             }
         }
         private static bool Advance(IEnumerator<MigrationProgress> steps, out MigrationProgress step, out Exception failure)
@@ -222,14 +222,14 @@ namespace Excel_Iterate
             var empty = previewed.Passes.Where(p => p.Request.NonEmptyCells == 0 && p.Request.Targets.Any(t => t.Ready)).Select(p => p.Source.Label + " " + p.Request.SourceSheet + "!" + p.Request.SourceRange).Distinct().ToList();
             string line = Environment.NewLine + Environment.NewLine;
             string saving = previewed.ReplaceTargets
-                ? "将更新 " + targets + " 个目标原文件（共 " + ready.Count + " 处写入）；原版本自动备份到同目录的“迁移备份”文件夹，可用“还原操作”恢复。源文件不修改。"
-                : "将为 " + targets + " 个目标各另存一个“迁移结果”副本（共 " + ready.Count + " 处写入），目标原文件不修改。";
+                ? "将更新 " + targets + " 个目标原文件（共 " + ready.Count + " 处写入）；原版本自动备份到同目录的“复制备份”文件夹，可用“还原操作”恢复。源文件不修改。"
+                : "将为 " + targets + " 个目标各另存一个“复制结果”副本（共 " + ready.Count + " 处写入），目标原文件不修改。";
             double estimate = DataMigrationHost.EstimateMilliseconds(previewed.Passes.Select(p => p.Request), previewed.PrecheckMilliseconds);
             saving += line + "预计耗时：约 " + DataMigrationHost.DurationText(estimate) + "（按刚才的预检耗时估算，仅供参考）。";
             string text = (empty.Count > 0 ? "以下源区域全部为空，会清空目标对应区域：" + string.Join("、", empty.Take(5).ToArray()) + (empty.Count > 5 ? " 等" : "") + line : "")
                 + (overwrite > 0 ? "目标区域已有数据：" + filled + " 处写入中共有 " + overwrite + " 个单元格已有内容，执行后将被源数据覆盖（源中为空的单元格会清空目标）。" + line : "")
                 + saving + line + (overwrite > 0 ? "是否覆盖原数据？" : "是否执行？");
-            if (UiDialog.Show(text, overwrite > 0 ? "确认覆盖原数据" : "确认执行迁移", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            if (UiDialog.Show(text, overwrite > 0 ? "确认覆盖原数据" : "确认执行复制", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
             // Formulas that refer to sheets a target lacks are pasted as
             // values there, but only with the user's consent.
             var fallback = ready.Where(m => m.Result.ValueFallbacks > 0).ToList();
@@ -238,7 +238,7 @@ namespace Excel_Iterate
                 string list = string.Join(Environment.NewLine, fallback.Take(10).Select(m => "· " + Path.GetFileName(m.TargetPath) + "：缺少工作表“" + string.Join("”“", m.Result.MissingSheets.ToArray()) + "”，" + m.Result.ValueFallbacks + " 个公式单元格").ToArray())
                     + (fallback.Count > 10 ? Environment.NewLine + "…… 共 " + fallback.Count + " 处" : "");
                 string warn = "以下目标缺少源公式引用的工作表：" + Environment.NewLine + Environment.NewLine + list + Environment.NewLine + Environment.NewLine
-                    + "这些单元格将改为粘贴源中的当前计算结果（数值），其他单元格照常迁移。" + Environment.NewLine + Environment.NewLine + "是否继续？";
+                    + "这些单元格将改为粘贴源中的当前计算结果（数值），其他单元格照常复制。" + Environment.NewLine + Environment.NewLine + "是否继续？";
                 if (UiDialog.Show(warn, "目标缺少工作表", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) { form.Message("已取消执行：可为目标补上缺少的工作表，或把映射改为“只写数值”。"); return; }
             }
             var plan = form.ExecutionPlan(previewed);
@@ -248,7 +248,7 @@ namespace Excel_Iterate
                 delegate { FinishOutputCopies(plan); form.RefreshResults(); },
                 delegate(Exception error) { FinishOutputCopies(plan); form.Message(error.Message); });
         }
-        // Result-copy mode: one "_迁移结果" copy per target receives every pass.
+        // Result-copy mode: one "_复制结果" copy per target receives every pass.
         private static void PrepareOutputCopies(MigrationPlan plan)
         {
             foreach (string path in plan.Mappings.Select(m => m.TargetPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList())
@@ -264,13 +264,13 @@ namespace Excel_Iterate
             var targets = plan.Passes.SelectMany(p => p.Request.Targets).ToList();
             // Backups of our own result copies are scaffolding, not user data.
             try { MigrationOutputTransaction.DeleteBackups(targets.Select(t => t.Backup).Where(b => !string.IsNullOrEmpty(b)).ToList()); }
-            catch (Exception error) { Log("迁移结果副本备份清理：" + error); }
+            catch (Exception error) { Log("复制结果副本备份清理：" + error); }
             foreach (var target in targets) target.Backup = "";
             foreach (var pair in plan.Outputs.ToList())
             {
                 var mine = plan.Mappings.Where(m => string.Equals(m.TargetPath, pair.Key, StringComparison.OrdinalIgnoreCase)).ToList();
                 if (mine.Any(m => m.Result.Status == "成功")) { foreach (var m in mine) if (m.Result.Status == "成功") m.Result.Output = pair.Value; }
-                else try { File.Delete(pair.Value); } catch (Exception error) { Log("未使用的迁移结果副本：" + error); }
+                else try { File.Delete(pair.Value); } catch (Exception error) { Log("未使用的复制结果副本：" + error); }
             }
             plan.Outputs.Clear();
         }
@@ -342,7 +342,7 @@ namespace Excel_Iterate
                         if (shut) match.Close(false);
                     }
                 }
-                catch (Exception error) { Log("迁移释放占用工作簿：" + path + " " + error); failures.Add(Path.GetFileName(path) + "：" + error.Message); }
+                catch (Exception error) { Log("复制释放占用工作簿：" + path + " " + error); failures.Add(Path.GetFileName(path) + "：" + error.Message); }
             }
             if (failures.Count > 0)
             {
@@ -353,14 +353,14 @@ namespace Excel_Iterate
             return true;
         }
         private static void MigrationAction(DataMigrationForm form, Action action)
-        { try { action(); } catch (Exception error) { Log("批量迁移数据：" + error); form.Message(error.Message); } }
+        { try { action(); } catch (Exception error) { Log("批量复制数据：" + error); form.Message(error.Message); } }
         private static void ResetMigration()
         {
             if (_migrationPlan != null) foreach (var mapping in _migrationPlan.Mappings)
                 if (mapping.Result != null && mapping.Result.Status == "可执行") { mapping.Result.Ready = false; mapping.Result.Status = "需重新预检"; }
             _migrationPlan = null;
             var host = _migrationHost; _migrationHost = null;
-            if (host != null) try { host.Dispose(); } catch (Exception error) { Log("迁移会话释放：" + error); }
+            if (host != null) try { host.Dispose(); } catch (Exception error) { Log("复制会话释放：" + error); }
         }
         internal static void CloseDataMigrationForm()
         {
@@ -425,7 +425,7 @@ namespace Excel_Iterate
             if (known && OnGrid(main, frame, now))
             {
                 mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero); mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
-                Connect.Log("迁移框选：在鼠标当前位置模拟点击 @" + now.X + "," + now.Y);
+                Connect.Log("复制框选：在鼠标当前位置模拟点击 @" + now.X + "," + now.Y);
                 return true;
             }
             foreach (var spot in new[] { new[] { 0.3, 0.55 }, new[] { 0.7, 0.55 }, new[] { 0.3, 0.75 }, new[] { 0.7, 0.75 }, new[] { 0.5, 0.8 }, new[] { 0.35, 0.65 } })
@@ -434,10 +434,10 @@ namespace Excel_Iterate
                 if (!OnGrid(main, frame, point) || !SetCursorPos(point.X, point.Y)) continue;
                 mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero); mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero);
                 if (known) { moved = now; wasMoved = true; }
-                Connect.Log("迁移框选：鼠标不在表格上，临时在 @" + point.X + "," + point.Y + " 模拟点击后移回");
+                Connect.Log("复制框选：鼠标不在表格上，临时在 @" + point.X + "," + point.Y + " 模拟点击后移回");
                 return true;
             }
-            Connect.Log("迁移框选：未模拟点击（窗口 " + ClassOf(main) + " " + width + "x" + height + "）");
+            Connect.Log("复制框选：未模拟点击（窗口 " + ClassOf(main) + " " + width + "x" + height + "）");
             return false;
         }
         // Windows refuses SetForegroundWindow unless the caller shares input
@@ -470,7 +470,7 @@ namespace Excel_Iterate
                 if (process != own) Bring(window);
                 try
                 {
-                    if (ticks == 2) { Connect.Log("迁移框选：前台窗口 " + ClassOf(GetForegroundWindow())); clicked = ClickGrid(window, out back, out moved); }
+                    if (ticks == 2) { Connect.Log("复制框选：前台窗口 " + ClassOf(GetForegroundWindow())); clicked = ClickGrid(window, out back, out moved); }
                     else if (ticks == 3)
                     {
                         // The click has been handled by now: put the pointer back.

@@ -22,6 +22,8 @@ namespace Excel_Iterate
         // recalculate, read this range and send it to the workbook named on
         // the same row (逐行重算).
         internal MigrationTrigger Trigger;
+        // Target created by recalculation; a user copy becomes ordinary.
+        internal bool Recalc;
         internal MigrationSide Copy() { var copy = new MigrationSide { Sheet = Sheet, Range = Range, Used = Used, Trigger = Trigger == null ? null : Trigger.Copy() }; copy.Books.AddRange(Books); return copy; }
     }
     // One trigger value row and the target workbook its name resolved to.
@@ -67,13 +69,13 @@ namespace Excel_Iterate
     {
         // 写入方式: values or formulas, each with or without the source formats.
         internal const string ModeFormula = "只写公式", ModeValues = "只写数值", ModeValuesFormat = "数值+格式", ModeFormulaFormat = "公式+格式";
-        internal const string ModeFormatOnly = "只迁移格式";
+        internal const string ModeFormatOnly = "只复制格式";
         internal static string ModeText(bool values, bool format, bool formatOnly = false) { return formatOnly ? ModeFormatOnly : values ? (format ? ModeValuesFormat : ModeValues) : (format ? ModeFormulaFormat : ModeFormula); }
         internal MigrationSide Source = new MigrationSide(), Target = new MigrationSide();
         internal bool Enabled = true, ValuesOnly;
         // 数值+格式 / 公式+格式: also copy the source cell formats.
         internal bool KeepFormat;
-        // 只迁移格式: formats only, the target's content stays.
+        // 只复制格式: formats only, the target's content stays.
         internal bool FormatOnly;
         // What the row expanded to in the last preview/run (one per workbook pair).
         internal readonly List<MigrationMapping> Instances = new List<MigrationMapping>();

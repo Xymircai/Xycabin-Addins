@@ -28,7 +28,7 @@ namespace Excel_Iterate
                             string name = Path.GetFileName(file), stem = Path.GetFileNameWithoutExtension(file);
                             if (!DataMigrationEngine.SupportedFile(file)) continue;
                             if (name.StartsWith("~$", StringComparison.Ordinal) || name.StartsWith(".xy-", StringComparison.OrdinalIgnoreCase) ||
-                                string.Equals(file, source, StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(stem, @"_迁移(?:结果|修正结果)(?:_\d+)?$")) { result.Skipped++; continue; }
+                                string.Equals(file, source, StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(stem, @"_(?:复制|迁移)(?:结果|修正结果)(?:_\d+)?$")) { result.Skipped++; continue; }
                             if (seen.Add(file)) result.Files.Add(file);
                         }
                     }

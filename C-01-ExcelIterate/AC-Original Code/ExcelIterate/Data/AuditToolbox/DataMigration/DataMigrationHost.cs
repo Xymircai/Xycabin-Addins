@@ -138,7 +138,7 @@ namespace Excel_Iterate
         }
         private void Check()
         {
-            if (Thread.CurrentThread.ManagedThreadId != thread) throw new InvalidOperationException("迁移只能在原宿主线程执行。");
+            if (Thread.CurrentThread.ManagedThreadId != thread) throw new InvalidOperationException("复制只能在原宿主线程执行。");
             if (Cancelled) throw new OperationCanceledException("已取消；已成功目标及其备份保留，尚未提交的目标不变。");
         }
         internal List<string> Sheets(string path)
@@ -446,7 +446,7 @@ namespace Excel_Iterate
             MigrationWindowScope.RequireVisibleHost(app);
             CheckFile(input.SourcePath); area = MigrationArea.Parse(input.SourceRange);
             // A bounded snapshot makes accidental whole-sheet selection actionable.
-            if ((long)area.Rows * area.Columns > 100000) throw new InvalidOperationException("单批最多迁移 100000 个单元格，请缩小源区域分批处理。");
+            if ((long)area.Rows * area.Columns > 100000) throw new InvalidOperationException("单批最多复制 100000 个单元格，请缩小源区域分批处理。");
             sourceHash = Digest(input.SourcePath);
             source = ResolveOriginal(input.SourcePath, input.SourceSheet, null, false, input.TriggerCell.Length > 0); Saved(source); ValidateOriginal(source, sourceHash);
             if (input.TriggerCell.Length > 0)
@@ -458,9 +458,9 @@ namespace Excel_Iterate
                 yield return new MigrationProgress("填入触发值并重算：" + input.TriggerFrom + " → " + input.TriggerCell + "…", true);
                 var recalc = System.Diagnostics.Stopwatch.StartNew();
                 ApplyTrigger(input);
-                Connect.Log("迁移耗时：逐行重算 " + input.TriggerFrom + " " + recalc.ElapsedMilliseconds + " ms");
+                Connect.Log("复制耗时：逐行重算 " + input.TriggerFrom + " " + recalc.ElapsedMilliseconds + " ms");
             }
-            watch = Watch(source.Book,"迁移来源");
+            watch = Watch(source.Book,"复制来源");
             packagePreservation = input.FormatOnly ? null : MigrationPackagePreservation.Capture(input.SourcePath, input.SourceSheet, area, input.KeepFormat);
             // Names and links only matter for formulas; values-only modes skip them.
             if (input.ValuesOnly) { sourceNames = new List<MigrationName>(); sourceLinks = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); sourceAmbiguous = new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
@@ -499,7 +499,7 @@ namespace Excel_Iterate
                     yield return new MigrationProgress("正在打开目标 " + Path.GetFileName(target.Path) + " 预检（文件较大时可能需要较长时间）…", true);
                     Exception failure = null; var opened = System.Diagnostics.Stopwatch.StartNew();
                     try { PrepareTarget(target, false); } catch (Exception error) { failure = error; }
-                    Connect.Log("迁移耗时：预检打开 " + Path.GetFileName(target.Path) + " " + opened.ElapsedMilliseconds + " ms" + (failure == null ? "" : "（失败）"));
+                    Connect.Log("复制耗时：预检打开 " + Path.GetFileName(target.Path) + " " + opened.ElapsedMilliseconds + " ms" + (failure == null ? "" : "（失败）"));
                     target.OpenMilliseconds = opened.ElapsedMilliseconds;
                     if (failure != null) { Fail(target, failure); yield return new MigrationProgress(target.Error); continue; }
                     bool stop = false;
@@ -655,7 +655,7 @@ namespace Excel_Iterate
                 Exception failure = null;
                 yield return new MigrationProgress("正在处理 " + Path.GetFileName(target.Path) + "：复核、复制并打开副本（文件较大时可能需要较长时间）…", true);
                 var stepTimer = System.Diagnostics.Stopwatch.StartNew(); long lastMark = 0; string stepFile = Path.GetFileName(target.Path);
-                Action<string> mark = delegate(string step) { Connect.Log("迁移耗时：" + stepFile + " " + step + " " + (stepTimer.ElapsedMilliseconds - lastMark) + " ms"); lastMark = stepTimer.ElapsedMilliseconds; };
+                Action<string> mark = delegate(string step) { Connect.Log("复制耗时：" + stepFile + " " + step + " " + (stepTimer.ElapsedMilliseconds - lastMark) + " ms"); lastMark = stepTimer.ElapsedMilliseconds; };
                 try
                 {
                     target.Status = "复核源文件";
@@ -672,7 +672,7 @@ namespace Excel_Iterate
                     MigrationPackageCompatibility.NormalizeOwnedCopy(stage);
                     mark("复制副本"); target.Status = "打开结果副本"; book = ownedCopy = held.Own(OpenCopy(stage)); mark("打开副本");
                     target.Status = "定位目标工作表"; sheet = held.Own(Sheet(book, target.Sheet));
-                    copyWatch = Watch(book,"写入副本 "+Path.GetFileName(target.Path)); RestoreActive();
+                    copyWatch = Watch(book,"写入副本 "+Path.GetFileName(target.Path)); RestoreActive(); ManualCalculation();
                     target.ActualMerges.Clear();
                     Quiet(delegate
                     {
@@ -710,7 +710,7 @@ namespace Excel_Iterate
                 {
                     try
                     {
-                        Check(); copyWatch.Validate(); target.Status = "保存副本";
+                        Check(); copyWatch.Validate(); target.Status = "保存副本"; RestoreCalculation(book);
                         Quiet(delegate
                         {
                             foreach (var merge in merges) using (var bag = new ComBag())
@@ -768,6 +768,7 @@ namespace Excel_Iterate
                     }
                 }
                 catch (Exception error) { failure = error; }
+                try { RestoreCalculation(book); } catch (Exception error) { failure = failure ?? error; }
                 try { if (copyWatch != null) { copyWatch.Dispose(); copyWatch = null; } if (book != null) { Close(book); ownedCopy = null; } } catch (Exception error) { failure = failure ?? error; }
                 try { held.Dispose(); copyReferences = null; } catch (Exception error) { failure = failure ?? error; }
                 if (failure == null)
@@ -931,7 +932,7 @@ namespace Excel_Iterate
             foreach (var entry in group) entry.CoveredBy.Clear();
             var sheets = new Dictionary<BatchEntry, object>(); MigrationFormulaContext fullContext = null;
             var stepTimer = System.Diagnostics.Stopwatch.StartNew(); long lastMark = 0;
-            Action<string> mark = delegate(string step) { Connect.Log("迁移耗时：" + file + "（" + group.Count + " 处写入）" + step + " " + (stepTimer.ElapsedMilliseconds - lastMark) + " ms"); lastMark = stepTimer.ElapsedMilliseconds; };
+            Action<string> mark = delegate(string step) { Connect.Log("复制耗时：" + file + "（" + group.Count + " 处写入）" + step + " " + (stepTimer.ElapsedMilliseconds - lastMark) + " ms"); lastMark = stepTimer.ElapsedMilliseconds; };
             yield return new MigrationProgress("正在处理 " + file + "（" + group.Count + " 处写入）：复核、复制并打开副本（文件较大时可能需要较长时间）…", true);
             foreach (var entry in group)
             {
@@ -968,6 +969,10 @@ namespace Excel_Iterate
                     MigrationPackageCompatibility.NormalizeOwnedCopy(stage);
                     mark("复制副本"); book = ownedCopy = held.Own(OpenCopy(stage)); mark("打开副本");
                     copyWatch = Watch(book, "写入副本 " + file); RestoreActive();
+                    // Every written cell otherwise recalculates all formulas that
+                    // depend on it (a Notes sheet: seconds per target). Calculate
+                    // once, when automatic calculation is restored before saving.
+                    ManualCalculation();
                 }
                 catch (Exception error) { failure = error; }
             }
@@ -1034,6 +1039,7 @@ namespace Excel_Iterate
                 try
                 {
                     Check(); copyWatch.Validate(); first.Status = "保存副本";
+                    RestoreCalculation(book); mark("重算一次");
                     object view = sheets[group[0]];
                     Quiet(delegate
                     {
@@ -1101,6 +1107,7 @@ namespace Excel_Iterate
                 catch (Exception error) { failure = error; culprit = entry; }
             }
             try { if (failure == null) ValidateTarget(first); } catch (Exception error) { failure = error; }
+            try { RestoreCalculation(book); } catch (Exception error) { failure = failure ?? error; }
             try { if (copyWatch != null) { copyWatch.Dispose(); copyWatch = null; } if (book != null) { CloseBatch(book); ownedCopy = null; } } catch (Exception error) { failure = failure ?? error; }
             try { sheets.Clear(); held.Dispose(); copyReferences = null; } catch (Exception error) { failure = failure ?? error; }
             foreach (var entry in group)
@@ -1194,6 +1201,30 @@ namespace Excel_Iterate
         private void Close(object book) { Quiet(delegate { ((dynamic)book).Close(false); }); if(watch!=null)watch.ProcessPending(); }
         private static object Sheet(object book, string name)
         { using (var bag = new ComBag()) { dynamic sheets = bag.Own(((dynamic)book).Worksheets); return sheets.Item(name); } }
+        // The calculation mode the user had while a copy is written manually;
+        // null when it is not switched. A host that cannot switch just keeps
+        // calculating automatically (slower, same result).
+        private object calculationBefore;
+        private const int ManualMode = -4135;
+        private void ManualCalculation()
+        {
+            if (calculationBefore != null) return;
+            try
+            {
+                object mode = ((dynamic)app).Calculation;
+                if (Convert.ToInt32(mode) == ManualMode) return;
+                ((dynamic)app).Calculation = ManualMode; calculationBefore = mode;
+            }
+            catch (Exception error) { calculationBefore = null; UiDiagnostics.Record("migration-calculation-manual", error); }
+        }
+        // Back to the user's mode: the host calculates once here. Books that
+        // were saved stay saved (recalculation must not look like an edit).
+        private void RestoreCalculation(object except)
+        {
+            if (calculationBefore == null) return;
+            object mode = calculationBefore; calculationBefore = null;
+            KeepSaved<bool>(delegate { ((dynamic)app).Calculation = (dynamic)mode; return true; }, except);
+        }
         private void WriteCell(object sheet, MigrationTarget target, int index)
         {
             MigrationCell sourceCell = cells[index];
@@ -1331,7 +1362,7 @@ namespace Excel_Iterate
                 for (int i = 1; i <= Convert.ToInt32(tables.Count); i++) using (var item = new ComBag())
                 {
                     dynamic table = item.Own(tables.Item(i)), range = item.Own(table.Range); MigrationArea other = RangeArea(range);
-                    if (region.Row < other.Row + other.Rows && other.Row < region.Row + region.Rows && region.Column < other.Column + other.Columns && other.Column < region.Column + region.Columns) throw new InvalidOperationException("区域与结构化表重叠，首版暂不迁移此类区域。");
+                    if (region.Row < other.Row + other.Rows && other.Row < region.Row + region.Rows && region.Column < other.Column + other.Columns && other.Column < region.Column + region.Columns) throw new InvalidOperationException("区域与结构化表重叠，首版暂不复制此类区域。");
                 }
             }
         }
@@ -1522,7 +1553,7 @@ namespace Excel_Iterate
                     try
                     {
                         if (!ComFormulaHost.Boolean(((dynamic)book).Saved, "Saved"))
-                        { ((dynamic)book).Saved = true; Connect.Log("迁移：打开或重算让 " + Convert.ToString(((dynamic)book).Name) + " 显示为已修改，已恢复为未修改（内容未变）"); }
+                        { ((dynamic)book).Saved = true; Connect.Log("复制：打开或重算让 " + Convert.ToString(((dynamic)book).Name) + " 显示为已修改，已恢复为未修改（内容未变）"); }
                     }
                     catch (Exception error) { UiDiagnostics.Record("migration-restore-saved", error); }
             }
@@ -1551,7 +1582,7 @@ namespace Excel_Iterate
             foreach (object value in values)
             {
                 string path = Convert.ToString(value); if (string.IsNullOrEmpty(path)) continue;
-                if (path.IndexOf("://", StringComparison.Ordinal) >= 0) throw new InvalidOperationException("首版暂不迁移网络 URL 外链。");
+                if (path.IndexOf("://", StringComparison.Ordinal) >= 0) throw new InvalidOperationException("首版暂不复制网络 URL 外链。");
                 string directory = Path.GetDirectoryName(Convert.ToString(((dynamic)book).FullName)); result.Add(Path.GetFullPath(Path.Combine(directory, path)));
             }
             return result;
@@ -1616,7 +1647,7 @@ namespace Excel_Iterate
         }
         private void WriteLog()
         {
-            var lines = new List<string> { "记录时间：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), "批量迁移数据；" + (request.ReplaceTargets ? "校验后更新目标原文件，替换前版本保留备份" : "另存结果副本，原文件不修改") + (kept.Count > 0 ? "；每个目标只打开、保存一次" : "") };
+            var lines = new List<string> { "记录时间：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), "批量复制数据；" + (request.ReplaceTargets ? "校验后更新目标原文件，替换前版本保留备份" : "另存结果副本，原文件不修改") + (kept.Count > 0 ? "；每个目标只打开、保存一次" : "") };
             var runs = kept.Count > 0 ? kept.Select(k => new KeyValuePair<MigrationRequest, string>(k.Request, k.Hash)).ToList() : new List<KeyValuePair<MigrationRequest, string>> { new KeyValuePair<MigrationRequest, string>(request, sourceHash) };
             foreach (var run in runs)
             {
@@ -1657,6 +1688,7 @@ namespace Excel_Iterate
                 foreach (var slice in kept) foreach (var target in slice.Request.Targets) if (target.Gateway != null) ReleaseTarget(target);
                 foreach (string key in heldTargets.Keys.ToList()) ReleaseHeld(key);
                 if (clean != null) { clean.Bag.Dispose(); clean = null; }
+                try { RestoreCalculation(ownedCopy); } catch (Exception error) { UiDiagnostics.Record("migration-calculation-restore", error); }
                 if (copyWatch != null) { copyWatch.Dispose(); copyWatch = null; }
                 if (ownedCopy != null) { Close(ownedCopy); ownedCopy = null; }
                 if (copyReferences != null) { copyReferences.Dispose(); copyReferences = null; }

@@ -38,8 +38,8 @@ namespace Excel_Iterate
                     : pair.Source.Books.Zip(pair.Target.Books, (s, t) => new KeyValuePair<string, string>(s, t)).ToList();
                 foreach (var link in books)
                 {
-                    string key = link.Key + "\u001f" + pair.Source.Sheet + "\u001f" + pair.Source.Range + "\u001f" + pair.ValuesOnly + "\u001f" + pair.KeepFormat + "\u001f" + pair.FormatOnly; MigrationSourceItem item;
-                    if (!items.TryGetValue(key, out item)) items[key] = item = new MigrationSourceItem { Path = link.Key, Sheet = pair.Source.Sheet, Range = pair.Source.Range, Name = "映射第 " + number + " 行", ValuesOnly = pair.ValuesOnly, KeepFormat = pair.KeepFormat, FormatOnly = pair.FormatOnly };
+                    string key = link.Key + "\u001f" + pair.Source.Sheet + "\u001f" + pair.Source.Range + "\u001f" + pair.ValuesOnly + "\u001f" + pair.KeepFormat + "\u001f" + pair.FormatOnly + "\u001f" + pair.PasteLinks; MigrationSourceItem item;
+                    if (!items.TryGetValue(key, out item)) items[key] = item = new MigrationSourceItem { Path = link.Key, Sheet = pair.Source.Sheet, Range = pair.Source.Range, Name = "映射第 " + number + " 行", ValuesOnly = pair.ValuesOnly, KeepFormat = pair.KeepFormat, FormatOnly = pair.FormatOnly, PasteLinks = pair.PasteLinks };
                     var m = new MigrationMapping { Pair = pair, Source = item, TargetPath = link.Value, TargetSheet = pair.Target.Sheet, Area = area, Start = CellAddress.Name(area.Row, area.Column), TargetRange = area.Address };
                     m.Result = new MigrationTarget { Path = link.Value, Sheet = pair.Target.Sheet, Start = m.Start, Status = "待预检" };
                     pair.Instances.Add(m); plan.Mappings.Add(m);
@@ -224,7 +224,7 @@ namespace Excel_Iterate
                     if (index == passes.Count)
                     {
                         var source = m.Source;
-                        var pass = new MigrationPass { Source = source, Request = new MigrationRequest { SourcePath = source.Path, SourceSheet = source.Sheet, SourceRange = source.Range, AllowEmptySource = plan.AllowEmptySource, ReplaceTargets = replace, ValuesOnly = source.ValuesOnly || source.FormatOnly, KeepFormat = source.KeepFormat || source.FormatOnly, FormatOnly = source.FormatOnly,
+                        var pass = new MigrationPass { Source = source, Request = new MigrationRequest { SourcePath = source.Path, SourceSheet = source.Sheet, SourceRange = source.Range, AllowEmptySource = plan.AllowEmptySource, ReplaceTargets = replace, ValuesOnly = !source.PasteLinks && (source.ValuesOnly || source.FormatOnly), KeepFormat = !source.PasteLinks && (source.KeepFormat || source.FormatOnly), FormatOnly = !source.PasteLinks && source.FormatOnly, PasteLinks = source.PasteLinks,
                             TriggerCell = source.TriggerCell, TriggerFrom = source.TriggerFrom, TriggerNameCell = source.TriggerNameCell, TriggerExpect = source.TriggerExpect } };
                         pass.Request.TriggerExtra.AddRange(source.TriggerExtra);
                         passes.Add(pass); plan.Passes.Add(pass);

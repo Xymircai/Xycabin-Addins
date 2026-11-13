@@ -69,14 +69,24 @@ namespace Excel_Iterate
     {
         // 写入方式: values or formulas, each with or without the source formats.
         internal const string ModeFormula = "只写公式", ModeValues = "只写数值", ModeValuesFormat = "数值+格式", ModeFormulaFormat = "公式+格式";
-        internal const string ModeFormatOnly = "只复制格式";
-        internal static string ModeText(bool values, bool format, bool formatOnly = false) { return formatOnly ? ModeFormatOnly : values ? (format ? ModeValuesFormat : ModeValues) : (format ? ModeFormulaFormat : ModeFormula); }
+        internal const string ModeFormatOnly = "只写格式", ModeLinks = "粘贴链接";
+        internal static readonly string[] Modes = { ModeValues, ModeValuesFormat, ModeFormula, ModeFormulaFormat, ModeFormatOnly, ModeLinks };
+        internal static readonly string[] RecalculationModes = { ModeValues, ModeValuesFormat };
+        internal static string ModeText(bool values, bool format, bool formatOnly = false, bool pasteLinks = false) { return pasteLinks ? ModeLinks : formatOnly ? ModeFormatOnly : values ? (format ? ModeValuesFormat : ModeValues) : (format ? ModeFormulaFormat : ModeFormula); }
         internal MigrationSide Source = new MigrationSide(), Target = new MigrationSide();
         internal bool Enabled = true, ValuesOnly;
         // 数值+格式 / 公式+格式: also copy the source cell formats.
         internal bool KeepFormat;
-        // 只复制格式: formats only, the target's content stays.
-        internal bool FormatOnly;
+        // 只写格式: formats only, the target's content stays.
+        internal bool FormatOnly, PasteLinks;
+        internal string Mode { get { return ModeText(ValuesOnly || Source.Trigger != null, KeepFormat, FormatOnly && Source.Trigger == null, PasteLinks && Source.Trigger == null); } }
+        internal void SelectMode(string mode)
+        {
+            if (Array.IndexOf(Source.Trigger == null ? Modes : RecalculationModes, mode) < 0) throw new InvalidOperationException("这一映射不支持所选写入方式。");
+            ValuesOnly = mode == ModeValues || mode == ModeValuesFormat || mode == ModeFormatOnly;
+            KeepFormat = mode == ModeValuesFormat || mode == ModeFormulaFormat || mode == ModeFormatOnly;
+            FormatOnly = mode == ModeFormatOnly; PasteLinks = mode == ModeLinks;
+        }
         // What the row expanded to in the last preview/run (one per workbook pair).
         internal readonly List<MigrationMapping> Instances = new List<MigrationMapping>();
     }
@@ -85,7 +95,7 @@ namespace Excel_Iterate
     {
         internal readonly string Id = Guid.NewGuid().ToString("N");
         internal string Path = "", Sheet = "", Range = "", Name = "";
-        internal bool ValuesOnly, KeepFormat, FormatOnly;
+        internal bool ValuesOnly, KeepFormat, FormatOnly, PasteLinks;
         // 逐行重算: copy TriggerFrom into TriggerCell and recalculate first;
         // TriggerNameCell must still read TriggerExpect.
         internal string TriggerCell = "", TriggerFrom = "", TriggerNameCell = "", TriggerExpect = "";

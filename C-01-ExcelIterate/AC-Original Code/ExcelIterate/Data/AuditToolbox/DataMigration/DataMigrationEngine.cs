@@ -89,6 +89,12 @@ namespace Excel_Iterate
         private static string Quote(string text) { return "'" + text.Replace("'", "''") + "'"; }
         internal static bool SupportedFile(string path)
         { string ext = Path.GetExtension(path); return Array.Exists(new[] { ".xlsx", ".xlsm", ".xls", ".et" }, e => string.Equals(e, ext, StringComparison.OrdinalIgnoreCase)); }
+        internal static string SourceLink(string path, string sheet, int row, int column)
+        {
+            string full = Path.GetFullPath(path);
+            return "=" + Quote(Path.Combine(Path.GetDirectoryName(full), "[" + Path.GetFileName(full) + "]" + sheet))
+                + "!$" + CellAddress.ColumnLetters(column) + "$" + row.ToString(CultureInfo.InvariantCulture);
+        }
         internal static string OutputPath(string target, Func<string, bool> exists)
         {
             string stem = Path.Combine(Path.GetDirectoryName(target), Path.GetFileNameWithoutExtension(target) + "_复制结果"), ext = Path.GetExtension(target);

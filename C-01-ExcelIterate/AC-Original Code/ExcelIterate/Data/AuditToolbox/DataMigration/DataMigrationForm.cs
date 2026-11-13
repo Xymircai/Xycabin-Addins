@@ -131,7 +131,7 @@ namespace Excel_Iterate
         internal sealed class Entry
         {
             internal string SourceTitle = "", SourceDetail = "", TargetTitle = "", TargetDetail = "", Status = "", SourceTip = "", TargetTip = "", StatusTip = "";
-            internal bool SourceUsed, TargetUsed, Enabled = true, ValuesOnly, KeepFormat, FormatOnly;
+            internal bool SourceUsed, TargetUsed, Enabled = true, ValuesOnly, KeepFormat, FormatOnly, PasteLinks, Recalculates;
             // 0 neutral, 1 done, 2 partial, 3 problem, 4 ready
             internal int Tone;
             internal MatchSummary Match;
@@ -142,6 +142,9 @@ namespace Excel_Iterate
         private readonly VScrollBar scroll = new VScrollBar { Dock = DockStyle.Right, Visible = false, TabStop = false };
         private readonly Timer hold = new Timer { Interval = 200 }, edgeScroll = new Timer { Interval = 40 };
         private readonly ToolTip tip = new ToolTip();
+        internal readonly ComboBox ModeSelector = new ComboBox { Name = "migrationWriteMode", DropDownStyle = ComboBoxStyle.DropDownList, Visible = false, IntegralHeight = true };
+        private int modeRow = -1;
+        private Entry modeEntry;
         private Font body = Ui.MakeFont(10f, FontStyle.Regular, null), head = Ui.MakeFont(9f, FontStyle.Bold, null);
         private float scale = 1f;
         private int current = -1, hoverRow = -1, pressRow = -1, dropRow = -1;
@@ -154,7 +157,8 @@ namespace Excel_Iterate
         internal string EmptyText = "";
         internal event Action CurrentChanged, DeleteRequested;
         internal event Action<int, int, bool> SwapRequested;
-        internal event Action<int> EnabledToggled, ModeToggled;
+        internal event Action<int> EnabledToggled;
+        internal event Action<int, string> ModeSelected;
         internal event Action<int, bool> SideActivated;
 
         internal MigrationMappingBoard()
@@ -162,8 +166,18 @@ namespace Excel_Iterate
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
             BackColor = Color.White; TabStop = true;
             Controls.Add(scroll);
-            scroll.ValueChanged += delegate { Invalidate(); };
-            scroll.VisibleChanged += delegate { Invalidate(); };
+            Controls.Add(ModeSelector);
+            ModeSelector.SelectionChangeCommitted += delegate { CommitModeSelection(); };
+            ModeSelector.DropDownClosed += delegate { CloseModeSelection(); };
+            ModeSelector.Leave += delegate { if (!ModeSelector.DroppedDown) CloseModeSelection(); };
+            ModeSelector.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.KeyCode != Keys.Escape && e.KeyCode != Keys.Enter) return;
+                if (e.KeyCode == Keys.Enter) CommitModeSelection(); else CloseModeSelection();
+                Focus(); e.Handled = true; e.SuppressKeyPress = true;
+            };
+            scroll.ValueChanged += delegate { CloseModeSelection(); Invalidate(); };
+            scroll.VisibleChanged += delegate { CloseModeSelection(); Invalidate(); };
             hold.Tick += delegate { hold.Stop(); if (pressRow >= 0 && (Control.MouseButtons & MouseButtons.Left) != 0) BeginDrag(); };
             edgeScroll.Tick += delegate { AutoScrollStep(); };
         }
@@ -172,22 +186,55 @@ namespace Excel_Iterate
         internal int Current { get { return current; } }
         internal bool CurrentTarget { get { return currentTarget; } }
         internal bool Dragging { get { return dragging; } }
-        internal bool ReadOnly { get { return readOnly; } set { if (readOnly != value) { readOnly = value; if (value) CancelDrag(); Invalidate(); } } }
+        internal bool ReadOnly { get { return readOnly; } set { if (readOnly != value) { readOnly = value; if (value) { CancelDrag(); CloseModeSelection(); } Invalidate(); } } }
         // Replace every row; the selection moves to index (clamped).
         internal void SetItems(IList<Entry> list, int index, bool target)
         {
-            CancelDrag(); items.Clear(); items.AddRange(list);
+            CloseModeSelection(); CancelDrag(); items.Clear(); items.AddRange(list);
             current = items.Count == 0 ? -1 : Math.Max(0, Math.Min(index, items.Count - 1)); currentTarget = target;
             UpdateScroll(); EnsureVisible(current); Invalidate();
         }
-        internal void UpdateItem(int index, Entry item) { if (index < 0 || index >= items.Count) return; items[index] = item; Invalidate(); }
+        internal void UpdateItem(int index, Entry item) { if (index < 0 || index >= items.Count) return; if (index == modeRow) CloseModeSelection(); items[index] = item; Invalidate(); }
         internal void SetCurrent(int index, bool target)
         {
             if (index >= items.Count) index = items.Count - 1;
             if (index == current && target == currentTarget) return;
+            CloseModeSelection();
             current = index; currentTarget = target; EnsureVisible(index); Invalidate();
             if (CurrentChanged != null) CurrentChanged();
         }
+        internal bool BeginModeSelection(int row)
+        {
+            CloseModeSelection();
+            if (readOnly || dragging || row < 0 || row >= items.Count) return false;
+            EnsureVisible(row);
+            var item = items[row]; var choices = item.Recalculates ? MigrationPair.RecalculationModes : MigrationPair.Modes;
+            ModeSelector.Font = body;
+            ModeSelector.Items.Clear(); ModeSelector.Items.AddRange(choices);
+            ModeSelector.SelectedItem = MigrationPair.ModeText(item.ValuesOnly, item.KeepFormat, item.FormatOnly, item.PasteLinks);
+            var rect = Pill(Columns().Mode, RowTop(row));
+            rect.Height = ModeSelector.PreferredHeight; rect.Y = RowTop(row) + (RowHeight - rect.Height) / 2;
+            ModeSelector.Bounds = rect; ModeSelector.DropDownWidth = Math.Max(rect.Width, choices.Max(s => TextRenderer.MeasureText(s, body).Width) + P(32));
+            modeRow = row; modeEntry = item; ModeSelector.Visible = true; ModeSelector.BringToFront();
+            return true;
+        }
+        private void ShowModeSelector(int row)
+        { if (BeginModeSelection(row)) { ModeSelector.Focus(); ModeSelector.DroppedDown = true; } }
+        private void CommitModeSelection()
+        {
+            int row = modeRow; var item = modeEntry; string mode = ModeSelector.SelectedItem as string;
+            bool valid = !readOnly && row >= 0 && row < items.Count && ReferenceEquals(items[row], item) && mode != null;
+            bool changed = valid && mode != MigrationPair.ModeText(item.ValuesOnly, item.KeepFormat, item.FormatOnly, item.PasteLinks);
+            CloseModeSelection();
+            if (changed && ModeSelected != null) ModeSelected(row, mode);
+        }
+        internal void CloseModeSelection()
+        {
+            modeRow = -1; modeEntry = null;
+            if (ModeSelector.DroppedDown) ModeSelector.DroppedDown = false;
+            ModeSelector.Visible = false;
+        }
+        protected override void OnVisibleChanged(EventArgs e) { if (!Visible) CloseModeSelection(); base.OnVisibleChanged(e); }
 
         // ---------------- geometry ----------------
         private int P(int value) { return (int)Math.Round(value * scale); }
@@ -198,7 +245,7 @@ namespace Excel_Iterate
         private int RowTop(int index) { return HeaderHeight + index * RowHeight - Offset; }
         private Cols Columns()
         {
-            int pad = P(10), check = Math.Max(P(30), TextRenderer.MeasureText("启用", head).Width + P(14)), number = Math.Max(P(30), TextRenderer.MeasureText("行", head).Width + P(14)), arrow = P(30), mode = P(96), gap = P(10);
+            int pad = P(10), check = Math.Max(P(30), TextRenderer.MeasureText("启用", head).Width + P(14)), number = Math.Max(P(30), TextRenderer.MeasureText("行", head).Width + P(14)), arrow = P(30), mode = Math.Max(P(114), MigrationPair.Modes.Max(s => TextRenderer.MeasureText(s, body).Width) + P(32)), gap = P(10);
             int width = Math.Max(P(480), ViewWidth - pad * 2);
             int rest = width - check - number - arrow - mode - gap * 2;
             int status = Math.Max(P(110), rest * 26 / 100), card = Math.Max(P(130), (rest - status) / 2);
@@ -261,8 +308,8 @@ namespace Excel_Iterate
             if (top < scroll.Value) ScrollTo(top);
             else if (top + RowHeight > scroll.Value + view) ScrollTo(top + RowHeight - view);
         }
-        protected override void OnMouseWheel(MouseEventArgs e) { ScrollTo(Offset - e.Delta / 120 * RowHeight); base.OnMouseWheel(e); }
-        protected override void OnResize(EventArgs e) { UpdateScroll(); base.OnResize(e); }
+        protected override void OnMouseWheel(MouseEventArgs e) { CloseModeSelection(); ScrollTo(Offset - e.Delta / 120 * RowHeight); base.OnMouseWheel(e); }
+        protected override void OnResize(EventArgs e) { CloseModeSelection(); UpdateScroll(); base.OnResize(e); }
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
@@ -323,13 +370,16 @@ namespace Excel_Iterate
             float ax = c.Arrow.Left + c.Arrow.Width / 2f, ay = top + height / 2f, u = scale;
             using (var pen = new Pen(item.SourceUsed && item.TargetUsed ? Color.FromArgb(150, 165, 190) : Color.FromArgb(210, 216, 226), 1.4f * u) { StartCap = LineCap.Round, EndCap = LineCap.Round })
             { g.DrawLine(pen, ax - 7 * u, ay, ax + 6 * u, ay); g.DrawLines(pen, new[] { new PointF(ax + 2 * u, ay - 4 * u), new PointF(ax + 6.5f * u, ay), new PointF(ax + 2 * u, ay + 4 * u) }); }
-            // 方式: a pill, click to switch.
+            // 方式: dropdown appearance, with one reusable native editor.
             var pill = Pill(c.Mode, top); bool values = item.ValuesOnly;
             bool hot = !dragging && !readOnly && i == hoverRow && hoverPart == Part.Mode;
             Color pillBack = values ? Color.FromArgb(hot ? 253 : 255, hot ? 240 : 246, hot ? 214 : 229) : (hot ? Color.FromArgb(226, 235, 254) : Color.FromArgb(238, 243, 255));
             Color pillInk = !item.Enabled ? Ui.InkDim : values ? Color.FromArgb(180, 110, 10) : Ui.Blue;
-            using (var path = Round(pill, pill.Height / 2f)) using (var brush = new SolidBrush(pillBack)) g.FillPath(brush, path);
-            TextRenderer.DrawText(g, MigrationPair.ModeText(values, item.KeepFormat, item.FormatOnly), body, pill, pillInk, Line | TextFormatFlags.HorizontalCenter);
+            using (var path = Round(pill, P(4))) using (var brush = new SolidBrush(pillBack)) using (var pen = new Pen(Ui.GridFrame)) { g.FillPath(brush, path); g.DrawPath(pen, path); }
+            var modeText = new Rectangle(pill.Left + P(5), pill.Top, pill.Width - P(27), pill.Height);
+            TextRenderer.DrawText(g, MigrationPair.ModeText(values, item.KeepFormat, item.FormatOnly, item.PasteLinks), body, modeText, pillInk, Line | TextFormatFlags.HorizontalCenter);
+            int mx = pill.Right - P(13), my = pill.Top + pill.Height / 2;
+            using (var pen = new Pen(pillInk, Math.Max(1f, scale))) g.DrawLines(pen, new[] { new Point(mx - P(3), my - P(2)), new Point(mx, my + P(1)), new Point(mx + P(3), my - P(2)) });
             // 状态: coloured dot + text
             Color dot = item.Tone == 1 ? Ui.Green : item.Tone == 2 ? Ui.Amber : item.Tone == 3 ? Ui.Danger : item.Tone == 4 ? Ui.Blue : Color.FromArgb(170, 178, 192);
             int d = P(8), sx = c.Status.Left + P(4);
@@ -457,7 +507,7 @@ namespace Excel_Iterate
             bool card = (part == Part.Source || part == Part.Target) && Used(row, part == Part.Target);
             Cursor = !readOnly && (card || part == Part.Check || part == Part.Mode) ? Cursors.Hand : Cursors.Default;
             string text = row < 0 ? "" : part == Part.Source ? items[row].SourceTip : part == Part.Target ? items[row].TargetTip
-                : part == Part.Status ? items[row].StatusTip : part == Part.Mode ? "点击切换：只写数值 → 数值+格式 → 只写公式 → 公式+格式" : part == Part.Check ? "启用或停用这一行" : "";
+                : part == Part.Status ? items[row].StatusTip : part == Part.Mode ? "选择写入方式（F4）；逐行重算仅支持两种数值方式" : part == Part.Check ? "启用或停用这一行" : "";
             if (card && !readOnly) text = (text.Length == 0 ? "" : text + Environment.NewLine) + "按住拖动到另一行可交换；双击编辑";
             if (text != tipText) { tipText = text; tip.SetToolTip(this, text); }
         }
@@ -482,7 +532,7 @@ namespace Excel_Iterate
                 if (row == pressRow && part == pressPart)
                 {
                     if (part == Part.Check && EnabledToggled != null) EnabledToggled(row);
-                    else if (part == Part.Mode && ModeToggled != null) ModeToggled(row);
+                    else if (part == Part.Mode) ShowModeSelector(row);
                 }
             }
             pressRow = -1; pressPart = Part.None;
@@ -497,6 +547,7 @@ namespace Excel_Iterate
         private void BeginDrag()
         {
             if (readOnly || pressRow < 0) return;
+            CloseModeSelection();
             dragging = true; dropRow = pressRow; Cursor = Cursors.SizeNS; tip.Hide(this); edgeScroll.Start(); Invalidate();
         }
         private void UpdateDrop()
@@ -532,6 +583,7 @@ namespace Excel_Iterate
                 int to = row + (e.KeyCode == Keys.Down ? 1 : -1);
                 if (!readOnly && to >= 0 && to < items.Count && SwapRequested != null) SwapRequested(row, to, currentTarget);
             }
+            else if (e.KeyCode == Keys.F4 && !readOnly) ShowModeSelector(row);
             else if (e.KeyCode == Keys.Up) SetCurrent(Math.Max(0, row - 1), currentTarget);
             else if (e.KeyCode == Keys.Down) SetCurrent(Math.Min(items.Count - 1, row + 1), currentTarget);
             else if (e.KeyCode == Keys.Left) SetCurrent(row, false);
@@ -1161,19 +1213,13 @@ namespace Excel_Iterate
                 if (Running || row < 0 || row >= pairs.Count) return;
                 var pair = pairs[row]; pair.Enabled = !pair.Enabled; pair.Instances.Clear(); UpdateMappingRow(pair); Changed(); ShowPairDetails();
             };
-            b.ModeToggled += delegate(int row)
+            b.ModeSelected += delegate(int row, string mode)
             {
                 if (Running || row < 0 || row >= pairs.Count) return;
-                // Click cycles 只写数值 → 数值+格式 → 只写公式 → 公式+格式;
-                // 逐行重算 only toggles the formats (it writes values).
-                var pair = pairs[row]; bool trigger = pair.Source.Trigger != null;
-                // → 只迁移格式 → back to 只写数值.
-                if (trigger) { pair.ValuesOnly = true; pair.FormatOnly = false; pair.KeepFormat = !pair.KeepFormat; }
-                else if (pair.FormatOnly) { pair.FormatOnly = false; pair.ValuesOnly = true; pair.KeepFormat = false; }
-                else if (pair.ValuesOnly) { if (!pair.KeepFormat) pair.KeepFormat = true; else { pair.ValuesOnly = false; pair.KeepFormat = false; } }
-                else { if (!pair.KeepFormat) pair.KeepFormat = true; else { pair.FormatOnly = true; pair.ValuesOnly = true; pair.KeepFormat = true; } }
+                var pair = pairs[row]; if (pair.Mode == mode) return;
+                pair.SelectMode(mode);
                 pair.Instances.Clear(); UpdateMappingRow(pair); Changed(); ShowPairDetails();
-                Message("映射第 " + (row + 1) + " 行改为“" + MigrationPair.ModeText(pair.ValuesOnly || trigger, pair.KeepFormat, pair.FormatOnly && !trigger) + "”。");
+                Message("映射第 " + (row + 1) + " 行改为“" + pair.Mode + "”。");
             };
             b.SwapRequested += delegate(int from, int to, bool target) { if (!Running) SwapSides(from, to, target); };
             b.SideActivated += delegate(int row, bool target)
@@ -1319,7 +1365,7 @@ namespace Excel_Iterate
             MigrationMappingBoard.MatchSummary match; string statusText = PairStatus(pair, out match);
             var entry = new MigrationMappingBoard.Entry
             {
-                SourceUsed = pair.Source.Used, TargetUsed = pair.Target.Used, Enabled = pair.Enabled, ValuesOnly = pair.ValuesOnly || pair.Source.Trigger != null, KeepFormat = pair.KeepFormat, FormatOnly = pair.FormatOnly && pair.Source.Trigger == null,
+                SourceUsed = pair.Source.Used, TargetUsed = pair.Target.Used, Enabled = pair.Enabled, ValuesOnly = pair.ValuesOnly || pair.Source.Trigger != null, KeepFormat = pair.KeepFormat, FormatOnly = pair.FormatOnly && pair.Source.Trigger == null, PasteLinks = pair.PasteLinks && pair.Source.Trigger == null, Recalculates = pair.Source.Trigger != null,
                 SourceTitle = CardTitle(pair.Source, source), SourceDetail = CardDetail(pair.Source, source) + Shared(pair.Source, false) + TriggerTag(pair.Source),
                 TargetTitle = CardTitle(pair.Target, target),
                 TargetDetail = IsByName(pair.Target) ? "按文件名匹配（已添加 " + TargetBooks.Count + " 个）" + (target == null ? "" : " · " + target.Rows + "×" + target.Columns) : CardDetail(pair.Target, target),
@@ -1357,6 +1403,7 @@ namespace Excel_Iterate
         // Rows of the lists in pair order; keeps the current row if it can.
         private void RebuildViews()
         {
+            foreach (var pair in pairs.Where(p => p.Source.Trigger != null)) pair.SelectMode(pair.KeepFormat ? MigrationPair.ModeValuesFormat : MigrationPair.ModeValues);
             EndEdits();
             var keep = new Dictionary<DataGridView, MigrationPair>();
             foreach (var grid in new DataGridView[] { Sources, Targets }) keep[grid] = grid.CurrentRow == null ? null : grid.CurrentRow.Tag as MigrationPair;
@@ -1494,7 +1541,7 @@ namespace Excel_Iterate
             if (Running) return null;
             var current = Mappings.Current >= 0 && Mappings.Current < pairs.Count ? pairs[Mappings.Current] : pairs.LastOrDefault(p => p.Source.Used);
             var pair = NewPair();
-            if (current != null && current.Source.Used) { pair.Source = current.Source; pair.Enabled = current.Enabled; pair.ValuesOnly = current.ValuesOnly; pair.KeepFormat = current.KeepFormat; pair.FormatOnly = current.FormatOnly; }
+            if (current != null && current.Source.Used) { pair.Source = current.Source; pair.Enabled = current.Enabled; pair.ValuesOnly = current.ValuesOnly; pair.KeepFormat = current.KeepFormat; pair.FormatOnly = current.FormatOnly; pair.PasteLinks = current.PasteLinks; }
             int at = current == null ? pairs.Count : (current.Source.Used ? pairs.FindLastIndex(p => p.Source == current.Source) : pairs.IndexOf(current)) + 1;
             pairs.Insert(at, pair);
             mappingFocus = pair;
@@ -1683,6 +1730,7 @@ namespace Excel_Iterate
         }
         private void ClosePopups()
         {
+            Mappings.CloseModeSelection();
             var books = bookPopup; bookPopup = null; if (books != null) { books.Close(); books.Dispose(); }
             var sheets = sheetPopup; sheetPopup = null; if (sheets != null) { sheets.Close(); sheets.Dispose(); }
             var trigger = triggerPopup; triggerPopup = null; if (trigger != null) { trigger.Close(); trigger.Dispose(); }
@@ -1733,7 +1781,7 @@ namespace Excel_Iterate
             if (lacking.Count == 0) return 0;
             side.Books.RemoveAll(path => lacking.Contains(path, StringComparer.OrdinalIgnoreCase));
             var rest = side.Copy(); rest.Books.Clear(); rest.Books.AddRange(lacking); rest.Sheet = old;
-            var below = new MigrationPair { Enabled = pair.Enabled, ValuesOnly = pair.ValuesOnly, KeepFormat = pair.KeepFormat, FormatOnly = pair.FormatOnly };
+            var below = new MigrationPair { Enabled = pair.Enabled, ValuesOnly = pair.ValuesOnly, KeepFormat = pair.KeepFormat, FormatOnly = pair.FormatOnly, PasteLinks = pair.PasteLinks };
             if (target) below.Target = rest; else below.Source = rest;
             pairs.Insert(pairs.IndexOf(pair) + 1, below);
             return lacking.Count;
@@ -2096,6 +2144,7 @@ namespace Excel_Iterate
                     other.Trigger = trigger == null ? null : trigger.Copy(); shared++;
                 }
             side.Trigger = trigger;
+            foreach (var pair in pairs.Where(p => p.Source.Trigger != null)) pair.SelectMode(pair.KeepFormat ? MigrationPair.ModeValuesFormat : MigrationPair.ModeValues);
             foreach (var pair in pairs) if (pair.Source.Used && (pair.Source == side || (pair.Source.Books.Count == 1 && side.Books.Count == 1 && string.Equals(pair.Source.Books[0], side.Books[0], StringComparison.OrdinalIgnoreCase)))) pair.Instances.Clear();
             RefreshRows(); Changed(); ShowPairDetails();
             int removed = trigger == null ? 0 : DropUnmatchedTargets();
@@ -2399,7 +2448,7 @@ namespace Excel_Iterate
             bool target; var pair = tabs == null ? null : PanelPair(out target); if (pair == null) { details.Text = ""; return; }
             var lines = new List<string>
             {
-                "映射第 " + (pairs.IndexOf(pair) + 1) + " 行（" + (pair.Enabled ? "已启用" : "未启用") + "，" + MigrationPair.ModeText(pair.ValuesOnly || pair.Source.Trigger != null, pair.KeepFormat, pair.FormatOnly && pair.Source.Trigger == null) + "）",
+                "映射第 " + (pairs.IndexOf(pair) + 1) + " 行（" + (pair.Enabled ? "已启用" : "未启用") + "，" + pair.Mode + "）",
                 "源：" + Where(pair.Source, MigrationPlanner.TryParse(pair.Source.Range)) + "　工作簿：" + Books(pair.Source),
                 "目标：" + Where(pair.Target, MigrationPlanner.TargetArea(pair)) + "　工作簿：" + Books(pair.Target),
                 "状态：" + PairStatus(pair)
@@ -2614,6 +2663,7 @@ namespace Excel_Iterate
         {
             int succeeded = request.Targets.Count(t => t.Status == "成功"), failed = request.Targets.Count(t => t.Status == "失败"), ready = request.Targets.Count(t => t.Ready && t.Status == "可执行");
             return "源 " + request.SourceSheet + "!" + request.SourceRange + "：非空 " + request.NonEmptyCells + "，公式 " + request.FormulaCells
+                + "；方式：" + MigrationPair.ModeText(request.ValuesOnly, request.KeepFormat, request.FormatOnly, request.PasteLinks)
                 + "；目标 " + request.Targets.Count + "：成功 " + succeeded + "，失败 " + failed + "，可执行 " + ready + "。" + (request.ReplaceTargets ? "保存方式：校验后更新原文件并备份。" : "保存方式：另存结果副本。");
         }
         internal void Run(IEnumerable<MigrationProgress> sequence, Action complete, Action<Exception> error)

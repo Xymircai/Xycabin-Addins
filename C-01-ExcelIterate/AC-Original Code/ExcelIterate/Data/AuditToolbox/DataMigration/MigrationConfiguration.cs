@@ -17,7 +17,7 @@ namespace Excel_Iterate
             var sides = new Dictionary<MigrationSide, MigrationSide>();
             foreach (var pair in pairs)
             {
-                var copy = new MigrationPair { Source = CopySide(pair.Source, sides), Target = CopySide(pair.Target, sides), Enabled = pair.Enabled, ValuesOnly = pair.ValuesOnly, KeepFormat = pair.KeepFormat, FormatOnly = pair.FormatOnly };
+                var copy = new MigrationPair { Source = CopySide(pair.Source, sides), Target = CopySide(pair.Target, sides), Enabled = pair.Enabled, ValuesOnly = pair.ValuesOnly, KeepFormat = pair.KeepFormat, FormatOnly = pair.FormatOnly, PasteLinks = pair.PasteLinks };
                 Pairs.Add(copy); Owners.Add(copy, pair);
             }
         }

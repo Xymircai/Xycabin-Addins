@@ -526,7 +526,7 @@ namespace Excel_Iterate.TestHarness
             try
             {
                 if(args.Length==1 && args[0]=="--target-picker-ui") { Console.WriteLine("PICKER_BEGIN"); HostDialogService.Register(); var picked=MigrationTargetPicker.Show(null); foreach(string path in picked)Console.WriteLine("PICKED: "+path); Console.WriteLine("PICKER_END count="+picked.Length+"\n"+UiDiagnostics.Text); Directory.Delete(root,true); return 0; }
-                MappingSummaryChecks(); FormulaChecks(); PackageChecks(root); FidelityChecks(root); WatchChecks(); PickerChecks(root); TargetSelectionChecks(root); SelectionPopupChecks(root); PumpChecks(); HostChecks(root); TransactionChecks(root); QuietReplaceChecks(root); SnapshotRaceChecks(root);
+                MappingSummaryChecks(); FormulaChecks(); PackageChecks(root); FidelityChecks(root); WatchChecks(); PickerChecks(root); TargetSelectionChecks(root); SelectionPopupChecks(root); PumpChecks(); HostChecks(root); TransactionChecks(root); QuietReplaceChecks(root); SnapshotRaceChecks(root); LinkChecks(root); LinkConfigurationChecks();
                 using (var form = new DataMigrationForm()) Check(!form.Visible && form.Mappings.Count == 0 && form.Sources.Columns.Count == 7 && form.Targets.Columns.Count == 6 && form.Sources.Columns.Contains("pick") && form.Sources.Columns.Contains("trigger") && !form.Targets.Columns.Contains("trigger"), "production form constructs without host access");
                 LayoutChecks(); RecalculationTargetChecks(root); PresetChecks(); ArchitectureChecks();
                 if (args.Length == 2 && args[0] == "--render") Render(root, Path.GetFullPath(args[1]));
@@ -566,15 +566,39 @@ namespace Excel_Iterate.TestHarness
                 var p1 = form.AddSide(false, s1); var p2 = form.AddSide(false, s2); var p3 = form.AddSide(true, t1);
                 Check(p1.ValuesOnly && p2.ValuesOnly, "rows created in the window paste values by default");
                 Check(!p1.KeepFormat && MigrationPair.ModeText(true, false) == "只写数值" && MigrationPair.ModeText(true, true) == "数值+格式" && MigrationPair.ModeText(false, false) == "只写公式" && MigrationPair.ModeText(false, true) == "公式+格式", "new rows write values without formats; four write modes");
-                var toggleMode = (Action<int>)typeof(MigrationMappingBoard).GetField("ModeToggled", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(form.Mappings);
-                foreach (string expected in new[] { "数值+格式", "只写公式", "公式+格式", "只复制格式", "只写数值" })
+                var board = form.Mappings;
+                Check(board.BeginModeSelection(0) && board.ModeSelector.DropDownStyle == System.Windows.Forms.ComboBoxStyle.DropDownList
+                    && board.ModeSelector.Items.Cast<string>().SequenceEqual(new[] { "只写数值", "数值+格式", "只写公式", "公式+格式", "只写格式", "粘贴链接" }), "mapping dropdown has all six ordered modes");
+                board.ModeSelector.SelectedItem = "粘贴链接"; board.CloseModeSelection();
+                Check(p1.Mode == "只写数值", "cancelling a pending dropdown selection preserves the row");
+                board.BeginModeSelection(0); board.ModeSelector.SelectedItem = "粘贴链接";
+                typeof(System.Windows.Forms.ComboBox).GetMethod("OnKeyDown", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(board.ModeSelector, new object[] { new System.Windows.Forms.KeyEventArgs(System.Windows.Forms.Keys.Escape) });
+                Check(p1.Mode == "只写数值", "Escape cancels a pending mode without changing the mapping");
+                board.BeginModeSelection(0); board.ModeSelector.SelectedItem = "粘贴链接"; board.Width++; CommitMode(board);
+                Check(p1.Mode == "只写数值", "resizing closes a pending editor without applying it");
+                board.BeginModeSelection(0); board.ModeSelector.SelectedItem = "粘贴链接"; form.ShowPage(1); CommitMode(board);
+                Check(p1.Mode == "只写数值", "changing pages cancels the mode editor");
+                var planField = typeof(DataMigrationForm).GetField("lastPlan", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                foreach (string expected in new[] { "数值+格式", "只写公式", "公式+格式", "只写格式", "粘贴链接", "只写数值" })
                 {
-                    toggleMode(0);
-                    Check(MigrationPair.ModeText(p1.ValuesOnly, p1.KeepFormat, p1.FormatOnly) == expected, "mapping mode click cycles to " + expected);
+                    planField.SetValue(form, new MigrationPlan());
+                    board.BeginModeSelection(0); board.ModeSelector.SelectedItem = expected; CommitMode(board);
+                    Check(p1.Mode == expected && planField.GetValue(form) == null, "dropdown selects " + expected + " and invalidates precheck");
                 }
+                var unchangedPlan = new MigrationPlan(); planField.SetValue(form, unchangedPlan);
+                board.BeginModeSelection(0); CommitMode(board);
+                Check(ReferenceEquals(planField.GetValue(form), unchangedPlan), "choosing the existing mode preserves precheck");
+                board.BeginModeSelection(0); board.ModeSelector.SelectedItem = "粘贴链接"; board.ReadOnly = true; CommitMode(board);
+                Check(p1.Mode == "只写数值" && !board.BeginModeSelection(0), "running locks and closes the dropdown without applying a pending choice"); board.ReadOnly = false;
+                board.BeginModeSelection(0); board.ModeSelector.SelectedItem = "粘贴链接";
+                board.UpdateItem(0, new MigrationMappingBoard.Entry { ValuesOnly = true }); CommitMode(board);
+                Check(!p1.PasteLinks, "a replaced mapping entry rejects a stale dropdown commit"); form.RefreshResults();
                 p1.Source.Trigger = new MigrationTrigger();
-                toggleMode(0); Check(p1.ValuesOnly && p1.KeepFormat, "recalculation mode click enables formats while keeping values-only output");
-                toggleMode(0); Check(p1.ValuesOnly && !p1.KeepFormat, "recalculation mode click returns to values without entering formula modes");
+                form.RefreshResults(); board.BeginModeSelection(0);
+                Check(board.ModeSelector.Items.Cast<string>().SequenceEqual(new[] { "只写数值", "数值+格式" }), "recalculation dropdown only offers two values modes");
+                board.ModeSelector.SelectedItem = "数值+格式"; CommitMode(board); Check(p1.ValuesOnly && p1.KeepFormat && !p1.PasteLinks, "recalculation selects values with formats");
+                board.BeginModeSelection(0); board.ModeSelector.SelectedItem = "只写数值"; CommitMode(board); Check(p1.ValuesOnly && !p1.KeepFormat, "recalculation selects values without formats");
+                Reject(delegate { p1.SelectMode(MigrationPair.ModeLinks); }, "recalculation cannot select links through the model");
                 p1.Source.Trigger = null;
                 Check(p3 == p1 && form.PairItems().Count == 2 && form.Sources.Rows.Count == 2 && form.Targets.Rows.Count == 1 && form.Mappings.Count == 2, "a new target fills the first row without one instead of shifting pairs");
                 form.SwapSides(0, 1, true);
@@ -726,6 +750,139 @@ namespace Excel_Iterate.TestHarness
             Check(index.Find("同名").SequenceEqual(new[] { @"C:\b\01-同名.xlsx", @"C:\a\同名.xlsx" }) && index.Find("").Count == 0,
                 "name index preserves pool order for manual candidates and never matches an empty name");
         }
+        private static void CommitMode(MigrationMappingBoard board)
+        { typeof(System.Windows.Forms.ComboBox).GetMethod("OnSelectionChangeCommitted", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(board.ModeSelector, new object[] { EventArgs.Empty }); }
+        private static void LinkConfigurationChecks()
+        {
+            Check(DataMigrationEngine.SourceLink(@"C:\fixtures\！01-示例集团.xlsx", "Sheet1", 3, 1) == "='C:\\fixtures\\[！01-示例集团.xlsx]Sheet1'!$A$3", "links quote Chinese workbook names and lock both coordinates");
+            Check(DataMigrationEngine.SourceLink(@"C:\O'Brien\a'b.xlsx", "O'Brien", 12, 28) == "='C:\\O''Brien\\[a''b.xlsx]O''Brien'!$AB$12", "links escape apostrophes in directory, workbook and sheet");
+            Check(DataMigrationEngine.SourceLink(@"\\server\shared folder\source.xlsx", "Data", 2, 2) == "='\\\\server\\shared folder\\[source.xlsx]Data'!$B$2", "links preserve UNC paths and spaces");
+            var compare = new MigrationFormulaContext { SourcePath = @"D:\targets\target.xlsx", SourceSheet = "Target", TargetSheet = "Target" };
+            compare.ExternalFiles["source.xlsx"] = @"C:\source\source.xlsx";
+            Check(DataMigrationEngine.ComparisonFormula("='[source.xlsx]Data'!$A$3", compare) == DataMigrationEngine.ComparisonFormula("='C:\\source\\[source.xlsx]Data'!$A$3", compare), "open and closed source formula spellings compare equally");
+            Check(DataMigrationEngine.ComparisonFormula("='[source.xlsx]Data'!A3", compare) != DataMigrationEngine.ComparisonFormula("='[source.xlsx]Data'!$A$3", compare), "link verification retains absolute reference locks");
+            using (var form = new DataMigrationForm())
+            {
+                var source = new MigrationSide { Sheet = "Source", Range = "A3:B4" }; source.Books.Add(@"C:\source\source.xlsx");
+                var target = new MigrationSide { Sheet = "Target", Range = "D8" }; target.Books.Add(@"D:\target\target.xlsx");
+                var pair = form.AddSide(false, source); form.AddSide(true, target);
+                foreach (string mode in MigrationPair.Modes)
+                {
+                    pair.SelectMode(mode);
+                    var data = form.CapturePreset("six modes"); var mapping = MigrationJson.Maps(data, "mappings").Single();
+                    Check(MigrationJson.Num(data, "version") == 2 && MigrationJson.Flag(mapping, "pasteLinks", false) == (mode == MigrationPair.ModeLinks), "preset v2 captures " + mode);
+                    var restored = MigrationPresetCodec.Read((Dictionary<string, object>)MigrationJson.Parse(MigrationJson.Write(data)), null);
+                    Check(restored.Pairs.Single().Mode == mode, "preset roundtrip restores " + mode);
+                }
+                pair.SelectMode(MigrationPair.ModeLinks);
+                var snapshot = new MigrationConfiguration(form.PairItems(), new MigrationBook[0], new MigrationBook[0], false, false); pair.SelectMode(MigrationPair.ModeValues);
+                var plan = new MigrationPlanner(snapshot).Build();
+                Check(snapshot.Pairs.Single().PasteLinks && plan.Passes.Single().Request.PasteLinks && !plan.Passes.Single().Request.KeepFormat, "link flag survives an independent snapshot and request planning");
+                var legacy = form.CapturePreset("legacy"); legacy["version"] = 1L;
+                var old = MigrationJson.Maps(legacy, "mappings").Single(); old.Remove("pasteLinks"); old.Remove("keepFormat"); old["valuesOnly"] = false;
+                Check(MigrationPresetCodec.Read(legacy, null).Pairs.Single().Mode == MigrationPair.ModeFormulaFormat, "v1 preset without format flag retains its historical default");
+                old["formatOnly"] = true;
+                Check(MigrationPresetCodec.Read(legacy, null).Pairs.Single().Mode == "只写格式", "legacy format-only preset uses the renamed label");
+                pair.SelectMode(MigrationPair.ModeLinks); form.AddMappingRow();
+                Check(form.PairItems().Last().PasteLinks, "copying a mapping preserves link mode");
+                var secondTarget = new MigrationSide { Sheet = "Target", Range = "H8" }; secondTarget.Books.Add(@"D:\target\target.xlsx");
+                form.AddSide(true, secondTarget); form.PairItems().Last().SelectMode(MigrationPair.ModeFormula);
+                var grouped = new MigrationPlanner(new MigrationConfiguration(form.PairItems(), new MigrationBook[0], new MigrationBook[0], false, false)).Build();
+                Check(grouped.Passes.Count == 2 && grouped.Passes.Count(p => p.Request.PasteLinks) == 1 && grouped.Passes.Count(p => !p.Request.PasteLinks && !p.Request.ValuesOnly) == 1, "same source with link and formula modes remains in separate planned passes");
+                form.SetTrigger(source, new MigrationTrigger());
+                Check(form.PairItems().All(p => !p.PasteLinks && p.ValuesOnly), "applying recalculation converts shared linked rows to values");
+            }
+        }
+        private static void LinkChecks(string root)
+        {
+            string folder = Path.Combine(root, "links O'Brien"); Directory.CreateDirectory(folder);
+            var app = new FakeApp(); var source = app.Workbooks.Create(Path.Combine(folder, "！01-示例集团.xlsx"), "O'Brien");
+            source.Sheets[0].Cell("A3").Value2 = 12.5; source.Sheets[0].Cell("B3").Formula = "=UnsupportedName()";
+            source.Sheets[0].Cell("A4").Value2 = "plain"; source.Sheets[0].Cell("C3").Formula = "=A3";
+            source.Names.Add("Unneeded", "=UnsupportedName()", true); source.Links.Add(Path.Combine(folder, "upstream.xlsx")); source.Persist();
+            string sourceHash = DataMigrationHost.Digest(source.FullName);
+            app.ActiveWorkbook = source; app.ActiveSheet = source.Sheets[0];
+            foreach (string ext in new[] { ".xlsx", ".xlsm", ".xls", ".et" })
+            {
+                var original = app.Workbooks.Create(Path.Combine(folder, "target" + ext), "Target");
+                foreach (string cell in new[] { "D8", "E8", "D9", "E9" }) { original.Sheets[0].Cell(cell).Value2 = 99.0; original.Sheets[0].Cell(cell).NumberFormat = "0.000"; original.Sheets[0].Cell(cell).Font.Bold = true; }
+                original.Sheets[0].Cell("D8").NumberFormat = "@"; original.Names.Add("Unneeded", "=7", true); original.Persist(); original.Close(false);
+                string hash = DataMigrationHost.Digest(original.FullName);
+                var target = new MigrationTarget { Path = original.FullName, Sheet = "Target", Start = "D8" };
+                var request = new MigrationRequest { SourcePath = source.FullName, SourceSheet = "O'Brien", SourceRange = "A3:B4", PasteLinks = true, ReplaceTargets = ext == ".xlsm", Targets = new List<MigrationTarget> { target } };
+                using (var host = new DataMigrationHost(app))
+                {
+                    Drain(host.Preview(request)); Check(target.Ready && target.ValueFallbacks == 0 && request.NonEmptyCells == 3 && request.FormulaCells == 1, "link preview ignores source dependencies and counts actual source content " + ext);
+                    Drain(host.Execute()); Check(target.Status == "成功", "link save/reopen succeeds in managed fixture " + ext);
+                    var output = app.Workbooks.Open(target.Output, 0, true); var sheet = output.Sheets[0];
+                    string prefix = "='" + folder.Replace("'", "''") + "\\[！01-示例集团.xlsx]O''Brien'!";
+                    Check(sheet.Cell("D8").Formula == prefix + "$A$3" && sheet.Cell("E8").Formula == prefix + "$B$3" && sheet.Cell("D9").Formula == prefix + "$A$4" && sheet.Cell("E9").Formula == prefix + "$B$4", "every rectangle cell including blanks links to the original absolute source coordinates " + ext);
+                    Check(sheet.Cell("D8").NumberFormat == "General" && sheet.Cell("E8").NumberFormat == "0.000" && sheet.Cell("D8").Font.Bold && sheet.Cell("D8").RowHeight == 15 && sheet.Cell("D8").ColumnWidth == 8.5, "links retain target style and dimensions with text-format correction " + ext);
+                    Check(output.Links.SequenceEqual(new[] { source.FullName }) && output.Names.Items.Single().RefersTo == "=7", "only the intended original source link is added " + ext);
+                    output.Close(false);
+                    Check(request.ReplaceTargets ? target.Output == original.FullName && DataMigrationHost.Digest(target.Backup) == hash : DataMigrationHost.Digest(original.FullName) == hash, "link output honors copy or backed-up replacement policy " + ext);
+                    Check(File.ReadAllText(Path.Combine(host.DiagnosticDirectory, "migration.log")).Contains("粘贴链接"), "link mode appears in the migration log " + ext);
+                }
+                source.Close(false);
+            }
+            Check(DataMigrationHost.Digest(source.FullName) == sourceHash, "linked source bytes are unchanged with open and closed originals");
+            var mergedSource = app.Workbooks.Create(Path.Combine(folder, "merged-source.xlsx"), "Source");
+            mergedSource.Sheets[0].Cell("A3").Value2 = "merged"; mergedSource.Sheets[0].Cell("B3").Value2 = "hidden source data";
+            mergedSource.Sheets[0].Merges.Add("A3:B4"); mergedSource.Persist(); mergedSource.Close(false);
+            var mergedBook = app.Workbooks.Create(Path.Combine(folder, "merged-target.xlsx"), "Target"); mergedBook.Persist(); mergedBook.Close(false);
+            var mergedTarget = new MigrationTarget { Path = mergedBook.FullName, Sheet = "Target", Start = "D8" };
+            using (var host = new DataMigrationHost(app))
+            {
+                Drain(host.Preview(new MigrationRequest { SourcePath = mergedSource.FullName, SourceSheet = "Source", SourceRange = "A3:B4", PasteLinks = true, Targets = new List<MigrationTarget> { mergedTarget } }));
+                Drain(host.Execute()); Check(mergedTarget.Status == "成功", "complete merged source links survive save and reopen");
+                var output = app.Workbooks.Open(mergedTarget.Output, 0, true); var sheet = output.Sheets[0];
+                Check(sheet.Merges.SequenceEqual(new[] { "D8:E9" }) && sheet.Cell("D8").Formula.EndsWith("!$A$3") && !sheet.Cell("E8").HasFormula && sheet.Cell("E8").Value2 == null, "only the merge anchor receives a link; followers receive no source hidden data"); output.Close(false);
+            }
+            var combined = app.Workbooks.Create(Path.Combine(folder, "combined.xlsx"), "Target"); combined.Sheets[0].Cell("G18").Value2 = "keep"; combined.Persist(); combined.Close(false);
+            using (var host = new DataMigrationHost(app) { HoldTargets = true })
+            {
+                var links = new MigrationTarget { Path = combined.FullName, Sheet = "Target", Start = "D8" };
+                var values = new MigrationTarget { Path = combined.FullName, Sheet = "Target", Start = "E12" };
+                var formulas = new MigrationTarget { Path = combined.FullName, Sheet = "Target", Start = "F15" };
+                var formats = new MigrationTarget { Path = combined.FullName, Sheet = "Target", Start = "G18" };
+                foreach (var request in new[] {
+                    new MigrationRequest { SourcePath = source.FullName, SourceSheet = "O'Brien", SourceRange = "A3:B4", PasteLinks = true, Targets = new List<MigrationTarget> { links } },
+                    new MigrationRequest { SourcePath = source.FullName, SourceSheet = "O'Brien", SourceRange = "A3", ValuesOnly = true, Targets = new List<MigrationTarget> { values } },
+                    new MigrationRequest { SourcePath = source.FullName, SourceSheet = "O'Brien", SourceRange = "C3", Targets = new List<MigrationTarget> { formulas } },
+                    new MigrationRequest { SourcePath = source.FullName, SourceSheet = "O'Brien", SourceRange = "A3", ValuesOnly = true, KeepFormat = true, FormatOnly = true, Targets = new List<MigrationTarget> { formats } } })
+                { Drain(host.Preview(request)); host.Keep(); }
+                Drain(host.ExecuteKept());
+                Check(new[] { links, values, formulas, formats }.All(t => t.Status == "成功" && t.Output == links.Output), "mixed link/value/formula/format passes share one successful output");
+                var output = app.Workbooks.Open(links.Output, 0, true); var sheet = output.Sheets[0];
+                Check(sheet.Cell("D8").Formula.EndsWith("!$A$3") && Convert.ToDouble(sheet.Cell("E12").Value2) == 12.5 && sheet.Cell("F15").Formula == "=D15" && (string)sheet.Cell("G18").Value2 == "keep", "mixed batch preserves all four independent write behaviors"); output.Close(false);
+            }
+            foreach (string fault in new[] { "save", "unexpected", "missing", "cancel" })
+            {
+                var original = app.Workbooks.Create(Path.Combine(folder, fault + ".xlsx"), "Target"); original.FailSave = fault == "save"; original.Persist(); original.Close(false);
+                string hash = DataMigrationHost.Digest(original.FullName);
+                var target = new MigrationTarget { Path = original.FullName, Sheet = "Target", Start = "D8" };
+                var request = new MigrationRequest { SourcePath = source.FullName, SourceSheet = "O'Brien", SourceRange = "A3", PasteLinks = true, ReplaceTargets = true, Targets = new List<MigrationTarget> { target } };
+                using (var host = new DataMigrationHost(app))
+                {
+                    Drain(host.Preview(request));
+                    if (fault == "unexpected" || fault == "missing") app.Workbooks.Opened = delegate(string path) {
+                        if (!Path.GetFileName(path).StartsWith(".xy-migration-") || Path.GetFileName(path).StartsWith(".xy-migration-read-")) return;
+                        if (fault == "unexpected") app.Workbooks.Find(path).Links.Add(Path.Combine(folder, "unplanned.xlsx")); else app.Workbooks.Find(path).Links.Clear(); };
+                    if (fault == "cancel")
+                    {
+                        using (var steps = host.Execute().GetEnumerator()) { Check(steps.MoveNext(), "link execution yields before writing"); host.Cancelled = true; while (steps.MoveNext()) { } }
+                    }
+                    else Drain(host.Execute());
+                    Check(target.Status == (fault == "cancel" ? "已取消" : "失败") && target.Output.Length == 0 && target.Backup.Length == 0 && DataMigrationHost.Digest(original.FullName) == hash, "link " + fault + " never commits an unverified output");
+                }
+                app.Workbooks.Opened = null;
+            }
+            var empty = new MigrationRequest { SourcePath = source.FullName, SourceSheet = "O'Brien", SourceRange = "Z99", PasteLinks = true };
+            using (var host = new DataMigrationHost(app)) Reject(delegate { Drain(host.Preview(empty)); }, "link mode preserves explicit all-blank opt-in");
+            empty.AllowEmptySource = true;
+            using (var host = new DataMigrationHost(app)) { Drain(host.Preview(empty)); Check(empty.NonEmptyCells == 0, "explicit all-blank link source is permitted"); }
+            using (var host = new DataMigrationHost(app)) Reject(delegate { Drain(host.Preview(new MigrationRequest { PasteLinks = true, TriggerCell = "B2" })); }, "direct link request cannot use recalculation");
+        }
         private static void PresetChecks()
         {
             var parsed = (Dictionary<string, object>)MigrationJson.Parse(MigrationJson.Write(MigrationJson.Obj("text", "引号\"反斜杠\\换行\n", "list", new List<object> { 1L, 2.5, true, null })));
@@ -853,6 +1010,18 @@ namespace Excel_Iterate.TestHarness
                                 new object[] { new System.Windows.Forms.PaintEventArgs(graphics, new Rectangle(Point.Empty, bitmap.Size)) });
                         bitmap.Save(Path.ChangeExtension(path, ".board150.png"), ImageFormat.Png);
                     }
+                    using (var board = new MigrationMappingBoard { Size = new Size(1500, 530) })
+                    using (var bitmap = new Bitmap(1500, 530))
+                    {
+                        parking.Controls.Add(board);
+                        var entries = MigrationPair.Modes.Select(mode => {
+                            var row = new MigrationPair(); row.SelectMode(mode);
+                            return new MigrationMappingBoard.Entry { SourceUsed = true, TargetUsed = true, SourceTitle = "源工作簿 · Sheet1", SourceDetail = "A3:B4", TargetTitle = "目标工作簿 · 工作表", TargetDetail = "D8:E9", ValuesOnly = row.ValuesOnly, KeepFormat = row.KeepFormat, FormatOnly = row.FormatOnly, PasteLinks = row.PasteLinks, Status = "就绪（待预检）" }; }).ToList();
+                        board.SetItems(entries, 5, false); board.CreateControl();
+                        board.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(Path.ChangeExtension(path, ".modes.png"), ImageFormat.Png);
+                        Check(board.BeginModeSelection(5), "native dropdown editor prepares without showing a popup");
+                        board.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(Path.ChangeExtension(path, ".editor.png"), ImageFormat.Png);
+                    }
                 }
             }
             finally { DialogPreviewFactory.IsConstructing = previous; }
@@ -902,7 +1071,7 @@ namespace Excel_Iterate.TestHarness
             var b = new FakeBook(Owner, path) { FailSave = FailSave }; b.Links.AddRange(Links); b.Windows.Item(1).Visible = Windows.Item(1).Visible;
             foreach (var name in Names.Items) b.Names.Add(name.Name, name.RefersTo, name.Visible);
             foreach (var s in Sheets)
-            { var copy = new FakeSheet(b, s.Name); foreach (var p in s.Cells) copy.Cells[p.Key] = p.Value.Clone(copy); b.Sheets.Add(copy); } return b;
+            { var copy = new FakeSheet(b, s.Name); copy.Merges.AddRange(s.Merges); foreach (var p in s.Cells) copy.Cells[p.Key] = p.Value.Clone(copy); b.Sheets.Add(copy); } return b;
         }
     }
     public sealed class FakeSheets
@@ -935,6 +1104,7 @@ namespace Excel_Iterate.TestHarness
         public FakeCount Rows { get { return new FakeCount { Count = 1048576 }; } } public FakeCount Columns { get { return new FakeCount { Count = 16384 }; } }
         public FakeCount ListObjects { get { return new FakeCount(); } } public FakeRanges Range { get { return new FakeRanges(this); } }
         public Dictionary<string, FakeCell> Cells = new Dictionary<string, FakeCell>();
+        public List<string> Merges = new List<string>();
         public FakeSheet(FakeBook book, string name) { Book = book; Name = name; }
         public FakeCell Cell(string address) { FakeCell c; if (!Cells.TryGetValue(address, out c)) Cells[address] = c = new FakeCell(this, address); return c; }
         public void Activate() { }
@@ -948,7 +1118,14 @@ namespace Excel_Iterate.TestHarness
     {
         private FakeSheet sheet; private string formula; private object value;
         public string Address; public FakeCell(FakeSheet s, string a) { sheet = s; Address = a; RowHeight = 15; ColumnWidth = 8.5; NumberFormat = "General"; Font = new FakeFont(); Interior = new FakeFill(); Borders = new FakeBorders(); }
-        public bool HasArray { get { return false; } } public bool HasSpill { get { return false; } } public bool MergeCells { get { return false; } }
+        public bool HasArray { get { return false; } } public bool HasSpill { get { return false; } }
+        private string MergedAddress { get { return sheet.Merges.FirstOrDefault(m => MigrationArea.Parse(m).Contains(MigrationArea.Parse(Address))); } }
+        public bool MergeCells { get { return MergedAddress != null; } }
+        public FakeCell MergeArea { get { return sheet.Cell(MergedAddress); } }
+        public int Row { get { return MigrationArea.Parse(Address).Row; } }
+        public int Column { get { return MigrationArea.Parse(Address).Column; } }
+        public FakeCount Rows { get { return new FakeCount { Count = MigrationArea.Parse(Address).Rows }; } }
+        public FakeCount Columns { get { return new FakeCount { Count = MigrationArea.Parse(Address).Columns }; } }
         public bool HasFormula { get { return formula != null; } }
         public string Formula
         {
@@ -956,8 +1133,8 @@ namespace Excel_Iterate.TestHarness
             set
             {
                 formula = value; this.value = null; sheet.Book.Saved = false;
-                foreach (Match m in Regex.Matches(value, @"'([^']*)\[([^\]]+)\]([^']*)'!"))
-                { string p = Path.Combine(m.Groups[1].Value, m.Groups[2].Value); if (Path.IsPathRooted(p) && !sheet.Book.Links.Contains(p)) sheet.Book.Links.Add(p); }
+                foreach (Match m in Regex.Matches(value, @"'((?:[^']|'')*)\[([^\]]+)\](?:[^']|'')*'!"))
+                { string p = Path.Combine(m.Groups[1].Value.Replace("''", "'"), m.Groups[2].Value.Replace("''", "'")); if (Path.IsPathRooted(p) && !sheet.Book.Links.Contains(p)) sheet.Book.Links.Add(p); }
             }
         }
         public string Formula2 { get { return Formula; } set { Formula = value; } }
@@ -969,7 +1146,9 @@ namespace Excel_Iterate.TestHarness
         public int Orientation { get; set; } public int IndentLevel { get; set; } public bool ShrinkToFit { get; set; } public bool Locked { get; set; } public bool FormulaHidden { get; set; }
         public double RowHeight { get; set; } public double ColumnWidth { get; set; }
         public FakeFont Font { get; set; } public FakeFill Interior { get; set; } public FakeBorders Borders { get; set; }
-        public void UnMerge() { } public void Merge() { } public void Select() { }
+        public void UnMerge() { var area = MigrationArea.Parse(Address); sheet.Merges.RemoveAll(m => area.Contains(MigrationArea.Parse(m))); }
+        public void Merge() { if (!sheet.Merges.Contains(Address)) sheet.Merges.Add(Address); }
+        public void Select() { }
         public FakeCell Clone(FakeSheet destination) { var c = (FakeCell)MemberwiseClone(); c.sheet = destination; c.Font = Font.Clone(); c.Interior = Interior.Clone(); c.Borders = Borders.Clone(); return c; }
     }
     public sealed class FakeFont

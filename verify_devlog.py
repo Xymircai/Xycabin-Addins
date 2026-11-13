@@ -13,6 +13,8 @@ import sys
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent
 DOCS = ROOT / 'C-04-Devlog'
+sys.path.insert(0, str(ROOT / 'C-00-Shared'))
+from build_report import ordered_errors, profile_errors, BUILD_GATES, DEVELOPER_GATES, GATE_SCOPES, GATE_ROW, H_ITEMS, manual_spec_items
 FILES = ('B0-Entry.md', 'A-UserGuide.md', 'B1-Project-Files.md',
          'B2-DevExperience.md', 'B3-Spec Coding.md', 'B4-Code Index.md')
 LIMIT = 200
@@ -60,32 +62,13 @@ RULES = {
 }
 
 H_LINE = re.compile(r'(?m)^\*\*(H-\d{2})\*\*')
-H_ITEMS = {
-    'H-01': '维护顺序', 'H-02': '构建期禁编辑', 'H-03': '安装与卸载报告', 'H-04': '排障顺序',
-    'H-05': 'COM 方法指引', 'H-06': '弹窗真实交互验收', 'H-07': '清理触发', 'H-08': '冗余候选条件',
-    'H-09': '五类盘点', 'H-10': 'fixture 与删除边界', 'H-11': '网站经验归属', 'H-12': '固定图样不读桌面',
-}
-
-
 def check_h_items(text):
-    """Manual gates are numbered consecutively, in document order, with acceptance evidence."""
-    errors = []
-    found = H_LINE.findall(text)
-    if len(found) != len(set(found)):
-        errors.append('B3: 人工门禁条目 H 编号重复')
-    missing = sorted(set(H_ITEMS) - set(found))
-    extra = sorted(set(found) - set(H_ITEMS))
-    if missing:
-        errors.append('B3: 缺少人工门禁条目 ' + ', '.join(missing))
-    if extra:
-        errors.append('B3: 未登记人工门禁条目 ' + ', '.join(extra))
-    expected = ['H-%02d' % index for index in range(1, len(H_ITEMS) + 1)]
-    if found and found != expected:
-        errors.append('B3: 人工门禁条目顺序必须为 H-01…H-%02d' % len(H_ITEMS))
-    for line in text.split('\n'):
-        if H_LINE.match(line) and '验收：' not in line:
-            errors.append('B3: ' + line[:6] + ' 缺少“验收/证据”记录')
-    return errors
+    """Check the manual checklist's metadata, without executing its instructions."""
+    try:
+        manual_spec_items(text)
+    except ValueError as error:
+        return ['B3: ' + str(error)]
+    return []
 
 
 def markdown_gate():
@@ -149,7 +132,6 @@ def check_rules(text):
 
 
 GATE_TABLE = re.compile(r'^###\s+\(1\)\.\s*统一重建门禁总览\s*$', re.M)
-GATE_ROW = re.compile(r'^\|\s*(G-\d{2})\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|\s*$', re.M)
 SEMANTICS = {
     'G-01': 'FAIL', 'G-02': 'FAIL', 'G-03': 'FAIL', 'G-04': 'FAIL',
     'G-05': 'FAIL', 'G-06': 'FAIL', 'G-07': 'FAIL', 'G-08': 'FAIL',
@@ -164,9 +146,9 @@ GATE_REGISTRY = {
     'G-02': ('公共实现与功能源码分类', 'R-15,R-30'),
     'G-03': ('三个 CMD 入口契约', 'R-23'),
     'G-04': ('加载项身份预检', 'R-17'),
-    'G-05': ('冗余清理盘点', 'R-21'),
+    'G-05': ('清理机制回归（隔离夹具）', 'R-21'),
     'G-06': ('缓存收据核对', ''),
-    'G-07': ('清理审阅', 'R-21'),
+    'G-07': ('清理审阅机制回归（隔离夹具）', 'R-21'),
     'G-08': ('构建前文档指纹', 'R-20'),
     'G-09': ('网站快照构建', 'R-14'),
     'G-10': ('快照网页门禁', 'R-22'),
@@ -180,9 +162,9 @@ GATE_REGISTRY = {
     'G-18': ('下载页网页门禁', 'R-22'),
     'G-19': ('发布前文档指纹', 'R-20'),
     'G-20': ('事务发布', ''),
-    'G-21': ('发布后布局门禁', 'R-02'),
+    'G-21': ('发布后布局门禁', 'R-02,R-23'),
     'G-22': ('缓存提交与运行摘要', 'R-20'),
-    'G-23': ('收尾独立验证', 'R-01–R-30'),
+    'G-23': ('正式产物收尾核对', 'R-14,R-17–R-20,R-24'),
 }
 
 
@@ -206,13 +188,17 @@ def check_gate_inventory(text):
     if len(rows) != len(GATE_REGISTRY):
         errors.append('B3: 门禁清单 %d 行，注册表 %d 项' % (len(rows), len(GATE_REGISTRY)))
     for index, row in enumerate(rows, 1):
-        gate, _, _, clause, semantic = row
+        gate, title, _, clause, semantic, scope = row
         if gate != 'G-%02d' % index:
             errors.append('B3: 门禁清单第 %d 行应为 G-%02d，实际 %s' % (index, index, gate))
         registered = GATE_REGISTRY.get(gate)
         if registered is None:
             errors.append('B3: 未登记门禁 ' + gate)
             continue
+        if title.strip() != registered[0]:
+            errors.append(gate + ': 门禁名称与注册表不一致：' + title.strip())
+        if scope.strip() != GATE_SCOPES[gate]:
+            errors.append(gate + ': 执行范围与入口不一致')
         rules = clause_rules(clause)
         unknown = sorted(rules - set(RULES))
         if unknown:
@@ -263,6 +249,26 @@ def gate_consistency():
     errors, notes, accounted, unknown = [], [], set(), []
     last = read_summary(root / 'last-run-summary.json')
     closing = read_summary(root / 'validate-run-summary.json')
+    development = read_summary(root / 'development-run-summary.json')
+    if development is not None:
+        errors += profile_errors(development)
+    if last is not None and last.get('schema') in (2, 3):
+        expected = BUILD_GATES if last.get('schema') == 3 else ['G-%02d' % i for i in range(1, 23)]
+        if last.get('schema') == 3 and last.get('profile') != 'build':
+            errors.append('统一重建摘要范围必须为 build')
+        errors += ordered_errors(last, expected) + profile_errors(last)
+        if closing is not None and closing.get('parent_run_id') == last.get('run_id'):
+            if closing.get('schema') == 3 and closing.get('profile') != 'delivery':
+                errors.append('收尾摘要范围必须为 delivery')
+            errors += ordered_errors(closing, ['G-23']) + profile_errors(closing)
+            if closing.get('status') != 'success':
+                # A failed previous attempt is diagnostic; it must not prevent fixing and rerunning G-23.
+                notes.append('本轮 G-23 上次未成功，当前重试仍须完整执行')
+        else:
+            notes.append('G-23 尚无属于本轮的独立验证记录')
+        for note in notes:
+            print('INFO: ' + note, flush=True)
+        return errors
     if last is None:
         notes.append('无上一轮统一重建摘要，跳过门禁执行核对')
     else:
@@ -304,41 +310,33 @@ def gate_consistency():
 
 # rule=R-20
 def check_execution_points():
-    """Every registered gate is bound to a real stage stem or in-process mark."""
+    """Bind every top-level gate to an actual report context in its executable entry."""
     errors = []
-    paths = [ROOT / 'C-03-Website·Xycabin/rebuild.py',
-             ROOT / 'C-03-Website·Xycabin/src/delivery.py']
-    missing_files = [str(path) for path in paths if not path.is_file()]
-    if missing_files:
-        return ['缺少统一重建执行入口：' + ', '.join(missing_files)]
-    rebuild = paths[0].read_text(encoding='utf-8-sig')
-    delivery = paths[1].read_text(encoding='utf-8-sig')
-    marked = set(re.findall(r"mark\(gates,\s*'(G-\d{2})'\)", rebuild))
-    expected = {'G-04', 'G-08', 'G-09', 'G-17', 'G-19', 'G-20', 'G-21', 'G-22'}
-    if marked != expected:
-        errors.append('rebuild.py 门禁标记 %s，应为 %s' % (sorted(marked), sorted(expected)))
-    literal = set(re.findall(r"build/([a-z0-9-]+)\.log", rebuild + delivery))
-    dynamic = {assembly + '-' + suffix
-               for assembly in ('Excel_Iterate', 'WordUpdater')
-               for suffix in ('rebuild', 'validation', 'payload', 'certificate')}
-    known = literal | dynamic
-    uncovered = sorted(known - set(STEM_GATES))
-    if uncovered:
-        errors.append('执行阶段缺少门禁映射：' + ', '.join(uncovered))
-    unbound = sorted(set(STEM_GATES) - known)
-    if unbound:
-        errors.append('门禁映射引用了不存在的执行阶段：' + ', '.join(unbound))
-    bound = set()
-    for gates in STEM_GATES.values():
-        bound.update(gates)
-    bound |= marked
-    bound.add('G-23')
-    missing = sorted(set(GATE_REGISTRY) - bound)
-    if missing:
-        errors.append('注册表门禁没有执行点：' + ', '.join(missing))
-    extra = sorted(bound - set(GATE_REGISTRY))
-    if extra:
-        errors.append('执行点引用未登记门禁：' + ', '.join(extra))
+    def bindings(path):
+        if not path.is_file():
+            errors.append('缺少统一重建执行入口：' + str(path))
+            return []
+        tree = ast.parse(path.read_text(encoding='utf-8-sig'))
+        result = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.With):
+                for item in node.items:
+                    call = item.context_expr
+                    if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == 'gate':
+                        for arg in call.args:
+                            result.extend(child.value for child in ast.walk(arg)
+                                          if isinstance(child, ast.Constant) and isinstance(child.value, str)
+                                          and re.fullmatch(r'G-\d{2}', child.value))
+        return result
+    root = ROOT / 'C-03-Website·Xycabin'
+    found = bindings(root / 'rebuild.py')
+    expected = set(BUILD_GATES)
+    if set(found) != expected or len(found) != len(expected):
+        errors.append('rebuild.py 的实际报告关口应绑定常规 build 范围：' + repr(found))
+    validation = bindings(root / 'validate.py')
+    expected_validation = set(DEVELOPER_GATES) | {'G-23'}
+    if set(validation) != expected_validation or len(validation) != len(expected_validation):
+        errors.append('validate.py 必须绑定 G-23 与四个显式开发自检')
     return errors
 
 
@@ -509,17 +507,17 @@ def self_test():
     assert check_no_comments('<!-- x -->', 'bad')
     assert RULE_LINE.findall('**R-01** 甲\n**R-02** 乙\n') == ['R-01', 'R-02']
     assert check_gate_inventory('无清单正文') == ['B3: 缺少 ### (1). 统一重建门禁总览 门禁清单']
-    sample = '### (1). 统一重建门禁总览\n\n| 编号 | 门禁 | 执行入口 | 对应条款 | 失败语义 |\n| --- | --- | --- | --- | --- |\n'
-    for gate, (_, clause) in sorted(GATE_REGISTRY.items()):
-        sample += '| %s | 门禁 | 入口 | %s | %s |\n' % (gate, clause or '二.2 正文', SEMANTICS[gate])
+    sample = '### (1). 统一重建门禁总览\n\n| 编号 | 门禁 | 执行入口 | 对应条款 | 失败语义 | 执行范围 |\n| --- | --- | --- | --- | --- | --- |\n'
+    for gate, (title, clause) in sorted(GATE_REGISTRY.items()):
+        sample += '| %s | %s | 入口 | %s | %s | %s |\n' % (gate, title, clause or '二.2 正文', SEMANTICS[gate], GATE_SCOPES[gate])
     assert check_gate_inventory(sample) == []
     assert any('G-23' in item for item in check_gate_inventory(sample.replace('| G-23 |', '| 无关 |', 1)))
     assert any('失败语义' in item for item in check_gate_inventory(sample.replace('| FAIL |', '| 硬错 |', 1)))
     assert set(RULES) == {'R-%02d' % index for index in range(1, 31)}
     assert H_LINE.findall('**H-01** 甲。验收：x。证据：y。\n**H-02** 乙。验收：x。证据：y。\n') == ['H-01', 'H-02']
-    hsample = '\n'.join('**H-%02d** 甲。验收：人工。证据：记录。' % index for index in range(1, 13))
+    hsample = (DOCS / 'B3-Spec Coding.md').read_text(encoding='utf-8-sig')
     assert check_h_items(hsample) == []
-    assert any('缺少人工门禁条目 H-12' in item for item in check_h_items('\n'.join(hsample.split('\n')[:-1])))
+    assert any('缺少人工门禁条目 H-13' in item for item in check_h_items(re.sub(r'^\*\*H-13\*\*.*$', '', hsample, flags=re.M)))
     assert any('H 编号重复' in item for item in check_h_items(hsample + '\n**H-01** 乙。验收：人工。证据：记录。'))
     swapped = hsample.replace('**H-01**', '**H-X1**').replace('**H-02**', '**H-01**').replace('**H-X1**', '**H-02**')
     assert any('顺序' in item for item in check_h_items(swapped))

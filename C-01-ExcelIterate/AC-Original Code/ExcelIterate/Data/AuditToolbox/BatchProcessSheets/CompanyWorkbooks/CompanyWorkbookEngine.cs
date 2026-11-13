@@ -5,6 +5,26 @@ using System.Text.RegularExpressions;
 
 namespace Excel_Iterate
 {
+    internal sealed class CompanyWorkbookSelection
+    {
+        internal string Sheet, Field;
+        internal int Row, Column, LastRow;
+    }
+    internal static class CompanyWorkbookSelectionRules
+    {
+        internal static void Validate(string kind, int row, int column, int rows, int columns, object merged, int headerRow)
+        {
+            if (row < 1 || column < 1 || rows < 1 || columns < 1) throw new InvalidOperationException("选区坐标无效。");
+            if (merged == null || merged == DBNull.Value || Convert.ToBoolean(merged)) throw new InvalidOperationException("请选择不含合并单元格的区域。");
+            if (kind == "data")
+            {
+                if (row <= headerRow) throw new InvalidOperationException("来源数据范围必须在来源表头行下方，不包含表头。");
+                if (rows > 100000) throw new InvalidOperationException("请选择具体公司数据行，不支持整列或超过十万行的范围。");
+            }
+            else if (rows != 1 || columns != 1) throw new InvalidOperationException("请选择一个单元格：字段选表头，写入行选目标数据格。");
+            if (kind == "leadRow" && row <= headerRow) throw new InvalidOperationException("Lead 写入行必须在目标表头行下方。");
+        }
+    }
     internal sealed class CompanyWorkbookProgress
     {
         internal int Total { get; private set; }

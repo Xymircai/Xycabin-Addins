@@ -12,15 +12,14 @@ namespace Excel_Iterate
     internal sealed class MigrationArea
     {
         internal int Row, Column, Rows, Columns;
-        internal string Address { get { return Cell(Row, Column) + ":" + Cell(Row + Rows - 1, Column + Columns - 1); } }
-        internal static string Cell(int row, int column) { return FormulaRefRewriter.ColumnLetters(column) + row.ToString(CultureInfo.InvariantCulture); }
+        internal string Address { get { return CellAddress.Name(Row, Column) + ":" + CellAddress.Name(Row + Rows - 1, Column + Columns - 1); } }
         internal static MigrationArea Parse(string text)
         {
             Match m = Regex.Match((text ?? "").Trim(), @"^\$?([A-Za-z]{1,3})\$?([1-9][0-9]*)(?::\$?([A-Za-z]{1,3})\$?([1-9][0-9]*))?$");
             if (!m.Success) throw new InvalidOperationException("请输入单个矩形区域，例如 A1:D20，或起始单元格 B100。");
-            int col = FormulaRefRewriter.ColumnNumber(m.Groups[1].Value), row, lastRow;
+            int col = CellAddress.ColumnNumber(m.Groups[1].Value), row, lastRow;
             if (!int.TryParse(m.Groups[2].Value, out row)) throw new InvalidOperationException("行号超出范围。");
-            int lastCol = m.Groups[3].Success ? FormulaRefRewriter.ColumnNumber(m.Groups[3].Value) : col;
+            int lastCol = m.Groups[3].Success ? CellAddress.ColumnNumber(m.Groups[3].Value) : col;
             if (!m.Groups[4].Success) lastRow = row;
             else if (!int.TryParse(m.Groups[4].Value, out lastRow)) throw new InvalidOperationException("行号超出范围。");
             var area = new MigrationArea { Row = row, Column = col, Rows = lastRow - row + 1, Columns = lastCol - col + 1 };
@@ -124,7 +123,7 @@ namespace Excel_Iterate
             Match a = Regex.Match(ends[0], @"^(\$?[A-Za-z]+)?(\$?[0-9]+)?$"), b = Regex.Match(ends[1], @"^(\$?[A-Za-z]+)?(\$?[0-9]+)?$");
             if (!a.Success || !b.Success) return address;
             string ac = a.Groups[1].Value, bc = b.Groups[1].Value, ar = a.Groups[2].Value, br = b.Groups[2].Value;
-            bool col = ac.Length == 0 || FormulaRefRewriter.ColumnNumber(ac.Replace("$", "")) <= FormulaRefRewriter.ColumnNumber(bc.Replace("$", ""));
+            bool col = ac.Length == 0 || CellAddress.ColumnNumber(ac.Replace("$", "")) <= CellAddress.ColumnNumber(bc.Replace("$", ""));
             bool row = ar.Length == 0 || long.Parse(ar.Replace("$", ""), CultureInfo.InvariantCulture) <= long.Parse(br.Replace("$", ""), CultureInfo.InvariantCulture);
             return (col ? ac : bc) + (row ? ar : br) + ":" + (col ? bc : ac) + (row ? br : ar);
         }
@@ -134,7 +133,7 @@ namespace Excel_Iterate
             if (text.Length == 0) return false;
             if (ReadQualifier(text, 0, out qualifier, out end))
             { if (!string.Equals(qualifier, sheet, StringComparison.OrdinalIgnoreCase)) return false; text = text.Substring(end); }
-            return string.Equals(text.Replace("$", ""), MigrationArea.Cell(row, column), StringComparison.OrdinalIgnoreCase);
+            return string.Equals(text.Replace("$", ""), CellAddress.Name(row, column), StringComparison.OrdinalIgnoreCase);
         }
         internal static MigrationFormula Translate(string formula, MigrationFormulaContext context, string scope)
         {
@@ -296,10 +295,10 @@ namespace Excel_Iterate
                 string letters = m.Groups[2].Value, digits = m.Groups[4].Value;
                 if (!wholeRow)
                 {
-                    int col = FormulaRefRewriter.ColumnNumber(letters);
+                    int col = CellAddress.ColumnNumber(letters);
                     long shifted = col + (m.Groups[1].Value.Length == 0 ? context.ColumnDelta : 0);
                     if (col < 1 || shifted < 1 || shifted > context.MaxColumn) throw new InvalidOperationException("公式列引用越界：" + address);
-                    letters = m.Groups[1].Value + FormulaRefRewriter.ColumnLetters((int)shifted);
+                    letters = m.Groups[1].Value + CellAddress.ColumnLetters((int)shifted);
                 }
                 if (!wholeColumn)
                 {

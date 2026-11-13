@@ -5,6 +5,8 @@ import sys
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT.parent / 'C-00-Shared'))
+from process_support import run_process
 TARGET = ROOT.parent / 'verify_devlog.py'
 
 
@@ -13,7 +15,7 @@ def main():
         command = [sys.executable, str(TARGET), '--self-test']
     else:
         command = [sys.executable, str(TARGET)] + sys.argv[1:]
-    raise SystemExit(subprocess.call(command))
+    raise SystemExit(run_process(command).returncode)
 
 
 if __name__ == '__main__':

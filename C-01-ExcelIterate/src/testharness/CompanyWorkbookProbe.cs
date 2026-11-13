@@ -14,6 +14,17 @@ internal static class CompanyWorkbookProbe
         Directory.CreateDirectory(folder);
         try
         {
+            BatchProgressChecks.Run(Check);
+            BatchPresetChecks.Run(folder, Check);
+            CompanyWorkbookSelectionRules.Validate("data", 3, 1, 8, 4, false, 2);
+            Check(true, "data rectangle supplies row interval independent of chosen columns");
+            Reject(delegate { CompanyWorkbookSelectionRules.Validate("data", 2, 1, 5, 4, false, 2); }, "data excludes header");
+            Reject(delegate { CompanyWorkbookSelectionRules.Validate("data", 3, 1, 1048576, 1, false, 2); }, "whole columns refused");
+            CompanyWorkbookSelectionRules.Validate("code", 3, 2, 1, 1, false, 2);
+            Check(true, "field picker can replace previously entered header row");
+            Reject(delegate { CompanyWorkbookSelectionRules.Validate("sourceHeader", 1, 1, 1, 2, false, 1); }, "header picker requires one cell");
+            Reject(delegate { CompanyWorkbookSelectionRules.Validate("leadRow", 1, 1, 1, 1, false, 1); }, "write row below target header");
+            Reject(delegate { CompanyWorkbookSelectionRules.Validate("code", 1, 1, 1, 1, DBNull.Value, 1); }, "mixed merge state refused");
             foreach (string invalid in new[] { "", " ", "A ", " A", "A.", "A/B", "A:B", "CON", "nul.txt", "COM1", "LPT²", ".." }) Reject(delegate { CompanyWorkbookRules.FileName(invalid); }, invalid);
             Check(CompanyWorkbookRules.FileName("Company（01）") == "Company（01）", "legal name");
             Check(CompanyWorkbookRules.NamingStem("Company.XLSX", 0, true) == "Company" && CompanyWorkbookRules.NamingStem("Company.xlsx.xlsx", 0, true) == "Company", "case-insensitive and repeated Excel suffixes removed");
@@ -73,6 +84,10 @@ internal static class CompanyWorkbookProbe
             Check(progress.Timing(TimeSpan.FromHours(26), true).Contains("26:00:00") && progress.Timing(TimeSpan.FromMilliseconds(1), true).Contains("<0.1 秒/项"), "long and fast tasks remain readable");
             using (var form = new CompanyWorkbookForm())
             {
+                Check(form.Controls.Find("companyPick_sourceHeader", true).Length == 1 && form.Controls.Find("companyPick_targetHeader", true).Length == 1 && form.Controls.Find("companyPick_data", true).Length == 1 && form.Controls.Find("companyPick_leadRow", true).Length == 1, "source, data, target and write-row selection buttons registered");
+                form.ShowNamePreview(new List<CompanyWorkbookRecord> { new CompanyWorkbookRecord { Row = 3, Name = "sample", OutputPath = "sample.xlsx" } });
+                form.ApplyPicked("data", new CompanyWorkbookSelection { Sheet = "source", Row = 3, LastRow = 8, Column = 2 });
+                Check(form.NamePreview.Text.Length == 0, "new selected range invalidates old name preview");
                 Check(!form.Visible, "production form constructs offline");
                 Check(form.StripExcelSuffix.Checked && form.RemoveTailCharacters.Value == 0, "safe naming defaults");
                 form.ShowNamePreview(new List<CompanyWorkbookRecord> { new CompanyWorkbookRecord { Row = 3, Name = "Company.xlsx", OutputPath = Path.Combine(folder, "Company.xls") } });

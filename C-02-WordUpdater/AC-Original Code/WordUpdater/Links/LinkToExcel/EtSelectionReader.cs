@@ -7,7 +7,7 @@ namespace WordUpdater
 {
     internal sealed class EtSelectionInfo
     {
-        public List<LinkPasteEngine.SourceArea> Areas = new List<LinkPasteEngine.SourceArea>();
+        public List<LinkFieldCode.SourceArea> Areas = new List<LinkFieldCode.SourceArea>();
         public string WorkbookPath;
         public string SheetName;
     }
@@ -238,14 +238,14 @@ namespace WordUpdater
                 {
                     try
                     {
-                        dynamic book = references.Own((object)UpdateEngine.GetItem(books, b));
+                        dynamic book = references.Own((object)WordComCollection.Item(books, b));
                         dynamic windows = references.Own((object)book.Windows);
                         int windowCount = (int)windows.Count;
                         for (int w = 1; w <= windowCount; w++)
                         {
                             try
                             {
-                                dynamic window = references.Own((object)UpdateEngine.GetItem(windows, w));
+                                dynamic window = references.Own((object)WordComCollection.Item(windows, w));
                                 object selected = null;
                                 try { selected = references.Own((object)window.RangeSelection); } catch { }
                                 string why;
@@ -293,7 +293,7 @@ namespace WordUpdater
                 for (int i = 1; i <= count; i++)
                 {
                     dynamic area = null;
-                    try { area = references.Own((object)UpdateEngine.GetItem(areas, i)); } catch { }
+                    try { area = references.Own((object)WordComCollection.Item(areas, i)); } catch { }
                     if (area == null) { note = "读取子区域 " + i + " 失败。"; return null; }
                     string areaAddress = null, sheetName = null, workbookPath = null;
                     dynamic sheet = null, book = null;
@@ -311,7 +311,7 @@ namespace WordUpdater
                     { note = "多个子区域不属于同一工作簿和工作表。"; return null; }
                     result.WorkbookPath = workbookPath;
                     result.SheetName = sheetName;
-                    LinkPasteEngine.SourceArea parsed = ParseAddress(areaAddress, sheetName);
+                    LinkFieldCode.SourceArea parsed = ParseAddress(areaAddress, sheetName);
                     if (parsed == null) { note = "无法解析地址 " + areaAddress + "。"; return null; }
                     result.Areas.Add(parsed);
                 }
@@ -319,12 +319,12 @@ namespace WordUpdater
                 return result;
         }
 
-        private static LinkPasteEngine.SourceArea ParseAddress(string address, string sheetName)
+        private static LinkFieldCode.SourceArea ParseAddress(string address, string sheetName)
         {
-            List<LinkPasteEngine.SourceArea> areas = new List<LinkPasteEngine.SourceArea>();
+            List<LinkFieldCode.SourceArea> areas = new List<LinkFieldCode.SourceArea>();
             string error;
-            if (!LinkPasteEngine.TrySplitItem(address, areas, out error) || areas.Count != 1) return null;
-            LinkPasteEngine.SourceArea area = areas[0];
+            if (!LinkFieldCode.TrySplitItem(address, areas, out error) || areas.Count != 1) return null;
+            LinkFieldCode.SourceArea area = areas[0];
             area.SheetPart = string.IsNullOrEmpty(sheetName) ? "" : sheetName + "!";
             return area;
         }

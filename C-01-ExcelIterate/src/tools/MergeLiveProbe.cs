@@ -228,8 +228,8 @@ class MergeLiveProbe
                                 int top = Convert.ToInt32(used.Row), left = Convert.ToInt32(used.Column);
                                 int height = Convert.ToInt32(rows.Count), width = Convert.ToInt32(columns.Count);
                                 Console.WriteLine("  表[" + k + "] " + Convert.ToString(sheet.Name)
-                                    + " UsedRange=" + ComFormulaHost.Address(top, left) + ":"
-                                    + ComFormulaHost.Address(top + height - 1, left + width - 1));
+                                    + " UsedRange=" + CellAddress.Name(top, left) + ":"
+                                    + CellAddress.Name(top + height - 1, left + width - 1));
                                 int maxRow = Math.Min(top + height - 1, 10);
                                 for (int row = top; row <= maxRow; row++)
                                     for (int col = left; col <= left + width - 1; col++)
@@ -239,7 +239,7 @@ class MergeLiveProbe
                                             object value = cell.Value2, formula = cell.Formula;
                                             bool merged = Convert.ToBoolean(cell.MergeCells);
                                             if (value == null && (formula == null || Equals(formula, "")) && !merged) continue;
-                                            Console.WriteLine("    " + ComFormulaHost.Address(row, col) + " V=" + Describe(value)
+                                            Console.WriteLine("    " + CellAddress.Name(row, col) + " V=" + Describe(value)
                                                 + " F=" + Describe(formula) + (merged ? " [合并]" : ""));
                                         }
                             }
@@ -422,8 +422,8 @@ class MergeLiveProbe
         foreach (MergeWriteBlock b in wp.Blocks)
         {
             dynamic rng = session.Take((object)tSheet.Range[
-                ComFormulaHost.Address(b.StartRow, b.FirstColumn) + ":" +
-                ComFormulaHost.Address(b.StartRow + b.RowCount - 1, b.FirstColumn + b.ColumnCount - 1)]);
+                CellAddress.Name(b.StartRow, b.FirstColumn) + ":" +
+                CellAddress.Name(b.StartRow + b.RowCount - 1, b.FirstColumn + b.ColumnCount - 1)]);
             object fml = MergeSheetReader.ReadFormulas(rng);
             object val = null; try { val = rng.Value2; } catch { }
             Console.WriteLine(" 块 目标列" + b.FirstColumn + " 宽" + b.ColumnCount + " 读回现场:");
@@ -449,7 +449,7 @@ class MergeLiveProbe
                 {
                     object f = MergeSnapshot.Pick(fml as Array, fml, r, c, b.RowCount, b.ColumnCount);
                     object v = MergeSnapshot.Pick(val as Array, val, r, c, b.RowCount, b.ColumnCount);
-                    Console.WriteLine("   [" + r + "," + c + "] " + ComFormulaHost.Address(b.StartRow + r, b.FirstColumn + c)
+                    Console.WriteLine("   [" + r + "," + c + "] " + CellAddress.Name(b.StartRow + r, b.FirstColumn + c)
                         + "  F=" + Describe(f) + "  V=" + Describe(v)
                         + "  期望=" + Describe(b.Cells[r, c]));
                 }

@@ -22,6 +22,7 @@ namespace Excel_Iterate
         internal static bool HiddenForProbe;
         internal static Action<CellConversionForm> CreatedForProbe;
         internal static int Count { get { lock (registry) return windows.Count; } }
+        internal bool IsAlive { get { lock (sync) return !closing && form != null && !form.IsDisposed; } }
         internal ConversionWindowThread(long id, CellConversionKind selected, IntPtr handle, string scope, string range, ConversionPreview preview, string error)
         { ticket = id; kind = selected; owner = handle; description = scope; address = range; initialPreview = preview; initialError = error; }
         internal void Start()

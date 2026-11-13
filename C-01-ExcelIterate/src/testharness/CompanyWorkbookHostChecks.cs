@@ -5,6 +5,14 @@ using System.Linq;
 using Excel_Iterate;
 
 // Public managed objects exercise the same late-bound calls without starting a host.
+public sealed class CompanyPickRange
+{
+    public object Parent { get; set; } public int Row { get; set; } public int Column { get; set; }
+    public bool MergeCells { get; set; }
+    public CompanyFakeCount Areas { get { return new CompanyFakeCount { Count = 1 }; } }
+    public CompanyFakeCount Rows { get { return new CompanyFakeCount { Count = 1 }; } }
+    public CompanyFakeCount Columns { get { return new CompanyFakeCount { Count = 1 }; } }
+}
 public sealed class CompanyFakeCell
 {
     public object Value2 { get; set; }
@@ -31,9 +39,12 @@ public sealed class CompanyFakeUsed
 }
 public sealed class CompanyFakeSheet
 {
+    public object Parent { get; set; }
     public string Name { get; set; }
     public bool ProtectContents { get { return false; } }
     public CompanyFakeCount Rows { get { return new CompanyFakeCount { Count = 65536 }; } }
+    public CompanyFakeCount Columns { get { return new CompanyFakeCount { Count = 256 }; } }
+    public void Activate() { }
     public CompanyFakeUsed UsedRange { get { return new CompanyFakeUsed(); } }
     public CompanyFakeCells Cells { get; private set; }
     public CompanyFakeSheet() { Cells = new CompanyFakeCells(); }
@@ -44,24 +55,38 @@ public sealed class CompanyFakeSheets
     public int Count { get { return 2; } }
     public CompanyFakeSheet Item(object key) { return Convert.ToString(key) == "1" || Convert.ToString(key) == "source" ? Source : Lead; }
 }
+public sealed class CompanyFakeWindow { public bool Visible { get; set; } public CompanyFakeWindow() { Visible = true; } }
+public sealed class CompanyFakeWindows
+{
+    public readonly CompanyFakeWindow Window = new CompanyFakeWindow();
+    public int Count { get { return 1; } }
+    public CompanyFakeWindow Item(int index) { return Window; }
+}
 public sealed class CompanyFakeBook
 {
+    public readonly CompanyFakeWindows Windows = new CompanyFakeWindows();
     public CompanyFakeSheets Worksheets { get; private set; }
     public bool ReadOnly { get; set; }
     public bool Closed, FailSave;
     public int Saved;
-    public CompanyFakeBook() { Worksheets = new CompanyFakeSheets(); }
+    public CompanyFakeBook() { Worksheets = new CompanyFakeSheets(); Worksheets.Source.Parent = Worksheets.Lead.Parent = this; }
     public void Save() { if (FailSave) throw new IOException("injected save failure"); Saved++; }
     public void Close(bool save) { Closed = true; }
     public void Activate() { if (Closed) throw new InvalidOperationException("cannot activate closed book"); }
 }
 public sealed class CompanyFakeBooks
 {
+    public CompanyFakeBook LastSelection;
     public readonly CompanyFakeBook Template = new CompanyFakeBook();
     public readonly Dictionary<string, CompanyFakeBook> Outputs = new Dictionary<string, CompanyFakeBook>();
     public bool FailSave;
     public CompanyFakeBook Open(string path, int links, bool readOnly)
     {
+        if (Path.GetFileName(path).StartsWith(".company-select-", StringComparison.Ordinal))
+        {
+            LastSelection = new CompanyFakeBook { ReadOnly = readOnly };
+            return LastSelection;
+        }
         if (!Path.GetFileName(path).StartsWith(".company-", StringComparison.Ordinal)) return Template;
         if (!Outputs.ContainsKey(path)) Outputs[path] = new CompanyFakeBook();
         var book = Outputs[path]; book.ReadOnly = readOnly; book.Closed = false; book.FailSave = FailSave;
@@ -95,6 +120,58 @@ internal static class CompanyWorkbookHostChecks
         using (var host = new CompanyWorkbookHost(app, template))
         {
             snapshot = host.Snapshot;
+            check(!app.Workbooks.Template.Windows.Window.Visible, "background template reader stays hidden");
+            cells.Item(2, 1).Value2 = "newname"; cells.Item(2, 2).Value2 = "newcode"; cells.Item(2, 3).Value2 = "newfull";
+            using (var form = new CompanyWorkbookForm())
+            {
+                var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                Func<string, object> field = delegate(string key) { return typeof(CompanyWorkbookForm).GetField(key, flags).GetValue(form); };
+                typeof(CompanyWorkbookForm).GetField("host", flags).SetValue(form, host);
+                try
+                {
+                    var sourceChoice = (System.Windows.Forms.ComboBox)field("source"); sourceChoice.Items.AddRange(new object[] { "source", "lead" }); sourceChoice.SelectedIndex = 0;
+                    var targetChoice = (System.Windows.Forms.ComboBox)field("target"); targetChoice.Items.AddRange(new object[] { "source", "lead" }); targetChoice.SelectedIndex = 1;
+                    ((System.Windows.Forms.NumericUpDown)field("first")).Value = 50; ((System.Windows.Forms.NumericUpDown)field("last")).Value = 80;
+                    form.ApplyPicked("data", new CompanyWorkbookSelection { Sheet = "source", Row = 3, LastRow = 9, Column = 1 });
+                    var built = (CompanyWorkbookRequest)typeof(CompanyWorkbookForm).GetMethod("BuildRequest", flags).Invoke(form, new object[] { false });
+                    check(built.FirstRow == 3 && built.LastRow == 9, "new selected interval replaces previously typed row numbers");
+                    form.ApplyPicked("code", new CompanyWorkbookSelection { Sheet = "source", Row = 2, LastRow = 2, Column = 2, Field = "newcode" });
+                    built = (CompanyWorkbookRequest)typeof(CompanyWorkbookForm).GetMethod("BuildRequest", flags).Invoke(form, new object[] { false });
+                    check(built.HeaderRow == 2 && built.CodeField == "newcode" && built.FirstRow == 0 && built.LastRow == 0, "new field selection replaces header and field rather than retaining old manual values");
+                    form.ApplyPicked("code", new CompanyWorkbookSelection { Sheet = "lead", Row = 1, LastRow = 1, Column = 2, Field = "code" });
+                    built = (CompanyWorkbookRequest)typeof(CompanyWorkbookForm).GetMethod("BuildRequest", flags).Invoke(form, new object[] { false });
+                    check(built.SourceSheet == "lead" && built.HeaderRow == 1 && built.CodeField == "code", "new field can replace old sheet context inside snapshot");
+                    ((System.Windows.Forms.NumericUpDown)field("leadRow")).Value = 99;
+                    form.ApplyPicked("leadRow", new CompanyWorkbookSelection { Sheet = "lead", Row = 8, LastRow = 8, Column = 2 });
+                    check(((System.Windows.Forms.NumericUpDown)field("leadRow")).Value == 8 && ((System.Windows.Forms.NumericUpDown)field("leadRow")).Text == "8", "selected target row replaces displayed and stored previous values");
+                    var preset = form.CapturePreset(); preset.Name = "fixture";
+                    ((System.Windows.Forms.NumericUpDown)field("first")).Value = 50;
+                    form.ApplyPreset(preset);
+                    check(((System.Windows.Forms.NumericUpDown)field("first")).Value == decimal.Parse(preset.Values["first"]), "company preset restores configured rows");
+                    check(!((System.Windows.Forms.CheckBox)field("confirmed")).Checked, "company preset never restores execution confirmation");
+                    preset.Values["naming"] = "missing-field";
+                    reject(delegate { form.ApplyPreset(preset); }, "company preset missing header rejected before apply");
+                    string before = form.CapturePreset().Values["first"];
+                    var invalidTemplateApp = new CompanyFakeApp();
+                    preset.Context = template;
+                    form.OpenTemplate = delegate(string path) { return new CompanyWorkbookHost(invalidTemplateApp, path); };
+                    reject(delegate { form.ApplyPreset(preset); }, "new preset template is validated before replacing current reader");
+                    check(invalidTemplateApp.Workbooks.Template.Closed && !app.Workbooks.Template.Closed, "invalid candidate closes its own read copy and retains old reader");
+                    check(form.CapturePreset().Values["first"] == before && ReferenceEquals(typeof(CompanyWorkbookForm).GetField("host", flags).GetValue(form), host), "failed relocated preset leaves old parameters and binding unchanged");
+                }
+                finally { typeof(CompanyWorkbookForm).GetField("host", flags).SetValue(form, null); }
+            }
+            var stages = new List<string>();
+            var selected = host.Pick("sourceHeader", request, delegate(object b) { check(stages.Count == 3 && stages[2] == null, "preparation ends before native selection"); return new CompanyPickRange { Parent = ((CompanyFakeBook)b).Worksheets.Source, Row = 1, Column = 1 }; }, stages.Add);
+            check(selected.Sheet == "source" && selected.Row == 1 && app.Workbooks.LastSelection.ReadOnly && app.Workbooks.LastSelection.Closed && app.Workbooks.LastSelection.Saved == 0, "snapshot picker returns header coordinates and closes only its readonly copy without saving");
+            selected = host.Pick("code", request, delegate(object b) { return new CompanyPickRange { Parent = ((CompanyFakeBook)b).Worksheets.Source, Row = 1, Column = 2 }; });
+            check(selected.Field == "code" && !app.Workbooks.Template.Closed, "field picker resolves column from immutable reader headers");
+            check(host.Pick("data", request, delegate { return false; }) == null && app.Workbooks.LastSelection.Closed, "native cancellation closes selection copy and preserves reader");
+            var otherSheet = host.Pick("code", request, delegate(object b) { return new CompanyPickRange { Parent = ((CompanyFakeBook)b).Worksheets.Lead, Row = 1, Column = 2 }; });
+            check(otherSheet.Sheet == "lead" && otherSheet.Field == "code", "field picker can replace old sheet context within the same snapshot");
+            reject(delegate { host.Pick("data", request, delegate(object b) { return new CompanyPickRange { Parent = ((CompanyFakeBook)b).Worksheets.Lead, Row = 3, Column = 2 }; }); }, "data still requires configured source sheet");
+            reject(delegate { host.Pick("code", request, delegate { return new CompanyPickRange { Parent = app.Workbooks.Template.Worksheets.Source, Row = 1, Column = 2 }; }); }, "original or other workbook selection rejected");
+            check(Directory.GetFiles(Path.GetDirectoryName(snapshot), ".company-select-*").Length == 0 && app.DisplayAlerts && app.ScreenUpdating && app.EnableEvents, "picker cancellation and invalid selections clean temporary files and restore host settings");
             var rows = host.Preview(request, delegate { }); check(rows.Count == 3 && rows[0].Row == 3, "custom start row");
             check(Path.GetFileName(rows[0].OutputPath) == "Fixture3.xls" && rows[0].Name == "Fixture3.xlsx" && app.Workbooks.Outputs.Count == 0, "real preview pipeline normalizes names without generating workbooks");
             cells.Item(1, 3).Value2 = "code"; reject(delegate { host.Headers("source", 1); }, "duplicate header"); cells.Item(1, 3).Value2 = "full";

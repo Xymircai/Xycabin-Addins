@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import argparse
 import subprocess
+from process_support import run_process
 import sys
 sys.dont_write_bytecode = True
 from project_support import ROOT, SRC, BUILD, LIB, CSC, COMMON_REF, PROJECT, DEFINES, load_configure, write_project_info, load_site, SITE_ROOT, DOC_OUT, OUT, verify_layout, verify_features
@@ -10,6 +11,7 @@ from project_support import ROOT, SRC, BUILD, LIB, CSC, COMMON_REF, PROJECT, DEF
 sys.path.insert(0, str(SITE_ROOT / "src"))
 from build_cache import compile_cached
 from document_assets import collect as collect_document_assets, document_overview, manifest_bytes, MANIFEST_RESOURCE
+from tool_catalog import tools
 MODE = "full"
 
 
@@ -19,7 +21,7 @@ def run(args, cwd=ROOT):
     if Path(args[0]) == CSC:
         compile_cached(args, cwd, MODE)
     else:
-        subprocess.run(args, cwd=cwd, check=True)
+        run_process(args, cwd=cwd, check=True)
 
 
 def compile_tool(name, source, references=(), output=None, identity=False, additional_sources=()):
@@ -115,25 +117,9 @@ def main():
     # Only these two dependencies are distributed; host libraries remain GAC references.
     for name in ('Microsoft.Office.Tools.Common.v4.0.Utilities.dll', 'Interop.Microsoft.Office.Core.dll'):
         (BUILD / name).write_bytes((LIB / name).read_bytes())
-    common = [('MakeCertCapi', (), True), ('RibbonProbe', ('System.Xml.dll',), True), ('AddInProbe', (), True),
-              ('GetPkt', (), False), ('ValidateManifest', (), False),
-              ('ValidateXmlSig', ('System.Xml.dll', 'System.Security.dll'), False),
-              ('SignCmi', ('System.Xml.dll', 'System.Security.dll'), False),
-              ('TrustAdd', ('System.Xml.dll', 'System.Security.dll'), False),
-              ('UiPreviewProbe', ('System.Windows.Forms.dll',), False),
-              ('DialogSizesProbe', ('System.Windows.Forms.dll',), False),
-              ('InstallFlowProbe', (), False), ('AgentExtensionProbe', ('System.Windows.Forms.dll', 'System.Xml.dll'), False),
-              ('AgentDocumentCoreProbe', ('System.Windows.Forms.dll', 'System.Xml.dll'), False)]
-    for name, refs, identity in common:
-        extra = ('src/installer/InstallFlow.cs',) if name == 'InstallFlowProbe' else ()
-        compile_tool(name, 'src/tools/' + name + '.cs', refs, identity=identity, additional_sources=extra)
-    compile_tool('GripProbe', 'src/tools/GripProbe.cs', ('System.Windows.Forms.dll',))
-    compile_tool('LiveProbeSafetyFixture', 'src/testharness/LiveProbeSafetyFixture.cs', ('System.Windows.Forms.dll',),
-                 additional_sources=('src/tools/LiveProbeSafety.cs',))
-    compile_tool('SetupDoctor', 'src/tools/SetupDoctor.cs', ('System.Xml.dll', 'System.Security.dll'), BUILD / 'SetupDoctor.exe', True,
-                 additional_sources=('src/installer/InstallFlow.cs',))
-    for tool in PROJECT['tools']:
-        compile_tool(tool['name'], tool['source'], tool['references'], additional_sources=tool.get('additional_sources', ()))
+    for tool in tools(PROJECT):
+        compile_tool(tool['name'], tool['source'], tool['references'], identity=tool.get('identity', False),
+                     additional_sources=tool.get('additional_sources', ()))
     print('Build complete. Re-sign with resign.py before packaging.', flush=True)
 
 

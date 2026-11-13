@@ -15,7 +15,7 @@
 //   网络盘文档的回调代理读不出 control.Id，靠名字才能认对按钮。
 //   新增按钮时记得在 Connect.cs 加对应的一行包装方法（本脚本会校验）。
 //
-// 生成时间：2026-11-05 03:54:14
+// 生成时间：2026-11-13 06:04:23
 // =====================================================================
 using System;
 using System.Collections.Generic;
@@ -72,15 +72,16 @@ namespace Excel_Iterate
               <button id=""btnEliminationRevenueCost"" label=""收入成本抵消"" getImage=""GetImage_btnEliminationRevenueCost"" screentip=""内部交易收入成本抵消"" supertip=""按（核算主体,客商,年度）三维聚合生成矩阵式抵消底稿：借 营业收入、贷 营业成本、贷 成本还原、贷 存货；年度列按数据动态生成，金额写活公式，写入前备份、可一键还原。"" onAction=""OnEliminationRevenueCost"" />
             </menu>
             <button id=""btnDataMigration"" label=""批量复制数据"" getImage=""GetImage_btnDataMigration"" screentip=""把源区域复制到多个目标工作簿的指定位置"" supertip=""内部相对引用随目标位置平移，第三方外链来源及地址不变。&#13;&#10;复制公式、固定值、样式及完整合并区域；预检名称与覆盖内容。&#13;&#10;默认校验后更新目标原文件并自动备份，也可另存副本。"" onAction=""OnDataMigration"" />
-            <menu id=""menuBatchProcessSheets"" label=""批量生成过程表"" getImage=""GetImage_menuBatchProcessSheets"" screentip=""按公司复制模板工作簿，或生成单体汇总表"" supertip=""按公司生成工作簿：完整复制所选模板并按来源行填写 Lead，原模板不变，不覆盖已有文件。单体汇总表生成：从模板列起每家公司铺一列，备份工作表后换链，不自动保存工作簿。"" itemSize=""normal"">
-              <button id=""btnCompanyWorkbooks"" label=""按公司生成工作簿"" getImage=""GetImage_btnCompanyWorkbooks"" screentip=""完整复制模板，按来源行命名并填写 Lead"" supertip=""选择 xlsx/xls 模板，配置来源字段、数据行范围及 Lead 唯一写入行；预检后逐公司生成完整副本，保留原模板且不覆盖已有文件。可选只复制模式。"" onAction=""OnCompanyWorkbooks"" />
-              <button id=""btnSingleSummary"" label=""单体汇总表生成"" getImage=""GetImage_btnSingleSummary"" screentip=""选择工作簿 → Lead 勾选公司 → 可选按年度跨度铺列换链"" supertip=""读 Lead 表的「编码&amp;简称」「全称」列，勾选状态按实际行回写「选用」。默认每家公司一列；可选开始至结束年度，每家公司占年度数的列，每列重复公司名，下方指定行显示年度，默认倒序。年度模式只按指定目录段换年份和模板公司文件名，月日、工作表、地址与其他公司引用保留。执行前预检来源及覆盖范围，备份后生成，可整批还原，不自动保存。"" onAction=""OnSingleSummary"" />
+            <menu id=""menuBatchProcessSheets"" label=""批量生成过程表"" getImage=""GetImage_menuBatchProcessSheets"" screentip=""按公司复制模板工作簿，或生成单体汇总表"" supertip=""单体模板生成：完整复制所选模板并按来源行填写 Lead，原模板不变，不覆盖已有文件。单体汇总批量链接：从模板列起每家公司铺一列，备份工作表后换链，不自动保存工作簿。"" itemSize=""normal"">
+              <button id=""btnCompanyWorkbooks"" label=""单体模板生成"" getImage=""GetImage_btnCompanyWorkbooks"" screentip=""完整复制模板，按来源行命名并填写 Lead"" supertip=""选择 xlsx/xls 模板，配置来源字段、数据行范围及 Lead 唯一写入行；预检后逐公司生成完整副本，保留原模板且不覆盖已有文件。可选只复制模式。"" onAction=""OnCompanyWorkbooks"" />
+              <button id=""btnSingleSummary"" label=""单体汇总批量链接"" getImage=""GetImage_btnSingleSummary"" screentip=""选择工作簿 → Lead 勾选公司 → 可选按年度跨度铺列换链"" supertip=""读 Lead 表的「编码&amp;简称」「全称」列，勾选状态按实际行回写「选用」。默认每家公司一列；可选开始至结束年度，每家公司占年度数的列，每列重复公司名，下方指定行显示年度，默认倒序。年度模式只按指定目录段换年份和模板公司文件名，月日、工作表、地址与其他公司引用保留。执行前预检来源及覆盖范围，备份后生成，可整批还原，不自动保存。"" onAction=""OnSingleSummary"" />
             </menu>
           </menu>
         </group>
         <group id=""grpAction"" label=""操作"">
-          <menu id=""menuOneClickConversion"" label=""一键转换"" size=""large"" getImage=""GetImage_menuOneClickConversion"" screentip=""按字符类型提取或过滤选区文字"" itemSize=""normal"">
+          <menu id=""menuOneClickConversion"" label=""一键转换"" size=""large"" getImage=""GetImage_menuOneClickConversion"" screentip=""提取、过滤、插入、截取或删除选区文字及公式原文"" itemSize=""normal"">
             <button id=""btnTextExtractFilter"" label=""文本提取与过滤"" getImage=""GetImage_btnTextExtractFilter"" supertip=""选择区域，自由组合空格、英文、中文、数字和其他；提取保留所选类型，过滤删除所选类型。结果按文本原位写回。"" onAction=""OnTextExtractFilter"" />
+            <button id=""btnBatchInsertTrimDelete"" label=""批量插入与删截"" getImage=""GetImage_btnBatchInsertTrimDelete"" supertip=""批量插入、截取和删除字符，支持首格示例。移除原开头等号后保留原格式，不加单引号；剩余公式语法无效时先整批确认，再转为文本。"" onAction=""OnBatchInsertTrimDelete"" />
           </menu>
           <menu id=""menuOneClickFormula"" label=""一键公式"" size=""large"" getImage=""GetImage_menuOneClickFormula"" screentip=""封装、计算、引用方式及公式与数值转换"" supertip=""仅点击最终选项才修改公式；支持连续选区和 Ctrl 多选。"" itemSize=""normal"">
             <menu id=""menuWrapFormula"" label=""进行公式封装"" getImage=""GetImage_menuWrapFormula"" itemSize=""normal"">
@@ -297,6 +298,7 @@ namespace Excel_Iterate
             d["btnSingleSummary"] = 16;
             d["menuOneClickConversion"] = 32;
             d["btnTextExtractFilter"] = 16;
+            d["btnBatchInsertTrimDelete"] = 16;
             d["menuOneClickFormula"] = 32;
             d["menuWrapFormula"] = 16;
             d["menuIFErrorWrap"] = 16;
@@ -393,6 +395,7 @@ namespace Excel_Iterate
             d["btnSingleSummary"] = BuiltinTable;
             d["menuOneClickConversion"] = BuiltinUpdate;
             d["btnTextExtractFilter"] = BuiltinFilter;
+            d["btnBatchInsertTrimDelete"] = BuiltinUpdate;
             d["menuOneClickFormula"] = BuiltinFormula;
             d["menuWrapFormula"] = BuiltinFormula;
             d["menuIFErrorWrap"] = BuiltinFormula;

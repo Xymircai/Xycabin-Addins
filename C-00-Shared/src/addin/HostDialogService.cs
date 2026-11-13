@@ -66,6 +66,40 @@ namespace Excel_Iterate
         }
         internal static void Register()
         { registered = true; Ui.HostDialogPresenter = Show; }
+        // A modeless pure-UI window owns a separate STA message loop. Callers
+        // exchange only thread-safe state; Excel COM remains on the host STA.
+        internal sealed class ModelessWindow
+        {
+            private int closing;
+            internal void Close() { Interlocked.Exchange(ref closing, 1); }
+            internal bool Closing { get { return Volatile.Read(ref closing) != 0; } }
+        }
+        internal static ModelessWindow OpenModeless(Func<Form> create)
+        {
+            var lifetime = new ModelessWindow();
+            var thread = new Thread(delegate()
+            {
+                int workerId = Thread.CurrentThread.ManagedThreadId;
+                ThreadExceptionEventHandler onError = delegate(object sender, ThreadExceptionEventArgs args)
+                { if (Thread.CurrentThread.ManagedThreadId == workerId) { UiDiagnostics.Record("modeless-progress-event", args.Exception); Application.ExitThread(); } };
+                Application.ThreadException += onError;
+                try
+                {
+                    using (var form = create())
+                    using (var timer = new System.Windows.Forms.Timer { Interval = 100 })
+                    {
+                        timer.Tick += delegate { if (lifetime.Closing) form.Close(); };
+                        form.Load += delegate { if (lifetime.Closing) form.BeginInvoke((MethodInvoker)delegate { form.Close(); }); };
+                        timer.Start();
+                        Application.Run(form);
+                    }
+                }
+                catch (Exception error) { UiDiagnostics.Record("modeless-progress", error); }
+                finally { Application.ThreadException -= onError; }
+            }) { IsBackground = true, Name = "Addin modeless progress UI" };
+            thread.SetApartmentState(ApartmentState.STA); thread.Start();
+            return lifetime;
+        }
         private sealed class Owner : IWin32Window
         {
             private readonly IntPtr handle; internal Owner(IntPtr value) { handle = value; }
@@ -233,5 +267,14 @@ namespace Excel_Iterate
                     return picker.ShowDialog(uiOwner) == DialogResult.OK ? picker.FileName : null;
             }, (string)null);
         }
+        internal static string SaveSettings(IWin32Window owner, string filename)
+        {
+            return Run(owner, delegate(IWin32Window uiOwner)
+            {
+                using (var picker = new SaveFileDialog { Title = "导出单体功能预设", Filter = "单体功能预设 (*.xybatch.json)|*.xybatch.json", DefaultExt = "xybatch.json", AddExtension = true, OverwritePrompt = true, FileName = filename })
+                    return picker.ShowDialog(uiOwner) == DialogResult.OK ? picker.FileName : null;
+            }, (string)null);
+        }
     }
 }
+

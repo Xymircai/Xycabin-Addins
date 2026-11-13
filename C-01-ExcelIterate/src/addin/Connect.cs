@@ -17,7 +17,7 @@ namespace Excel_Iterate
     //  - ThisAddIn.CreateRibbonExtensibilityObject() 返回本类实例，
     //    vstor 经其 GetCustomUI 取功能区 XML，onAction / getImage 经
     //    IDispatch 晚期绑定回调（AutoDispatch 保证 GetIDsOfNames 可解析）
-    //  - WPS 表格 Application 经 Marshal.GetActiveObject 懒获取并探活，
+    //  - WPS 表格 Application 由本加载项的 VSTO 上下文绑定并探活，
     //    OnShutdown 时由 ThisAddIn 置空
     //
     // 按钮专属回调名原则（参考项目实测）：函数名即身份，不读 control.Id
@@ -29,6 +29,7 @@ namespace Excel_Iterate
     public partial class Connect : Microsoft.Office.Core.IRibbonExtensibility
     {
         private static object _app;
+        private static Func<object> _hostApplicationSource;
         private static bool _busy;
         private static Timer _formulaStatusTimer;
         private static object _formulaStatusApp, _formulaStatusPrevious;
@@ -83,11 +84,34 @@ namespace Excel_Iterate
             }
         }
 
+        // A loaded VSTO add-in must stay with its own application, including
+        // an empty host; the global ROT can belong to a hidden automation instance.
+        internal static void BindHostApplication(Func<object> source)
+        {
+            HostApplication = null;
+            _hostApplicationSource = source;
+        }
+
         /// <summary>确保拿到运行中的 WPS 表格 Application；拿不到返回 false。</summary>
         public static bool EnsureApplication()
         {
             if (IsAlive(_app)) return true;
             HostApplication = null;
+            if (_hostApplicationSource != null)
+            {
+                try
+                {
+                    object current = _hostApplicationSource();
+                    if (IsAlive(current))
+                    {
+                        HostApplication = current;
+                        Log("EnsureApplication: 已绑定当前 VSTO 宿主上下文");
+                    }
+                }
+                catch (Exception error) { Log("当前 VSTO 宿主连接失败：" + error.Message); }
+                return _app != null;
+            }
+            // Only standalone callers without a VSTO context use the ROT.
             // ProgID 回退链：WPS 表格首选项 KET.Application（开发日志实证），
             // 其次 et.Application / Excel.Application。
             string[] progIds = { "KET.Application", "et.Application", "Excel.Application" };

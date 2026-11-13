@@ -11,6 +11,8 @@ import tempfile
 from html.parser import HTMLParser
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT.parent / "C-00-Shared"))
+from process_support import run_process
 sys.path.insert(0, str(ROOT / "src"))
 from site_core import load, render, payload, embedded_snapshot, installer_assets
 
@@ -172,15 +174,15 @@ def main():
         for script in re.findall(r'<script(?:\s[^>]*)?>(.*?)</script>', source, re.S):
             if script.lstrip().startswith('{'):
                 continue
-            subprocess.run([node, '--check'], input=script, text=True, check=True)
-        subprocess.run([node, str(ROOT / "src/tools/download_probe.js"), str(output)], check=True)
-        subprocess.run([node, str(ROOT / "src/tools/audio_probe.js"), str(output)], check=True)
+            run_process([node, '--check'], input=script, text=True, check=True)
+        run_process([node, str(ROOT / "src/tools/download_probe.js"), str(output)], check=True)
+        run_process([node, str(ROOT / "src/tools/audio_probe.js"), str(output)], check=True)
         # Test customized gain/volume/scene with the same production controller.
         (ROOT / "build").mkdir(exist_ok=True)
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".html", prefix="audio-custom-", dir=ROOT / "build", delete=False) as temporary:
             temporary.write(render(changed_audio, ROOT)); custom_path = Path(temporary.name)
         try:
-            subprocess.run([node, str(ROOT / "src/tools/audio_probe.js"), str(custom_path)], check=True)
+            run_process([node, str(ROOT / "src/tools/audio_probe.js"), str(custom_path)], check=True)
         finally:
             custom_path.unlink()
     else:

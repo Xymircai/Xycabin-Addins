@@ -252,6 +252,32 @@ namespace Excel_Iterate
                 return SourceRangeAddress(chosen, handle.Book, handle.Sheet);
             }
         }
+        internal static object PickNativeRange(object application, string prompt, string title, object initial)
+        {
+            return ((dynamic)application).InputBox(prompt, title, initial, Type.Missing, Type.Missing, Type.Missing, Type.Missing, 8);
+        }
+        // Shared coordinate reader; callers retain their own business size limits.
+        internal static MigrationArea ReadCoordinates(object selection, object expectedBook, object expectedSheet)
+        {
+            if (selection == null) throw new InvalidOperationException("请先在 Excel 工作表中选择单元格区域。");
+            using (var bag = new ComBag())
+            {
+                try
+                {
+                    dynamic range = selection, sheet = bag.Own(range.Parent), book = bag.Own(sheet.Parent), areas = bag.Own(range.Areas);
+                    if (!WorksheetIdentity.SameObject(sheet, expectedSheet) || !WorksheetIdentity.SameObject(book, expectedBook))
+                        throw new InvalidOperationException("请选择指定工作簿和工作表中的区域，不接受其他工作簿或工作表的选区。");
+                    if (Convert.ToInt32(areas.Count) != 1) throw new InvalidOperationException("只支持一个连续矩形区域，请不要按 Ctrl 选择多个区域。");
+                    dynamic rows = bag.Own(range.Rows), columns = bag.Own(range.Columns);
+                    var result = new MigrationArea { Row = Convert.ToInt32(range.Row), Column = Convert.ToInt32(range.Column), Rows = Convert.ToInt32(rows.Count), Columns = Convert.ToInt32(columns.Count) };
+                    dynamic sheetRows = bag.Own(sheet.Rows), sheetColumns = bag.Own(sheet.Columns);
+                    result.Check(Convert.ToInt32(sheetRows.Count), Convert.ToInt32(sheetColumns.Count));
+                    return result;
+                }
+                catch (Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
+                { throw new InvalidOperationException("当前选区不是单元格区域，请取消图形或图表选择后重试。"); }
+            }
+        }
         internal static string SourceRangeAddress(object chosen, object expectedBook, object expectedSheet)
         {
             using (var refs = new ComBag())
@@ -451,7 +477,7 @@ namespace Excel_Iterate
                 Check(); watch.Validate();
                 using (var bag = new ComBag())
                 {
-                    dynamic cell = bag.Own(((dynamic)source.Sheet).Range[MigrationArea.Cell(area.Row + r, area.Column + c)]);
+                    dynamic cell = bag.Own(((dynamic)source.Sheet).Range[CellAddress.Name(area.Row + r, area.Column + c)]);
                     if (!input.ValuesOnly) RejectArray(cell);
                     ReadMerge(cell, area, merges);
                     bool follower = IsMergeFollower(cell), formula = !follower && !input.ValuesOnly && ComFormulaHost.Boolean(cell.HasFormula, "HasFormula");
@@ -484,7 +510,7 @@ namespace Excel_Iterate
                         {
                             using (var bag = new ComBag())
                             {
-                                dynamic cell = bag.Own(((dynamic)target.Handle.Sheet).Range[MigrationArea.Cell(target.Area.Row + r, target.Area.Column + c)]);
+                                dynamic cell = bag.Own(((dynamic)target.Handle.Sheet).Range[CellAddress.Name(target.Area.Row + r, target.Area.Column + c)]);
                                 RejectArray(cell); ReadMerge(cell, target.Area, null);
                                 if (ComFormulaHost.Boolean(cell.HasFormula, "HasFormula") || cell.Value2 != null) target.Overwritten++;
                                 if (c == 0) target.Heights.Add(Convert.ToDouble(cell.RowHeight));
@@ -544,7 +570,7 @@ namespace Excel_Iterate
                     catch (MigrationMissingSheetException missing) { target.MissingSheets.Add(missing.Sheet); target.ValueFallbacks++; }
                 int index = target.Formulas.Count;
                 if (translated != null && DataMigrationEngine.DirectSelfReference(translated.Text, target.Sheet, target.Area.Row + index / area.Columns, target.Area.Column + index % area.Columns))
-                    throw new InvalidOperationException(MigrationArea.Cell(target.Area.Row + index / area.Columns, target.Area.Column + index % area.Columns) + " 的公式 " + translated.Text + " 将直接引用自身；请调整目标起点或源公式的锁定引用。");
+                    throw new InvalidOperationException(CellAddress.Name(target.Area.Row + index / area.Columns, target.Area.Column + index % area.Columns) + " 的公式 " + translated.Text + " 将直接引用自身；请调整目标起点或源公式的锁定引用。");
                 target.Formulas.Add(translated);
                 if (translated != null && target.Samples.Count < 8) target.Samples.Add(cell.Formula + " → " + translated.Text);
             }
@@ -697,7 +723,7 @@ namespace Excel_Iterate
                             foreach (var merge in merges) for (int r = 0; r < merge.Rows; r++) for (int c = 0; c < merge.Columns; c++) using (var bag = new ComBag())
                             {
                                 int index = (merge.Row + r - area.Row) * area.Columns + merge.Column + c - area.Column;
-                                object cell = bag.Own(((dynamic)sheet).Range[MigrationArea.Cell(merge.Row + r + target.Context.RowDelta, merge.Column + c + target.Context.ColumnDelta)]);
+                                object cell = bag.Own(((dynamic)sheet).Range[CellAddress.Name(merge.Row + r + target.Context.RowDelta, merge.Column + c + target.Context.ColumnDelta)]);
                                 if (cells[index].Style.Count > 0) WriteStyle(cell, cells[index].Style);
                             }
                             RestoreDimensions(sheet, target);
@@ -1000,7 +1026,7 @@ namespace Excel_Iterate
                         foreach (var merge in merges) for (int r = 0; r < merge.Rows; r++) for (int c = 0; c < merge.Columns; c++) using (var bag = new ComBag())
                         {
                             int index = (merge.Row + r - area.Row) * area.Columns + merge.Column + c - area.Column;
-                            object cell = bag.Own(((dynamic)sheet).Range[MigrationArea.Cell(merge.Row + r + target.Context.RowDelta, merge.Column + c + target.Context.ColumnDelta)]);
+                            object cell = bag.Own(((dynamic)sheet).Range[CellAddress.Name(merge.Row + r + target.Context.RowDelta, merge.Column + c + target.Context.ColumnDelta)]);
                             if (cells[index].Style.Count > 0) WriteStyle(cell, cells[index].Style);
                         }
                         RestoreDimensions(sheet, target);
@@ -1204,7 +1230,7 @@ namespace Excel_Iterate
             MigrationCell sourceCell = cells[index];
             using (var bag = new ComBag())
             {
-                dynamic cell = bag.Own(((dynamic)sheet).Range[MigrationArea.Cell(target.Area.Row + index / area.Columns, target.Area.Column + index % area.Columns)]);
+                dynamic cell = bag.Own(((dynamic)sheet).Range[CellAddress.Name(target.Area.Row + index / area.Columns, target.Area.Column + index % area.Columns)]);
                 if (request.FormatOnly) { if (sourceCell.Style.Count > 0) WriteStyle(cell, sourceCell.Style); return; }
                 if (sourceCell.IsFormula && target.Formulas[index] == null)
                 {
@@ -1250,7 +1276,7 @@ namespace Excel_Iterate
         }
         private void VerifyCell(object sheet, MigrationTarget target, int index, MigrationFormulaContext context)
         {
-            MigrationCell expected = cells[index]; string address = MigrationArea.Cell(target.Area.Row + index / area.Columns, target.Area.Column + index % area.Columns);
+            MigrationCell expected = cells[index]; string address = CellAddress.Name(target.Area.Row + index / area.Columns, target.Area.Column + index % area.Columns);
             using (var bag = new ComBag())
             {
                 dynamic cell = bag.Own(((dynamic)sheet).Range[address]);
@@ -1274,9 +1300,9 @@ namespace Excel_Iterate
             // Setting fonts/wrapping can make WPS automatically resize rows.
             // Restore the target's dimensions after all formatting and merging.
             for (int r = 0; r < target.Area.Rows; r++) using (var bag = new ComBag())
-            { dynamic cell = bag.Own(((dynamic)sheet).Range[MigrationArea.Cell(target.Area.Row + r, target.Area.Column)]); cell.RowHeight = target.Heights[r]; }
+            { dynamic cell = bag.Own(((dynamic)sheet).Range[CellAddress.Name(target.Area.Row + r, target.Area.Column)]); cell.RowHeight = target.Heights[r]; }
             for (int c = 0; c < target.Area.Columns; c++) using (var bag = new ComBag())
-            { dynamic cell = bag.Own(((dynamic)sheet).Range[MigrationArea.Cell(target.Area.Row, target.Area.Column + c)]); cell.ColumnWidth = target.Widths[c]; }
+            { dynamic cell = bag.Own(((dynamic)sheet).Range[CellAddress.Name(target.Area.Row, target.Area.Column + c)]); cell.ColumnWidth = target.Widths[c]; }
         }
         private static void SetOutputView(object book, object sheet, MigrationTarget target)
         {
@@ -1406,16 +1432,6 @@ namespace Excel_Iterate
                 // solid on WPS/Excel. Restore the source pattern LAST.
                 Set(fill, "Pattern", style["Interior.Pattern"]);
             }
-        }
-        private static List<double> Dimensions(object sheet, MigrationArea region, bool rows)
-        {
-            var result = new List<double>();
-            for (int i = 0; i < (rows ? region.Rows : region.Columns); i++) using (var bag = new ComBag())
-            {
-                dynamic cell = bag.Own(((dynamic)sheet).Range[MigrationArea.Cell(region.Row + (rows ? i : 0), region.Column + (rows ? 0 : i))]);
-                result.Add(Convert.ToDouble(rows ? cell.RowHeight : cell.ColumnWidth, CultureInfo.InvariantCulture));
-            }
-            return result;
         }
         private static List<MigrationName> ReadNames(object book)
         {
@@ -1698,3 +1714,4 @@ namespace Excel_Iterate
         }
     }
 }
+

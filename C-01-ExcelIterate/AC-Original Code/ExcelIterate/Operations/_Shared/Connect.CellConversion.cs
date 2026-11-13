@@ -23,7 +23,7 @@ namespace Excel_Iterate
             try
             {
                 if (!EnsureApplication()) { UiDialog.Show("请先打开工作簿并选择单元格。", "一键转换", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-                if (kind == CellConversionKind.TextFilter || kind == CellConversionKind.ReferenceStyle)
+                if (kind == CellConversionKind.TextFilter || kind == CellConversionKind.ReferenceStyle || kind == CellConversionKind.BatchInsertTrimDelete)
                 {
                     if (ConversionInteraction.ActivatePending()) return;
                     ConversionInteraction.Open(new ComConversionHost(_app), kind, ConversionOwner());
@@ -35,7 +35,9 @@ namespace Excel_Iterate
         }
         internal static void PresentConversionResult(CellConversionResult result)
         {
-            if (!result.Failed && result.Changed > 0) ShowStatus("转换：已处理 " + result.Changed + " 个单元格");
+            if (result.Cancelled) return;
+            if (result.PlainResults + result.FormulasKept + result.FormulasAsText > 0 && !result.Failed) { ShowStatus(result.Details); return; }
+            if (!result.Failed && result.Changed > 0) ShowStatus("转换：已处理 " + result.Changed + " 个单元格" + (result.FormulasKept + result.FormulasAsText > 0 ? "；保留公式 " + result.FormulasKept + " 个，公式转文本 " + result.FormulasAsText + " 个" : ""));
             else UiDialog.Show(result.Details, "转换结果", MessageBoxButtons.OK, result.Failed ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
         }
     }

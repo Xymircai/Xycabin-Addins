@@ -210,8 +210,44 @@ partial class Feature099Probe
             editor.Font=font;editor.TopLevel=false;editor.FormBorderStyle=FormBorderStyle.None;editor.ClientSize=new Size((int)(1000*factor),(int)(760*factor));parking.Controls.Add(editor);editor.Show();Console.WriteLine("Scale editor shown");var selector=DialogFormatting.Walk(editor).OfType<ComboBox>().Single(c=>c.Name=="dialogChoice");selector.SelectedIndex=Array.FindIndex(DialogCatalog.All,d=>d.Id=="agent.notes");var tree=DialogFormatting.Walk(editor).OfType<TreeView>().Single();tree.SelectedNode=Nodes(tree.Nodes).First(n=>{var t=n.Tag as FormatTarget;return t!=null&&t.Control is TextBoxBase;});DialogFormatting.Walk(editor).OfType<Button>().Single(c=>c.Name=="resizeControl").PerformClick();Console.WriteLine("Scale resize panel shown");var row=DialogFormatting.Walk(editor).OfType<FlowLayoutPanel>().Single(c=>c.Name=="styleActions");Check(row.Controls.Cast<Control>().All(c=>c.Right<=row.Width),"style row remains uncut at font scale "+factor);var viewport=DialogFormatting.Walk(editor).OfType<Panel>().Single(c=>c.Name=="propertyViewport");Check(viewport.AutoScrollMinSize.Height>=viewport.Controls[0].Height,"property scroll range includes the full dimension panel "+factor);using(var bitmap=new Bitmap(editor.Width,editor.Height)){editor.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));bitmap.Save(Path.Combine(Environment.CurrentDirectory,"build/link-restart-drag/editor-"+((int)(factor*100))+".png"));}editor.Dispose();
         }
     }
+    static void PreviewButtonText(PreviewSelectionOverlay surface, Form actual, RoundedButton button, int index) {
+        // Visible does not imply exposed: a scrollable parameter panel can
+        // clip this button. Test its real pixels after scrolling it into view.
+        for(Control parent=button.Parent;parent!=null&&parent!=actual;parent=parent.Parent) {
+            var scroll=parent as ScrollableControl;
+            if(scroll!=null&&scroll.AutoScroll)scroll.ScrollControlIntoView(button);
+        }
+        actual.PerformLayout();surface.RefreshSnapshot();
+        var bounds=surface.BoundsInPreview(button);bounds.Inflate(-4,-4);
+        var exposed=new Rectangle(Point.Empty,actual.ClientSize);
+        for(Control parent=button.Parent;parent!=null&&parent!=actual;parent=parent.Parent) {
+            var client=surface.BoundsInPreview(parent);client.Size=parent.ClientSize;
+            exposed=Rectangle.Intersect(exposed,client);
+        }
+        Check(bounds.Width>0&&bounds.Height>0&&exposed.Contains(bounds),"preview button scrolls fully into view "+index+" "+button.Text);
+        using(var bitmap=new Bitmap(surface.Width,surface.Height)) {
+            surface.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));var pixels=new PixelSampler(bitmap);int ink=0;
+            for(int y=Math.Max(0,bounds.Top);y<Math.Min(bitmap.Height,bounds.Bottom);y+=2)
+                for(int x=Math.Max(0,bounds.Left);x<Math.Min(bitmap.Width,bounds.Right);x+=2) {
+                    var pixel=pixels.Get(x,y);if(pixel.R<180&&pixel.G<180)ink++;
+                }
+            Check(ink>3,"actual preview button has text "+index+" "+button.Text);
+        }
+    }
     static void Formatting() {
         DialogSizeStore.RootOverride=sandbox;DialogSizing.Initialize();
+        using(var form=new Form {ClientSize=new Size(320,280)})using(var parking=new Panel()) {
+            var background=new Panel {Bounds=new Rectangle(0,90,300,180),BackColor=Color.LightGreen};
+            var viewport=new Panel {Bounds=new Rectangle(0,0,300,80),BackColor=Color.White};
+            viewport.Controls.Add(new TextBox {Bounds=new Rectangle(10,120,80,24),Text="clipped text"});
+            viewport.Controls.Add(new RichTextBox {Bounds=new Rectangle(110,120,80,40),Text="clipped rich text"});
+            viewport.Controls.Add(new ComboBox {Bounds=new Rectangle(210,120,80,24),Text="clipped choice"});
+            form.Controls.Add(background);form.Controls.Add(viewport);form.TopLevel=false;form.FormBorderStyle=FormBorderStyle.None;parking.Controls.Add(form);form.Show();
+            using(var surface=new PreviewSelectionOverlay(form)) {surface.RefreshSnapshot();using(var image=new Bitmap(surface.Width,surface.Height)) {
+                surface.DrawToBitmap(image,new Rectangle(Point.Empty,image.Size));
+                foreach(int x in new[]{30,130,230})Check(image.GetPixel(x,130).ToArgb()==Color.LightGreen.ToArgb(),"native preview text respects parent clipping "+x);
+            }}
+        }
         foreach(var id in new[]{"agent.sort","agent.name","agent.format","agent.notes","agent.dialogsizes"}) {
             Console.WriteLine("Formatting preview: "+id);
             using(var form=DialogPreviewFactory.Create(id,DialogCatalog.Find(id).Default)) {
@@ -242,7 +278,7 @@ partial class Feature099Probe
                 var sourceParent=actual.Parent;var focus=GetFocus();surface.RefreshSnapshot();surface.RefreshSnapshot();Check(actual.Parent==sourceParent&&GetFocus()==focus,"refresh preserves source parent and UI thread focus "+i);
                 using(var bitmap=new Bitmap(surface.Width,surface.Height)){surface.DrawToBitmap(bitmap,new Rectangle(Point.Empty,bitmap.Size));var pixels=new PixelSampler(bitmap);int ink=0;for(int y=0;y<bitmap.Height;y+=7)for(int x=0;x<bitmap.Width;x+=7){var pixel=pixels.Get(x,y);if(pixel.R<180&&pixel.G<180)ink++;}Check(ink>20,"selection surface contains real dialog text "+i);
                     foreach(var rich in DialogFormatting.Walk(actual).OfType<RichTextBox>().Where(r=>r.TextLength>0)){var bounds=surface.BoundsInPreview(rich);bounds.Inflate(-4,-4);int bodyInk=0;for(int y=Math.Max(0,bounds.Top);y<Math.Min(bitmap.Height,bounds.Bottom);y+=5)for(int x=Math.Max(0,bounds.Left);x<Math.Min(bitmap.Width,bounds.Right);x+=5){var pixel=pixels.Get(x,y);if(pixel.R<180&&pixel.G<180)bodyInk++;}Check(bodyInk>20,"actual rich text body rendered "+i);Directory.CreateDirectory(Path.Combine(Environment.CurrentDirectory,"build/issue-fixes"));bitmap.Save(Path.Combine(Environment.CurrentDirectory,"build/issue-fixes/rich-preview-"+i+".png"));}
-                    foreach(var button in DialogFormatting.Walk(actual).OfType<RoundedButton>().Where(b=>b.Text.Length>0&&b.Visible)){var bounds=surface.BoundsInPreview(button);bounds.Inflate(-4,-4);int buttonInk=0;for(int y=Math.Max(0,bounds.Top);y<Math.Min(bitmap.Height,bounds.Bottom);y+=2)for(int x=Math.Max(0,bounds.Left);x<Math.Min(bitmap.Width,bounds.Right);x+=2){var pixel=pixels.Get(x,y);if(pixel.R<180&&pixel.G<180)buttonInk++;}Check(buttonInk>3,"actual preview button has text "+i+" "+button.Text);}
+                    foreach(var button in DialogFormatting.Walk(actual).OfType<RoundedButton>().Where(b=>b.Text.Length>0&&b.Visible))PreviewButtonText(surface,actual,button,i);
                 }
             }
             Console.WriteLine("Formatting long text");
@@ -630,7 +666,7 @@ public sealed class FakeRange {
     internal readonly FakeSheet Sheet;internal readonly FakeCell First,Last;private FakeSheet sheet{get{return Sheet;}}private FakeCell first{get{return First;}}private FakeCell last{get{return Last;}}
     public FakeRange(FakeSheet sheet,FakeCell first,FakeCell last){Sheet=sheet;First=first;Last=last;Font=new FakeFont(All);Interior=new FakeInterior(All);}
     public IEnumerable<FakeCell> All(){for(int r=first.Row;r<=last.Row;r++)for(int c=first.Column;c<=last.Column;c++)yield return sheet.Cells[r,c];}
-    internal string Address{get{return ComFormulaHost.Address(first.Row,first.Column)+":"+ComFormulaHost.Address(last.Row,last.Column);}}
+    internal string Address{get{return CellAddress.Name(first.Row,first.Column)+":"+CellAddress.Name(last.Row,last.Column);}}
     public object Formula {get {var a=new object[last.Row-first.Row+1,last.Column-first.Column+1];for(int r=first.Row;r<=last.Row;r++)for(int c=first.Column;c<=last.Column;c++)a[r-first.Row,c-first.Column]=sheet.Cells[r,c].Formula;return a;}}
     public object Value2 {get {var a=new object[last.Row-first.Row+1,last.Column-first.Column+1];for(int r=first.Row;r<=last.Row;r++)for(int c=first.Column;c<=last.Column;c++)a[r-first.Row,c-first.Column]=sheet.Cells[r,c].Value2;return a;}set {var a=(object[,])value;for(int r=first.Row;r<=last.Row;r++)for(int c=first.Column;c<=last.Column;c++){if(sheet.Cells[r,c].EntireRow.Hidden)continue;sheet.Cells[r,c].Value2=a[r-first.Row,c-first.Column];sheet.Cells[r,c].HasFormula=false;if(sheet.FailWrite){sheet.FailWrite=false;throw new IOException("injected partial write");}}}}
     public object NumberFormat {set {for(int r=first.Row;r<=last.Row;r++)for(int c=first.Column;c<=last.Column;c++)sheet.Cells[r,c].NumberFormat=value;}}
@@ -660,3 +696,4 @@ public sealed class FakeSheet {
     public FakeSheet(FakeWorkbook workbook){Parent=workbook;Cells=new FakeCells(this);Range=new FakeRanges(this);}
 }
 #endif
+

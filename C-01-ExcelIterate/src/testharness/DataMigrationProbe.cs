@@ -23,6 +23,24 @@ namespace Excel_Iterate.TestHarness
             var c = new MigrationFormulaContext { SourcePath = @"C:\fixtures\源.xlsx", SourceSheet = "源表", TargetSheet = "目标表", RowDelta = row, ColumnDelta = column };
             c.TargetSheets.UnionWith(new[] { "目标表", "明细", "O'Brien" }); c.ExternalFiles["第三方.xlsx"] = @"C:\third\第三方.xlsx"; return c;
         }
+        private static void NameMatchingChecks()
+        {
+            // Generic names retain numbering, punctuation, partial-match and duplicate-path cases.
+            const string mergedName = "！00-示例集团（合并）";
+            Check(MigrationNameIndex.NormalizeName(mergedName + ".xlsx") == MigrationNameIndex.NormalizeName("！00-示例集团(合并)")
+                && MigrationNameIndex.NormalizeName("03-01-示例 文化.xlsx") == "示例文化" && MigrationNameIndex.NormalizeName("2024年报") == "2024年报", "names normalise extension, width, numbering, ！ and spaces only");
+            var pool = new[] { @"D:\目标\！00-示例集团（合并）.xlsx", @"D:\目标\！01-示例集团.xlsx", @"D:\目标\！03-01-测试市示例传媒有限公司.xlsx", @"D:\目标\！02-示例子公司.xlsx" };
+            var exact = new MigrationTriggerRow { Row = 2, Value = "x", Name = mergedName }; new MigrationNameIndex(pool).Match(exact);
+            Check(exact.Kind == "精确" && exact.Path == pool[0] && exact.Ready, "an exact name picks its workbook even when a near name exists");
+            var fuzzy = new MigrationTriggerRow { Row = 3, Value = "x", Name = "示例传媒有限公司" }; new MigrationNameIndex(pool).Match(fuzzy);
+            Check(fuzzy.Kind == "缺失" && fuzzy.Path.Length == 0 && fuzzy.Candidates.Count == 0 && !fuzzy.Ready, "a partial name no longer matches (fuzzy matching removed)");
+            var missing = new MigrationTriggerRow { Row = 4, Value = "x", Name = "完全无关的单位" }; new MigrationNameIndex(pool).Match(missing);
+            Check(missing.Kind == "缺失" && missing.Path.Length == 0, "an unrelated name matches nothing rather than the closest file");
+            var twins = new MigrationTriggerRow { Row = 5, Value = "x", Name = "示例集团" }; new MigrationNameIndex(new[] { @"D:\a\示例集团.xlsx", @"D:\b\01-示例集团.xlsx", @"D:\a\示例集团乙.xlsx" }).Match(twins);
+            Check(twins.Kind == "多个候选" && twins.Path.Length == 0 && twins.Candidates.Count == 2, "the same name in two folders requires a choice; a longer name is not a candidate");
+            var spare = new MigrationPlan(); spare.Unused.Add(@"D:\a\多余.xlsx");
+            Check(DataMigrationForm.PlanSummary(spare).Contains("1 个目标工作簿没有触发行匹配，不会写入"), "added targets no trigger row matched are reported, not written");
+        }
         private static void FormulaChecks()
         {
             var c = Context(99, 2);
@@ -59,26 +77,12 @@ namespace Excel_Iterate.TestHarness
             c.ExternalFiles["源.xlsx"] = @"C:\other\源.xlsx";
             Check(DataMigrationEngine.Translate("='[源.xlsx]明细'!A1", c, "源表").Text == "='C:\\other\\[源.xlsx]明细'!A1", "same filename in another directory stays external");
             HashSet<string> ambiguous;
-            var map = DataMigrationHost.MapExternalFiles(new[] { @"C:\a\北京", @"C:\b\北京", @"C:\third\第三方.xlsx" }, out ambiguous);
-            Check(!map.ContainsKey("北京") && ambiguous.Contains("北京") && map["第三方.xlsx"] == @"C:\third\第三方.xlsx", "a file name linked under two paths is marked ambiguous instead of failing the workbook");
-            var d = Context(99, 2); d.AmbiguousFiles.Add("北京");
+            var map = DataMigrationHost.MapExternalFiles(new[] { @"C:\a\同名源", @"C:\b\同名源", @"C:\third\第三方.xlsx" }, out ambiguous);
+            Check(!map.ContainsKey("同名源") && ambiguous.Contains("同名源") && map["第三方.xlsx"] == @"C:\third\第三方.xlsx", "a file name linked under two paths is marked ambiguous instead of failing the workbook");
+            var d = Context(99, 2); d.AmbiguousFiles.Add("同名源");
             Check(DataMigrationEngine.Translate("=A1+'[第三方.xlsx]明细'!A1", d, "源表").Text == "=C100+'C:\\third\\[第三方.xlsx]明细'!A1", "an unused same-name link no longer blocks migration");
-            Reject(delegate { DataMigrationEngine.Translate("='[北京]明细'!A1", d, "源表"); }, "a formula that uses a same-name link is still blocked");
-            // 逐行重算: target names match only the added targets, exactly after
-            // normalisation only; near or partial names match nothing.
-            Check(DataMigrationForm.NormalizeName("！00-示例市甲区城乡发展集团有限公司（合并）.xlsx") == DataMigrationForm.NormalizeName("！00-示例市甲区城乡发展集团有限公司(合并)")
-                && DataMigrationForm.NormalizeName("03-01-乙乡 文化.xlsx") == "乙乡文化" && DataMigrationForm.NormalizeName("2024年报") == "2024年报", "names normalise extension, width, numbering, ！ and spaces only");
-            var pool = new[] { @"D:\目标\！00-示例市甲区城乡发展集团有限公司（合并）.xlsx", @"D:\目标\！01-示例市甲区城乡发展集团有限公司.xlsx", @"D:\目标\！03-01-示例市甲区乙乡文化传媒有限公司.xlsx", @"D:\目标\！02-示例市甲区丙产业发展有限公司.xlsx" };
-            var exact = new MigrationTriggerRow { Row = 2, Value = "x", Name = "！00-示例市甲区城乡发展集团有限公司（合并）" }; DataMigrationForm.MatchRow(exact, pool);
-            Check(exact.Kind == "精确" && exact.Path == pool[0] && exact.Ready, "an exact name picks its workbook even when a near name exists");
-            var fuzzy = new MigrationTriggerRow { Row = 3, Value = "x", Name = "甲区乙乡文化传媒有限公司" }; DataMigrationForm.MatchRow(fuzzy, pool);
-            Check(fuzzy.Kind == "缺失" && fuzzy.Path.Length == 0 && fuzzy.Candidates.Count == 0 && !fuzzy.Ready, "a partial name no longer matches (fuzzy matching removed)");
-            var missing = new MigrationTriggerRow { Row = 4, Value = "x", Name = "完全无关的单位" }; DataMigrationForm.MatchRow(missing, pool);
-            Check(missing.Kind == "缺失" && missing.Path.Length == 0, "an unrelated name matches nothing rather than the closest file");
-            var twins = new MigrationTriggerRow { Row = 5, Value = "x", Name = "城乡发展" }; DataMigrationForm.MatchRow(twins, new[] { @"D:\a\城乡发展.xlsx", @"D:\b\01-城乡发展.xlsx", @"D:\a\城乡发展乙.xlsx" });
-            Check(twins.Kind == "多个候选" && twins.Path.Length == 0 && twins.Candidates.Count == 2, "the same name in two folders requires a choice; a longer name is not a candidate");
-            var spare = new MigrationPlan(); spare.Unused.Add(@"D:\a\多余.xlsx");
-            Check(DataMigrationForm.PlanSummary(spare).Contains("1 个目标工作簿没有触发行匹配，不会写入"), "added targets no trigger row matched are reported, not written");
+            Reject(delegate { DataMigrationEngine.Translate("='[同名源]明细'!A1", d, "源表"); }, "a formula that uses a same-name link is still blocked");
+            NameMatchingChecks();
             c.Names.Add(new MigrationName { Name = "Relative", Formula = "=源表!A1" });
             Reject(delegate { DataMigrationEngine.RequiredNames(new[] { DataMigrationEngine.Translate("=Relative", c, "源表") }, c); }, "relative defined name fails closed");
             c.Names.Add(new MigrationName { Name = "Cycle1", Formula = "=Cycle2" }); c.Names.Add(new MigrationName { Name = "Cycle2", Formula = "=Cycle1" });
@@ -522,10 +526,10 @@ namespace Excel_Iterate.TestHarness
             try
             {
                 if(args.Length==1 && args[0]=="--target-picker-ui") { Console.WriteLine("PICKER_BEGIN"); HostDialogService.Register(); var picked=MigrationTargetPicker.Show(null); foreach(string path in picked)Console.WriteLine("PICKED: "+path); Console.WriteLine("PICKER_END count="+picked.Length+"\n"+UiDiagnostics.Text); Directory.Delete(root,true); return 0; }
-                FormulaChecks(); PackageChecks(root); FidelityChecks(root); WatchChecks(); PickerChecks(root); TargetSelectionChecks(root); SelectionPopupChecks(root); PumpChecks(); HostChecks(root); TransactionChecks(root); QuietReplaceChecks(root); SnapshotRaceChecks(root);
+                MappingSummaryChecks(); FormulaChecks(); PackageChecks(root); FidelityChecks(root); WatchChecks(); PickerChecks(root); TargetSelectionChecks(root); SelectionPopupChecks(root); PumpChecks(); HostChecks(root); TransactionChecks(root); QuietReplaceChecks(root); SnapshotRaceChecks(root);
                 using (var form = new DataMigrationForm()) Check(!form.Visible && form.Mappings.Count == 0 && form.Sources.Columns.Count == 7 && form.Targets.Columns.Count == 6 && form.Sources.Columns.Contains("pick") && form.Sources.Columns.Contains("trigger") && !form.Targets.Columns.Contains("trigger"), "production form constructs without host access");
-                LayoutChecks(); RecalculationTargetChecks(root); PresetChecks();
-                if (args.Length == 2 && args[0] == "--render") Render(Path.GetFullPath(args[1]));
+                LayoutChecks(); RecalculationTargetChecks(root); PresetChecks(); ArchitectureChecks();
+                if (args.Length == 2 && args[0] == "--render") Render(root, Path.GetFullPath(args[1]));
                 Console.WriteLine("PASS: DataMigrationProbe " + count + " assertions; managed fixtures only, no WPS connection");
                 Directory.Delete(root, true); return 0;
             }
@@ -561,12 +565,12 @@ namespace Excel_Iterate.TestHarness
                 var t1 = new MigrationSide { Sheet = "表", Range = "E1" }; t1.Books.Add(@"D:\b.xlsx");
                 var p1 = form.AddSide(false, s1); var p2 = form.AddSide(false, s2); var p3 = form.AddSide(true, t1);
                 Check(p1.ValuesOnly && p2.ValuesOnly, "rows created in the window paste values by default");
-                Check(!p1.KeepFormat && DataMigrationForm.ModeText(true, false) == "只写数值" && DataMigrationForm.ModeText(true, true) == "数值+格式" && DataMigrationForm.ModeText(false, false) == "只写公式" && DataMigrationForm.ModeText(false, true) == "公式+格式", "new rows write values without formats; four write modes");
+                Check(!p1.KeepFormat && MigrationPair.ModeText(true, false) == "只写数值" && MigrationPair.ModeText(true, true) == "数值+格式" && MigrationPair.ModeText(false, false) == "只写公式" && MigrationPair.ModeText(false, true) == "公式+格式", "new rows write values without formats; four write modes");
                 var toggleMode = (Action<int>)typeof(MigrationMappingBoard).GetField("ModeToggled", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(form.Mappings);
                 foreach (string expected in new[] { "数值+格式", "只写公式", "公式+格式", "只复制格式", "只写数值" })
                 {
                     toggleMode(0);
-                    Check(DataMigrationForm.ModeText(p1.ValuesOnly, p1.KeepFormat, p1.FormatOnly) == expected, "mapping mode click cycles to " + expected);
+                    Check(MigrationPair.ModeText(p1.ValuesOnly, p1.KeepFormat, p1.FormatOnly) == expected, "mapping mode click cycles to " + expected);
                 }
                 p1.Source.Trigger = new MigrationTrigger();
                 toggleMode(0); Check(p1.ValuesOnly && p1.KeepFormat, "recalculation mode click enables formats while keeping values-only output");
@@ -645,6 +649,13 @@ namespace Excel_Iterate.TestHarness
                 form.RefreshResults();
                 Check(src.Trigger.Error.Length == 0 && src.Trigger.Rows.Count == 1 && src.Trigger.Rows[0].Path == first, "recalculation source names resolve to the added target workbook");
                 var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                string prepared = src.Trigger.Signature; src.Trigger.Signature = "presentation-only";
+                object[] summaryArguments = { src, null };
+                string text = (string)typeof(DataMigrationForm).GetMethod("TriggerSummary", flags).Invoke(form, summaryArguments);
+                typeof(DataMigrationForm).GetMethod("MatchedFiles", flags).Invoke(form, new object[] { recalc.Target });
+                Check(src.Trigger.Signature == "presentation-only" && text.Contains("已匹配1行（缺失0行）"),
+                    "summary and matched-file presentation reuse prepared results without reading files or rematching the target pool");
+                src.Trigger.Signature = prepared;
                 typeof(DataMigrationForm).GetMethod("DropUnmatchedTargets", flags).Invoke(form, new object[0]);
                 typeof(DataMigrationForm).GetMethod("RebuildViews", flags).Invoke(form, new object[0]);
                 Check(!duplicate.Target.Used && !form.PairItems().Any(p => p.Target == gap) && form.Targets.Rows.Count == 2, "applying recalculation removes redundant and unpaired ordinary target rows");
@@ -666,6 +677,54 @@ namespace Excel_Iterate.TestHarness
                 Check(recalc.Target.Used && recalc.Target.Recalc && recalc.Target.Books.SequenceEqual(new[] { other }) && recalc.Target.Sheet == "表" && recalc.Target.Range == "D1",
                     "applying recalculation again recreates a deleted recalculation row with its sheet and range");
             }
+        }
+        private static void ArchitectureChecks()
+        {
+            var source = new MigrationSide { Used = true, Sheet = "Source", Range = "A1" };
+            source.Books.Add(@"C:\fixtures\source.xlsx");
+            var target = new MigrationSide { Used = true, Sheet = "Target", Range = "B2" };
+            target.Books.Add(@"C:\fixtures\target.xlsx");
+            var first = new MigrationPair { Source = source, Target = target };
+            var second = new MigrationPair { Source = source, Target = target.Copy(), Enabled = false };
+            var book = new MigrationBook { Path = source.Books[0] }; book.Sheets.Add("Source");
+            var snapshot = new MigrationConfiguration(new[] { first, second }, new[] { book }, new MigrationBook[0], false, true);
+            Check(snapshot.Pairs[0].Source == snapshot.Pairs[1].Source && snapshot.Pairs[0].Source != source,
+                "configuration preserves shared side identities without borrowing mutable UI data");
+            source.Range = "Z9"; source.Books.Clear(); book.Sheets.Clear();
+            var plan = new MigrationPlanner(snapshot).Build();
+            Check(plan.Passes.Count == 1 && plan.Passes[0].Request.SourceRange == "A1" && plan.Passes[0].Request.AllowEmptySource
+                && snapshot.SourceBooks[0].Sheets.SequenceEqual(new[] { "Source" }), "pure planning uses the captured configuration despite subsequent edits");
+            Check(first.Instances.Count == 0, "planning alone does not modify the original row");
+            snapshot.Attach(plan);
+            Check(first.Instances.Count == 1 && first.Instances[0] == plan.Mappings[0] && plan.Mappings[0].Pair == first && second.Instances.Count == 0,
+                "attaching results restores original UI row ownership without losing the plan mapping");
+
+            source.Trigger = new MigrationTrigger { Values = "G2:G2" };
+            source.Trigger.Chosen[2] = target.Books[0];
+            source.Trigger.Extra.Add(new MigrationCondition { Cell = "C2", Value = "kept" });
+            var row = new MigrationTriggerRow { Row = 2, Name = "Target", Path = target.Books[0], Kind = "已确认" };
+            row.Candidates.Add(new KeyValuePair<string, double>(target.Books[0], 1)); source.Trigger.Rows.Add(row);
+            var detached = new MigrationConfiguration(new[] { first }, new MigrationBook[0], new MigrationBook[0], true, false);
+            source.Trigger.Extra[0].Value = "edited"; source.Trigger.Chosen.Clear(); row.Candidates.Clear(); row.Path = "";
+            var captured = detached.Pairs[0].Source.Trigger;
+            Check(captured.Extra[0].Value == "kept" && captured.Chosen[2] == target.Books[0] && captured.Rows[0].Ready && captured.Rows[0].Candidates.Count == 1,
+                "trigger conditions, choices and resolved candidate rows are independently captured");
+
+            var a = new MigrationSourceItem { Path = "source-a" }; var b = new MigrationSourceItem { Path = "source-b" };
+            var sequence = new[] { new MigrationMapping { Source = a, TargetPath = "X" }, new MigrationMapping { Source = b, TargetPath = "Z" },
+                new MigrationMapping { Source = a, TargetPath = "Y" }, new MigrationMapping { Source = a, TargetPath = "x" },
+                new MigrationMapping { Source = a, TargetPath = "W" }, new MigrationMapping { Source = a, TargetPath = "Y" } };
+            foreach (var item in sequence) item.Result = new MigrationTarget { Path = item.TargetPath };
+            var grouped = new MigrationPlan(); MigrationPlanner.Group(grouped, sequence.ToList(), true);
+            Check(grouped.Passes.Count == 3 && grouped.Passes[0].Mappings.SequenceEqual(new[] { sequence[0], sequence[2], sequence[4] })
+                && grouped.Passes[1].Mappings.SequenceEqual(new[] { sequence[3], sequence[5] })
+                && grouped.Passes[2].Mappings.SequenceEqual(new[] { sequence[1] }), "grouping retains source order, per-pass target order and case-insensitive uniqueness");
+            Check(grouped.Passes.All(pass => pass.Request.ReplaceTargets && pass.Request.Targets.SequenceEqual(pass.Mappings.Select(m => m.Result))),
+                "grouping retains the exact target result objects and save policy");
+
+            var index = new MigrationNameIndex(new[] { @"C:\b\01-同名.xlsx", @"C:\a\同名.xlsx", @"C:\c\别名.xlsx" });
+            Check(index.Find("同名").SequenceEqual(new[] { @"C:\b\01-同名.xlsx", @"C:\a\同名.xlsx" }) && index.Find("").Count == 0,
+                "name index preserves pool order for manual candidates and never matches an empty name");
         }
         private static void PresetChecks()
         {
@@ -703,30 +762,102 @@ namespace Excel_Iterate.TestHarness
                 Reject(delegate { MigrationPreset.From(data, null); }, "a JSON file that is not a migration preset is refused");
             }
         }
-        private static void Render(string path)
+        private static void MappingSummaryChecks()
         {
-            using (var form = new DataMigrationForm())
-            using (var parking = new System.Windows.Forms.Panel { Size = new Size(2000, 1600) })
+            var summary = new MigrationMappingBoard.MatchSummary { Rows = 13, Matched = 10, Missing = 3 };
+            Check(summary.Text == "目标文件区域：13行；已匹配10行（缺失3行）。", "matched and missing wording uses a single physical summary line");
+            summary.Additional = " 同名待选 2 行，跳过 1 行，另有 1 个目标工作簿未用到";
+            Check(summary.SecondLine.Contains("同名待选 2 行") && !summary.Text.Contains("\n"), "additional match diagnostics remain available without shifting detail links");
+            summary.Additional = "";
+            var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            foreach (float factor in new[] { 1f, 1.25f, 1.5f, 2f })
+            using (var board = new MigrationMappingBoard())
+            using (var bitmap = new Bitmap((int)(1600 * factor), (int)(180 * factor)))
             {
-                form.TopLevel = false; form.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None; parking.Controls.Add(form);
-                string sourceBook = @"D:\审计底稿\源工作簿.xlsx"; var targetBooks = new[] { @"D:\审计底稿\目标一.xlsx", @"D:\审计底稿\目标二.xlsm" };
-                form.AddBook(false, sourceBook, new[] { "源表", "明细" }); foreach (string book in targetBooks) form.AddBook(true, book, new[] { "目标表", "明细" });
-                foreach (var spec in new[] { new[] { "B1:D10", "B100" }, new[] { "F1:F12", "D200" } })
+                foreach (string name in new[] { "body", "head" })
                 {
-                    var pair = form.AddPair(new MigrationPair());
-                    pair.Source.Books.Clear(); pair.Source.Books.Add(sourceBook); pair.Source.Sheet = "源表"; pair.Source.Range = spec[0];
-                    pair.Target.Books.Clear(); pair.Target.Books.AddRange(targetBooks); pair.Target.Sheet = "目标表"; pair.Target.Range = spec[1];
-                    foreach (string book in targetBooks)
-                    {
-                        var result = new MigrationTarget { Path = book, Sheet = "目标表", Ready = true, Status = "可执行", Overwritten = spec[1] == "B100" ? 8 : 0 };
-                        result.Samples.Add("=A1+'[第三方.xlsx]明细'!A1 → =A100+'[第三方.xlsx]明细'!A1");
-                        pair.Instances.Add(new MigrationMapping { Pair = pair, Source = new MigrationSourceItem { Path = sourceBook, Sheet = "源表", Range = spec[0] }, TargetPath = book, TargetSheet = "目标表", Result = result });
-                    }
+                    var field = typeof(MigrationMappingBoard).GetField(name, flags); var old = (Font)field.GetValue(board);
+                    field.SetValue(board, new Font(old.FontFamily, old.Size * factor, old.Style)); old.Dispose();
                 }
-                form.RefreshResults(); form.Show(); form.PerformLayout();
-                using (var bitmap = new Bitmap(form.Width, form.Height)) { form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(path, ImageFormat.Png); }
+                board.Size = bitmap.Size;
+                board.SetItems(new[] { new MigrationMappingBoard.Entry { SourceUsed = true, TargetUsed = true, SourceTitle = "源区域", TargetTitle = "目标区域", Tone = 4, Status = summary.Text, StatusTip = summary.Text, Match = summary } }, 0, false);
+                bitmap.SetResolution(96 * factor, 96 * factor);
+                using (var graphics = Graphics.FromImage(bitmap)) typeof(MigrationMappingBoard).GetMethod("OnPaint", flags).Invoke(board, new object[] { new System.Windows.Forms.PaintEventArgs(graphics, new Rectangle(Point.Empty, bitmap.Size)) });
+                int green = 0, red = 0;
+                for (int y = 0; y < bitmap.Height; y++) for (int x = 0; x < bitmap.Width; x++)
+                { int color = bitmap.GetPixel(x, y).ToArgb(); if (color == Ui.Green.ToArgb()) green++; if (color == Ui.Danger.ToArgb()) red++; }
+                Check(green > 0 && red > 0, "production mapping paints green matches and red missing counts at scale " + factor);
             }
         }
+        private static void Render(string root, string path)
+        {
+            string source = Path.Combine(root, "render-source.xlsx");
+            var rows = new System.Text.StringBuilder();
+            for (int r = 2; r <= 17; r++) rows.Append("<row r=\"" + r + "\"><c r=\"G" + r + "\" t=\"inlineStr\"><is><t>触发" + r
+                + "</t></is></c><c r=\"H" + r + "\" t=\"inlineStr\"><is><t>目标" + (r - 1) + "</t></is></c></row>");
+            using (var file = File.Create(source)) using (var zip = new ZipArchive(file, ZipArchiveMode.Create))
+            {
+                var parts = new Dictionary<string, string> {
+                    { "xl/workbook.xml", "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\"><sheets><sheet name=\"表\" sheetId=\"1\" r:id=\"r1\"/></sheets></workbook>" },
+                    { "xl/_rels/workbook.xml.rels", "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\"><Relationship Id=\"r1\" Target=\"worksheets/sheet1.xml\"/></Relationships>" },
+                    { "xl/worksheets/sheet1.xml", "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>" + rows + "</sheetData></worksheet>" }
+                };
+                foreach (var part in parts) using (var writer = new StreamWriter(zip.CreateEntry(part.Key).Open())) writer.Write(part.Value);
+            }
+            bool previous = DialogPreviewFactory.IsConstructing;
+            DialogPreviewFactory.IsConstructing = true;
+            try
+            {
+                using (var form = new DataMigrationForm())
+                using (var parking = new System.Windows.Forms.Panel { Size = new Size(2100, 1600) })
+                {
+                    form.TopLevel = false; form.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None; parking.Controls.Add(form);
+                    form.AddBook(false, source, new[] { "表" });
+                    var pair = form.AddPair(new MigrationPair());
+                    pair.Source.Books.Add(source); pair.Source.Sheet = "表"; pair.Source.Range = "C5:C24";
+                    pair.Source.Trigger = new MigrationTrigger { Cell = "B2", Values = "G2:G17", NameColumn = "H2:H17" };
+                    pair.Target.Sheet = "表"; pair.Target.Range = "H944";
+                    for (int i = 1; i <= 3; i++)
+                    {
+                        string book = Path.Combine(root, "目标" + i + ".xlsx");
+                        form.AddBook(true, book, new[] { "表" }); pair.Target.Books.Add(book);
+                    }
+                    form.RefreshResults(); form.ShowPage(2); form.ClientSize = new Size(1600, 760); form.Show(); form.PerformLayout();
+                    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+                    var status = (System.Windows.Forms.Label)typeof(DataMigrationForm).GetField("status", flags).GetValue(form);
+                    Check(form.Mappings[0].Status == "目标文件区域：16行；已匹配3行（缺失13行）。", "render fixture exercises real filename matching for 16 rows");
+                    Check(form.Mappings[0].Match != null && form.Mappings[0].Match.Matched == 3 && form.Mappings[0].Match.Missing == 13, "mapping drawing and plain text share actual match statistics");
+                    var details = (System.Windows.Forms.RichTextBox)typeof(DataMigrationForm).GetField("details", flags).GetValue(form);
+                    var links = (Dictionary<int, KeyValuePair<MigrationSide, MigrationTriggerRow>>)typeof(DataMigrationForm).GetField("detailLinks", flags).GetValue(form);
+                    Check(links.Count == 16 && links.All(link => details.Lines[link.Key].StartsWith("第 " + link.Value.Value.Row + " 行", StringComparison.Ordinal)),
+                        "each clickable detail index still points at its own trigger row after the display split");
+                    form.Message("已应用逐行重算：触发值 G2:G17 → B2，目标文件区域 H2:H17；目标区域已清理，只保留逐行重算匹配到的工作簿。目标区域页这一行的工作簿即匹配到的文件。");
+                    Check(status.Font.Bold && status.ForeColor == Ui.Blue, "production explanation uses blue bold text");
+                    using (var bitmap = new Bitmap(form.Width, form.Height)) { form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(path, ImageFormat.Png); }
+                    form.ClientSize = new Size(1000, 640); form.PerformLayout();
+                    using (var bitmap = new Bitmap(form.Width, form.Height)) { form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(Path.ChangeExtension(path, ".narrow.png"), ImageFormat.Png); }
+                    Check(status.GetPreferredSize(new Size(status.Width, 0)).Height <= status.Height + 2, "long bold explanation is measured within the narrower window");
+                    form.ShowPage(0);
+                    typeof(DataMigrationForm).GetMethod("ShowTriggerPopup", flags).Invoke(form, new object[] { form.Sources, pair, null });
+                    var drop = (System.Windows.Forms.ToolStripDropDown)typeof(DataMigrationForm).GetField("triggerPopup", flags).GetValue(form);
+                    var panel = ((System.Windows.Forms.ToolStripControlHost)drop.Items[0]).Control;
+                    Check(!drop.Visible && DialogFormatting.Walk(panel).Any(c => c is System.Windows.Forms.Label && c.Text == "目标文件区域"), "actual recalculation panel constructs its new label without displaying a popup");
+                    panel.CreateControl(); panel.PerformLayout(); panel.Size = panel.PreferredSize;
+                    using (var bitmap = new Bitmap(panel.Width, panel.Height)) { panel.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(Path.ChangeExtension(path, ".popup.png"), ImageFormat.Png); }
+                    form.ShowPage(2); form.Mappings.Size = new Size(1400, 250);
+                    using (var bitmap = new Bitmap(1400, 250))
+                    {
+                        bitmap.SetResolution(144, 144);
+                        using (var graphics = Graphics.FromImage(bitmap))
+                            typeof(MigrationMappingBoard).GetMethod("OnPaint", flags).Invoke(form.Mappings,
+                                new object[] { new System.Windows.Forms.PaintEventArgs(graphics, new Rectangle(Point.Empty, bitmap.Size)) });
+                        bitmap.Save(Path.ChangeExtension(path, ".board150.png"), ImageFormat.Png);
+                    }
+                }
+            }
+            finally { DialogPreviewFactory.IsConstructing = previous; }
+        }
+
     }
 
     public sealed class FakeApp

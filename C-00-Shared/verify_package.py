@@ -3,6 +3,7 @@ import base64
 import hashlib
 import re
 import subprocess
+from process_support import run_process
 import sys
 from pathlib import Path
 sys.dont_write_bytecode = True
@@ -103,7 +104,7 @@ def verify(build=None, verifier=None):
     appaddin = next(n for n in roots[0].iter() if n.tag.endswith('}appAddIn'))
     if appaddin.get('application') != PROJECT['host'] or appaddin.get('keyName') != PROJECT['addin_key']:
         raise ValueError('Manifest host/key differs from project.json')
-    result = subprocess.run([str(verifier), '--thumbprint', thumb]
+    result = run_process([str(verifier), '--thumbprint', thumb]
                             + [str(build / name) for name in PAYLOAD[-2:]],
                             capture_output=True, timeout=180)
     output = (result.stdout + result.stderr).decode('utf-8', 'replace')

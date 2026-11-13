@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
@@ -31,7 +31,7 @@ namespace Excel_Iterate
             {"btnEliminationReceivable","elimination.receivable"},{"btnEliminationRevenueCost","elimination.revenuecost"},
             {"btnDataMigration","migration.data"},
             {"btnTextExtractFilter","conversion.text"},{"btnReferenceStyleConversion","formula.references"},
-            {"btnCompanyWorkbooks","company.workbooks"},
+            {"btnCompanyWorkbooks","company.workbooks"},{"btnSingleSummary","summary.single"},
             {"btnCurrentPdf","file.pdf.current"},{"btnConvertPdf","file.pdf.convert"},{"btnWatermarkPdf","file.pdf.watermark"},{"btnSplitPdf","file.pdf.split"},{"btnMergePdf","file.pdf.merge"},
             {"btnViewLinks","word.links"},{"btnAgentReadme","agent.developer"},{"btnAgentUserGuide","agent.user"},
             {"btnAgentSort","agent.sort"},{"btnAgentNames","agent.name"},{"btnAgentFormats","agent.format"},{"btnAgentRequirements","agent.notes"},{"btnFileNames","file.names"},{"btnAgentDialogSizes","agent.dialogsizes"}
@@ -64,6 +64,16 @@ namespace Excel_Iterate
                         node.Children.Add(new DialogTreeNode {Id=passwordWindow.Id,Tab=tab,Group=group,Label=passwordWindow.Name,DialogId=passwordWindow.Id,Parent=node,Depth=node.Depth+1});
                     }
 #if !WPS_WORD
+                    if(window=="company.workbooks" || window=="summary.single")
+                    {
+                        var progress=DialogCatalog.Find("audit.batch.progress");
+                        node.Children.Add(new DialogTreeNode {Id=id+".progress",Tab=tab,Group=group,Label=progress.Name,DialogId=progress.Id,Parent=node,Depth=node.Depth+1});
+                        foreach(string presetId in new[]{"batch.preset.name","batch.preset.manager"})
+                        {
+                            var preset=DialogCatalog.Find(presetId);
+                            node.Children.Add(new DialogTreeNode {Id=id+"."+presetId,Tab=tab,Group=group,Label=preset.Name,DialogId=preset.Id,Parent=node,Depth=node.Depth+1});
+                        }
+                    }
                     if(window=="trace.precedents")
                     {
                         var errorSources=DialogCatalog.Find("trace.errorsources");
@@ -288,3 +298,4 @@ Status.Text="已更新尺寸草稿；点击保存设置后，下次打开对应�
         }
     }
 }
+

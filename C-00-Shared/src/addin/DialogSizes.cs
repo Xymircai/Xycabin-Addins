@@ -42,6 +42,7 @@ namespace Excel_Iterate
             new DialogDefinition("formula.divide", "除：自定义参数", "操作 / 一键公式",620,420,560,350),
             new DialogDefinition("formula.custom", "自定义函数", "操作 / 一键公式",620,420,560,350),
             new DialogDefinition("conversion.text", "文本提取与过滤", "操作 / 一键转换",700,320,600,320),
+            new DialogDefinition("conversion.batchInsertTrimDelete", "批量插入与删截", "操作 / 一键转换",700,540,600,400),
             new DialogDefinition("formula.references", "相对-绝对转换", "操作 / 一键公式",700,320,620,320),
             new DialogDefinition("links.assistant", "链接助手", "操作 / 链接助手",1340,650,640,480),
             new DialogDefinition("file.organize", "文件批量整理", "操作 / 文件操作 / 批量处理",840,480,550,310),
@@ -50,8 +51,11 @@ namespace Excel_Iterate
             new DialogDefinition("file.ocrfields", "核对OCR字段", "操作 / 文件操作 / 批量处理 / 文件提取名称",820,500,640,360),
             new DialogDefinition("file.rename", "文件批量命名", "操作 / 文件操作 / 批量处理",840,480,550,310),
             new DialogDefinition("merge.headers", "跨工作簿表头匹配合并", "数据 / 表头匹配合并",1180,780,900,620),
-            new DialogDefinition("company.workbooks", "按公司生成工作簿", "数据 / 审计工具箱 / 批量生成过程表 / 按公司生成工作簿",1180,900,950,680),
-            new DialogDefinition("summary.single", "单体汇总表生成", "数据 / 审计工具箱 / 批量生成过程表 / 单体汇总表生成",1180,760,900,600),
+            new DialogDefinition("audit.batch.progress", "批量任务进度", "数据 / 审计工具箱 / 批量生成过程表 / 批量任务进度",840,600,640,460),
+            new DialogDefinition("batch.preset.name", "单体预设名称", "数据 / 审计工具箱 / 批量生成过程表 / 预设",460,170,380,170),
+            new DialogDefinition("batch.preset.manager", "单体预设管理", "数据 / 审计工具箱 / 批量生成过程表 / 预设",980,600,720,440),
+            new DialogDefinition("company.workbooks", "单体模板生成", "数据 / 审计工具箱 / 批量生成过程表 / 单体模板生成",1180,900,950,680),
+            new DialogDefinition("summary.single", "单体汇总批量链接", "数据 / 审计工具箱 / 批量生成过程表 / 单体汇总批量链接",1180,760,900,600),
             new DialogDefinition("migration.data", "批量复制数据", "数据 / 审计工具箱 / 批量复制数据",1180,760,900,560),
             new DialogDefinition("migration.preset.name", "预设名称", "数据 / 审计工具箱 / 批量复制数据 / 预设",460,170,380,170),
             new DialogDefinition("migration.preset.manager", "预设管理", "数据 / 审计工具箱 / 批量复制数据 / 预设",980,600,720,440),
@@ -168,7 +172,7 @@ namespace Excel_Iterate
         }
         private static Size DefaultFor(Form context,DialogDefinition definition)
         {
-            if(resolving || !(definition.Id.StartsWith("formula.",StringComparison.Ordinal)||definition.Id.StartsWith("file.",StringComparison.Ordinal)||definition.Id=="conversion.text")) return definition.BaseDefault;
+            if(resolving || !(definition.Id.StartsWith("formula.",StringComparison.Ordinal)||definition.Id.StartsWith("file.",StringComparison.Ordinal)||definition.Id.StartsWith("conversion.",StringComparison.Ordinal))) return definition.BaseDefault;
             string fontName;using(var font=Ui.MakeFont(10f,FontStyle.Regular,null))fontName=font.Name;
             string key=definition.Id+"|"+Scale(context).ToString("R",CultureInfo.InvariantCulture)+"|"+fontName;
             lock(initialization)
@@ -223,7 +227,7 @@ int[] user;var values=FormatSession.Capture(form).WindowSizes;if(values!=null&&v
             if(overridden)custom.Add(form);
             // Seed in logical units; apply the same physical conversion after autoscaling
             // for defaults and overrides. The host owns process DPI awareness.
-            Size frame=new Size(form.Width-form.ClientSize.Width,form.Height-form.ClientSize.Height);
+            Size frame=new Size(Math.Max(0,form.Width-form.ClientSize.Width),Math.Max(0,form.Height-form.ClientSize.Height));
             Rectangle area=Screen.FromControl(form).WorkingArea;float scale=Scale(form);
             form.MinimumSize=new Size(d.Minimum.Width+frame.Width,d.Minimum.Height+frame.Height);
             form.ClientSize=measure?saved:new Size(Math.Min(saved.Width,Math.Max(1,(int)((area.Width-24-frame.Width)/scale))),Math.Min(saved.Height,Math.Max(1,(int)((area.Height-24-frame.Height)/scale))));
@@ -237,7 +241,9 @@ int[] user;var values=FormatSession.Capture(form).WindowSizes;if(values!=null&&v
         {
             if(form.TopLevel&&form.WindowState!=FormWindowState.Normal)return;
             Rectangle visible=Screen.FromControl(form).WorkingArea;float scale=Scale(form);
-            Size frame=new Size(form.Width-form.ClientSize.Width,form.Height-form.ClientSize.Height);
+            // Embedded/offscreen forms can temporarily retain a ClientSize
+            // larger than their constrained native Size. Borders cannot be negative.
+            Size frame=new Size(Math.Max(0,form.Width-form.ClientSize.Width),Math.Max(0,form.Height-form.ClientSize.Height));
             if(!form.TopLevel) {
                 form.MinimumSize=new Size((int)Math.Round(d.Minimum.Width*scale)+frame.Width,(int)Math.Round(d.Minimum.Height*scale)+frame.Height);
                 form.ClientSize=new Size((int)Math.Round(saved.Width*scale),(int)Math.Round(saved.Height*scale));form.Location=Point.Empty;return;
@@ -249,3 +255,5 @@ int[] user;var values=FormatSession.Capture(form).WindowSizes;if(values!=null&&v
         }
     }
 }
+
+

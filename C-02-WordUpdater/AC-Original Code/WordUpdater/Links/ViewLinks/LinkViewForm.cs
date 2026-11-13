@@ -184,10 +184,6 @@ namespace WordUpdater
             return g;
         }
 
-        /// <summary>给 DataGridView 包一层 1px 细边（grid 已 BorderStyle.None，边框由这层 Padding 露出）。</summary>
-        private static Panel WrapInFrame(DataGridView grid)
-        { return Ui.Card(grid, null); }
-
         /// <summary>
         /// 建列：表头按实际渲染字体量宽（TextRenderer 是 DPI 感知的），
         /// 只增不减；长文本列把封顶上限暂存在列 Tag（DataGridViewColumn 没有

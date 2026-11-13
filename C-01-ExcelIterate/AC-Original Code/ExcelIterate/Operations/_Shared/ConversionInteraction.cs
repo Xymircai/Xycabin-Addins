@@ -83,7 +83,12 @@ namespace Excel_Iterate
                     session.Window.Resume(address, null); return;
                 }
                 session.Host.SetAddress(request.Address); current = null; consumed = true;
-                var result = CellConversionEngine.Run(session.Host, request, RecoveryForProbe ?? Connect.ConversionRecoveryDirectory);
+                var result = CellConversionEngine.Run(session.Host, request, RecoveryForProbe ?? Connect.ConversionRecoveryDirectory,
+                    delegate(BatchSyntaxReport report)
+                    {
+                        if (dispatcher == null || dispatcher.IsDisposed || !session.Window.IsAlive) return false;
+                        return BatchTextEditConfirmation.Show(report) && dispatcher != null && !dispatcher.IsDisposed && session.Window.IsAlive;
+                    });
                 if (ResultForProbe != null) ResultForProbe(result); else Connect.PresentConversionResult(result);
             }
             catch (Exception error)

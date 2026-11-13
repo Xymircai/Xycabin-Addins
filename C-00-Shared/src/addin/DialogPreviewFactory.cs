@@ -63,6 +63,7 @@ namespace Excel_Iterate
                     case "formula.divide":form=new FormulaOptionsForm(FormulaOperation.Divide);break;
                     case "formula.custom":form=new CustomFunctionForm();break;
                     case "conversion.text":form=new CellConversionForm(CellConversionKind.TextFilter,"工作簿：示例.xlsx\r\n工作表：数据","J1:J5",new ConversionPreview("J1:J5",new ConversionCellState { Value="MIRCAI文化旅游公司2025!!",Display="MIRCAI文化旅游公司2025!!",NumberFormat="General" }));break;
+                    case "conversion.batchInsertTrimDelete":form=new CellConversionForm(CellConversionKind.BatchInsertTrimDelete,"工作簿：示例.xlsx\r\n工作表：数据","A1:A5",new ConversionPreview("A1:A5",new ConversionCellState { Value="甲乙丙丁戊123",Display="甲乙丙丁戊123",NumberFormat="General" }));((TextBox)form.Controls.Find("batchInsertText",true)[0]).Text="示例";break;
                     case "formula.references":form=new CellConversionForm(CellConversionKind.ReferenceStyle,"工作簿：示例.xlsx\r\n工作表：数据","G11:G14,G16:G18",new ConversionPreview("G11:G14,G16:G18",new ConversionCellState { IsFormula=true,Formula="=H23+H24+H26",Value=100.0,Display="100",NumberFormat="General" }));break;
                     case "links.assistant":form=new LinkAssistantForm(null);break;
                     case "file.organize":form=new OrganizeFilesForm();break;
@@ -71,6 +72,9 @@ namespace Excel_Iterate
                     case "file.ocrfields":form=new OcrFieldsForm(new List<OcrFieldResult>{new OcrFieldResult {Prefix="磅单号：",Chosen="00123",Candidates=new List<string>{"00123","00456"}},new OcrFieldResult {Prefix="毛重：",Chosen="10kg",Candidates=new List<string>{"10kg"}}});break;
                     case "file.rename":form=new RenameFilesForm(null);break;
                     case "merge.headers":form=new MergeHeadersForm();break;
+                    case "audit.batch.progress":form=new BatchProgressForm(new BatchProgressState("批量任务"));break;
+                    case "batch.preset.name":form=new BatchPresetNameForm("company", "保存为预设", "示例年度预设");break;
+                    case "batch.preset.manager":form=new BatchPresetManagerForm("company");break;
                     case "company.workbooks":form=new CompanyWorkbookForm();break;
                     case "summary.single":form=new SingleSummaryForm();break;
                     case "migration.data":form=new DataMigrationForm();break;
@@ -137,3 +141,4 @@ namespace Excel_Iterate
         }
     }
 }
+

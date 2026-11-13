@@ -93,8 +93,8 @@ namespace Excel_Iterate
         {
             using (ComBag bag = new ComBag())
             {
-                string first = ComFormulaHost.Address(row, startColumn);
-                string last = ComFormulaHost.Address(row, startColumn + columns - 1);
+                string first = CellAddress.Name(row, startColumn);
+                string last = CellAddress.Name(row, startColumn + columns - 1);
                 dynamic header = bag.Own(((dynamic)sheet).Range[first + ":" + last]);
                 dynamic headFont = bag.Own(header.Font), fill = bag.Own(header.Interior);
                 headFont.Bold = true; headFont.Color = 0x473224; fill.Color = 0xFBEFF0; header.RowHeight = 26;
@@ -166,7 +166,7 @@ namespace Excel_Iterate
         {
             using (ComBag bag = new ComBag())
             {
-                string last = ComFormulaHost.Address(1, columns).TrimEnd('1');
+                string last = CellAddress.Name(1, columns).TrimEnd('1');
                 dynamic data = bag.Own(((dynamic)sheet).Range["A1:" + last + Math.Max(1, rows)]);
                 dynamic font = bag.Own(data.Font); font.Name = "Microsoft YaHei UI"; font.Size = 10;
             }
@@ -180,7 +180,7 @@ namespace Excel_Iterate
             if (startColumn < 1 || columns < 1 || rows < 1) throw new ArgumentOutOfRangeException("输出区域必须包含表头。");
             using (ComBag bag = new ComBag())
             {
-                string address = ComFormulaHost.Address(1, startColumn) + ":" + ComFormulaHost.Address(rows, startColumn + columns - 1);
+                string address = CellAddress.Name(1, startColumn) + ":" + CellAddress.Name(rows, startColumn + columns - 1);
                 dynamic output = bag.Own(((dynamic)sheet).Range[address]);
                 // Complete all snapshots before changing visibility or formats.
                 var before = new OutputFormatSnapshot(sheet, (object)output, startColumn, columns, rows);
@@ -192,7 +192,7 @@ namespace Excel_Iterate
                     {
                     foreach (int r in before.HiddenRows) using (ComBag one = new ComBag())
                     {
-                        dynamic cell = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(r, startColumn)]);
+                        dynamic cell = one.Own(((dynamic)sheet).Range[CellAddress.Name(r, startColumn)]);
                         dynamic row = one.Own(cell.EntireRow); row.Hidden = false;
                         if (ComFormulaHost.Boolean((object)row.Hidden, "Hidden")) throw new InvalidOperationException("宿主未接受临时显露输出行。");
                     }
@@ -202,23 +202,23 @@ namespace Excel_Iterate
                     bool wrapped = false;
                     for (int c = startColumn; c < startColumn + columns; c++) using (ComBag one = new ComBag())
                     {
-                        dynamic column = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(1, c) + ":" + ComFormulaHost.Address(rows, c)]);
+                        dynamic column = one.Own(((dynamic)sheet).Range[CellAddress.Name(1, c) + ":" + CellAddress.Name(rows, c)]);
                         double width = Convert.ToDouble((object)column.ColumnWidth, CultureInfo.InvariantCulture);
                         if (double.IsNaN(width) || double.IsInfinity(width) || width <= 0) throw new InvalidOperationException("无法读回有效输出列宽。");
                         // Excel-compatible hosts cap ColumnWidth at 255. Keep the
                         // header on one line; wrap only the data at that limit.
                         if (rows > 1 && width >= 255)
                         {
-                            dynamic body = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(2, c) + ":" + ComFormulaHost.Address(rows, c)]);
+                            dynamic body = one.Own(((dynamic)sheet).Range[CellAddress.Name(2, c) + ":" + CellAddress.Name(rows, c)]);
                             body.WrapText = true; wrapped = true;
                         }
                     }
                     if (wrapped)
                     {
-                        dynamic body = bag.Own(((dynamic)sheet).Range[ComFormulaHost.Address(2, startColumn) + ":" + ComFormulaHost.Address(rows, startColumn + columns - 1)]);
+                        dynamic body = bag.Own(((dynamic)sheet).Range[CellAddress.Name(2, startColumn) + ":" + CellAddress.Name(rows, startColumn + columns - 1)]);
                         dynamic heights = bag.Own(body.Rows); heights.AutoFit();
                     }
-                    dynamic header = bag.Own(((dynamic)sheet).Range[ComFormulaHost.Address(1, startColumn) + ":" + ComFormulaHost.Address(1, startColumn + columns - 1)]);
+                    dynamic header = bag.Own(((dynamic)sheet).Range[CellAddress.Name(1, startColumn) + ":" + CellAddress.Name(1, startColumn + columns - 1)]);
                     dynamic headerRows = bag.Own(header.Rows); headerRows.AutoFit();
                     object headerHeight = header.RowHeight;
                     if (!PositiveHeight(headerHeight)) throw new InvalidOperationException("无法读回有效表头行高。");
@@ -234,7 +234,7 @@ namespace Excel_Iterate
                     {
                         try { using (ComBag one = new ComBag())
                         {
-                            dynamic cell = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(r, startColumn)]);
+                            dynamic cell = one.Own(((dynamic)sheet).Range[CellAddress.Name(r, startColumn)]);
                             dynamic row = one.Own(cell.EntireRow); row.Hidden = true;
                             if (!ComFormulaHost.Boolean((object)row.Hidden, "Hidden")) throw new InvalidOperationException("隐藏状态读回不一致");
                         } }
@@ -251,7 +251,7 @@ namespace Excel_Iterate
                         {
                             try { using (ComBag one = new ComBag())
                             {
-                                dynamic cell = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(r, startColumn)]);
+                                dynamic cell = one.Own(((dynamic)sheet).Range[CellAddress.Name(r, startColumn)]);
                                 dynamic row = one.Own(cell.EntireRow); row.Hidden = true;
                                 if (!ComFormulaHost.Boolean((object)row.Hidden, "Hidden")) throw new InvalidOperationException("隐藏状态读回不一致");
                             } }
@@ -279,19 +279,19 @@ namespace Excel_Iterate
                 if (!(uniformWrap is bool)) cellWrap = new bool[rows, columns];
                 for (int r = 1; r <= rows; r++) using (ComBag one = new ComBag())
                 {
-                    dynamic cell = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(r, first)]);
+                    dynamic cell = one.Own(((dynamic)sheet).Range[CellAddress.Name(r, first)]);
                     dynamic row = one.Own(cell.EntireRow);
                     if (ComFormulaHost.Boolean((object)row.Hidden, "Hidden")) HiddenRows.Add(r);
                 }
                 var hiddenSet = new HashSet<int>(HiddenRows);
                 for (int r = 1; r <= rows; r++) using (ComBag one = new ComBag())
                 {
-                    dynamic cell = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(r, first)]);
+                    dynamic cell = one.Own(((dynamic)sheet).Range[CellAddress.Name(r, first)]);
                     object row = one.Own(cell.EntireRow); heights[r - 1] = ReadRowHeight(row, hiddenSet.Contains(r));
                 }
                 for (int c = 0; c < columns; c++) using (ComBag one = new ComBag())
                 {
-                    dynamic cell = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(1, first + c)]);
+                    dynamic cell = one.Own(((dynamic)sheet).Range[CellAddress.Name(1, first + c)]);
                     widths[c] = cell.ColumnWidth;
                     dynamic font = one.Own(cell.Font), fill = one.Own(cell.Interior);
                     bold[c] = font.Bold; fontColor[c] = font.Color; fillColor[c] = fill.Color;
@@ -299,7 +299,7 @@ namespace Excel_Iterate
                 }
                 if (cellWrap != null) for (int r = 0; r < rows; r++) for (int c = 0; c < columns; c++) using (ComBag one = new ComBag())
                 {
-                    dynamic cell = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(r + 1, first + c)]);
+                    dynamic cell = one.Own(((dynamic)sheet).Range[CellAddress.Name(r + 1, first + c)]);
                     cellWrap[r, c] = ComFormulaHost.Boolean((object)cell.WrapText, "WrapText");
                 }
             }
@@ -312,19 +312,19 @@ namespace Excel_Iterate
                 {
                     int rr = r, cc = c;
                     Attempt(delegate { using (ComBag one = new ComBag())
-                    { dynamic cell = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(rr + 1, first + cc)]); cell.WrapText = cellWrap[rr, cc]; } }, "换行" + ComFormulaHost.Address(r + 1, first + c), errors);
+                    { dynamic cell = one.Own(((dynamic)sheet).Range[CellAddress.Name(rr + 1, first + cc)]); cell.WrapText = cellWrap[rr, cc]; } }, "换行" + CellAddress.Name(r + 1, first + c), errors);
                 }
                 for (int c = 0; c < columns; c++)
                 {
                     int cc = c;
                     Attempt(delegate { using (ComBag one = new ComBag())
                     {
-                        dynamic cell = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(1, first + cc)]);
+                        dynamic cell = one.Own(((dynamic)sheet).Range[CellAddress.Name(1, first + cc)]);
                         cell.ColumnWidth = widths[cc];
                     } }, "列宽" + (first + c), errors);
                     Attempt(delegate { using (ComBag one = new ComBag())
                     {
-                        dynamic cell = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(1, first + cc)]);
+                        dynamic cell = one.Own(((dynamic)sheet).Range[CellAddress.Name(1, first + cc)]);
                         Attempt(delegate { cell.HorizontalAlignment = horizontal[cc]; }, "表头水平对齐" + (first + cc), errors);
                         Attempt(delegate { cell.VerticalAlignment = vertical[cc]; }, "表头垂直对齐" + (first + cc), errors);
                         Attempt(delegate { dynamic font = one.Own(cell.Font);
@@ -338,7 +338,7 @@ namespace Excel_Iterate
                 {
                     int rr = r;
                     Attempt(delegate { using (ComBag one = new ComBag())
-                    { dynamic cell = one.Own(((dynamic)sheet).Range[ComFormulaHost.Address(rr + 1, first)]); dynamic row = one.Own(cell.EntireRow); row.RowHeight = heights[rr]; } }, "行高" + (r + 1), errors);
+                    { dynamic cell = one.Own(((dynamic)sheet).Range[CellAddress.Name(rr + 1, first)]); dynamic row = one.Own(cell.EntireRow); row.RowHeight = heights[rr]; } }, "行高" + (r + 1), errors);
                 }
             }
         }

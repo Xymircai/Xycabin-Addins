@@ -263,11 +263,11 @@ BUTTONS = [
                 "label": "批量生成过程表",
                 "builtin_icon": "table",
                 "screentip": "按公司复制模板工作簿，或生成单体汇总表",
-                "supertip": "按公司生成工作簿：完整复制所选模板并按来源行填写 Lead，原模板不变，不覆盖已有文件。单体汇总表生成：从模板列起每家公司铺一列，备份工作表后换链，不自动保存工作簿。",
+                "supertip": "单体模板生成：完整复制所选模板并按来源行填写 Lead，原模板不变，不覆盖已有文件。单体汇总批量链接：从模板列起每家公司铺一列，备份工作表后换链，不自动保存工作簿。",
                 "children": [
                     {
                         "id": "btnCompanyWorkbooks",
-                        "label": "按公司生成工作簿",
+                        "label": "单体模板生成",
                         "builtin_icon": "table",
                         "screentip": "完整复制模板，按来源行命名并填写 Lead",
                         "supertip": "选择 xlsx/xls 模板，配置来源字段、数据行范围及 Lead 唯一写入行；预检后逐公司生成完整副本，保留原模板且不覆盖已有文件。可选只复制模式。",
@@ -276,7 +276,7 @@ BUTTONS = [
                     },
                     {
                         "id": "btnSingleSummary",
-                        "label": "单体汇总表生成",
+                        "label": "单体汇总批量链接",
                         "builtin_icon": "table",
                         "screentip": "选择工作簿 → Lead 勾选公司 → 可选按年度跨度铺列换链",
                         "supertip": "读 Lead 表的「编码&简称」「全称」列，勾选状态按实际行回写「选用」。默认每家公司一列；可选开始至结束年度，每家公司占年度数的列，每列重复公司名，下方指定行显示年度，默认倒序。年度模式只按指定目录段换年份和模板公司文件名，月日、工作表、地址与其他公司引用保留。执行前预检来源及覆盖范围，备份后生成，可整批还原，不自动保存。",
@@ -290,10 +290,13 @@ BUTTONS = [
     {
         "type": "menu", "id": "menuOneClickConversion", "group": ("grpAction", "操作"),
         "label": "一键转换", "size": "large", "builtin_icon": "update",
-        "screentip": "按字符类型提取或过滤选区文字",
+        "screentip": "提取、过滤、插入、截取或删除选区文字及公式原文",
         "children": [{"id": "btnTextExtractFilter", "label": "文本提取与过滤", "builtin_icon": "filter",
                       "action": "feature", "callback": "OnTextExtractFilter",
-                      "supertip": "选择区域，自由组合空格、英文、中文、数字和其他；提取保留所选类型，过滤删除所选类型。结果按文本原位写回。"}],
+                      "supertip": "选择区域，自由组合空格、英文、中文、数字和其他；提取保留所选类型，过滤删除所选类型。结果按文本原位写回。"},
+                     {"id": "btnBatchInsertTrimDelete", "label": "批量插入与删截", "builtin_icon": "update",
+                      "action": "feature", "callback": "OnBatchInsertTrimDelete",
+                      "supertip": "批量插入、截取和删除字符，支持首格示例。移除原开头等号后保留原格式，不加单引号；剩余公式语法无效时先整批确认，再转为文本。"}],
     },
     {
         "type": "menu", "id": "menuOneClickFormula", "group": ("grpAction", "操作"),
@@ -592,3 +595,4 @@ check_installer_version = _core.check_installer_version
 main = _core.main
 if __name__ == "__main__":
     main()
+

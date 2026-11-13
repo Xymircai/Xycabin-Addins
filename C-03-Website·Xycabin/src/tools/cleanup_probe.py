@@ -6,6 +6,8 @@ import sys
 import tempfile
 import shutil
 sys.dont_write_bytecode=True
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "C-00-Shared"))
+from process_support import run_process
 from cleanup import inventory, apply, assert_target
 
 
@@ -84,7 +86,7 @@ def main():
         entries,_=inventory(stage);apply(entries,stage);check(len(entries)==1 and not (base/'build/partial-b').exists(),'reviewed retry handles only remaining history')
         external=stage/'outside';put(external/'keep.txt')
         junction=base/'build/workbook-tools-probe-fedcba9876543210fedcba9876543210'
-        made=subprocess.run(['cmd','/d','/c','mklink','/J',str(junction),str(external)],capture_output=True)
+        made=run_process(['cmd','/d','/c','mklink','/J',str(junction),str(external)],capture_output=True)
         if made.returncode==0:
             entries,retained=inventory(stage)
             check(not entries and any(e['path']==str(junction) for e in retained),'junction not traversed or selected')

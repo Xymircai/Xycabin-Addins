@@ -64,10 +64,10 @@ namespace Excel_Iterate
                 {
                     MergeColumn item = new MergeColumn();
                     item.Number = column;
-                    item.Letter = FormulaRefRewriter.ColumnLetters(column);
+                    item.Letter = CellAddress.ColumnLetters(column);
                     using (ComBag cellBag = new ComBag())
                     {
-                        dynamic cell = cellBag.Own(s.Range[ComFormulaHost.Address(headerRow, column)]);
+                        dynamic cell = cellBag.Own(s.Range[CellAddress.Name(headerRow, column)]);
                         dynamic source = cell;
                         bool merged = false;
                         try { merged = ComFormulaHost.Boolean(cell.MergeCells, "MergeCells"); }
@@ -76,7 +76,7 @@ namespace Excel_Iterate
                         {
                             dynamic area = cellBag.Own(cell.MergeArea);
                             int r = Convert.ToInt32(area.Row), c = Convert.ToInt32(area.Column);
-                            source = cellBag.Own(s.Range[ComFormulaHost.Address(r, c)]);
+                            source = cellBag.Own(s.Range[CellAddress.Name(r, c)]);
                         }
                         object value = null;
                         try { value = source.Value2; }
@@ -117,7 +117,7 @@ namespace Excel_Iterate
                     using (ComBag chunk = new ComBag())
                     {
                         dynamic range = chunk.Own(s.Range[
-                            ComFormulaHost.Address(start, column) + ":" + ComFormulaHost.Address(end, column)]);
+                            CellAddress.Name(start, column) + ":" + CellAddress.Name(end, column)]);
                         object formulas = ReadFormulas(range);
                         object values = null;
                         try { values = range.Value2; }
@@ -149,8 +149,8 @@ namespace Excel_Iterate
                     using (ComBag chunk = new ComBag())
                     {
                         dynamic range = chunk.Own(s.Range[
-                            ComFormulaHost.Address(firstRow + offset, map.SourceColumn) + ":"
-                            + ComFormulaHost.Address(firstRow + offset + height - 1, map.SourceColumn)]);
+                            CellAddress.Name(firstRow + offset, map.SourceColumn) + ":"
+                            + CellAddress.Name(firstRow + offset + height - 1, map.SourceColumn)]);
                         // 源区预检：合并单元格与数组公式会让逐格搬运失去意义。
                         object merged = null;
                         try { merged = range.MergeCells; }
@@ -260,8 +260,8 @@ namespace Excel_Iterate
                     if (block.RowCount > 0)
                     {
                         dynamic range = bag.Own(s.Range[
-                            ComFormulaHost.Address(block.StartRow, block.FirstColumn) + ":"
-                            + ComFormulaHost.Address(block.StartRow + block.RowCount - 1,
+                            CellAddress.Name(block.StartRow, block.FirstColumn) + ":"
+                            + CellAddress.Name(block.StartRow + block.RowCount - 1,
                                                      block.FirstColumn + block.ColumnCount - 1)]);
                         object formulas = MergeSheetReader.ReadFormulas(range);
                         object values = null;
@@ -326,8 +326,8 @@ namespace Excel_Iterate
                     using (ComBag chunk = new ComBag())
                     {
                         dynamic range = chunk.Own(s.Range[
-                            ComFormulaHost.Address(block.StartRow, block.FirstColumn) + ":"
-                            + ComFormulaHost.Address(block.StartRow + block.RowCount - 1,
+                            CellAddress.Name(block.StartRow, block.FirstColumn) + ":"
+                            + CellAddress.Name(block.StartRow + block.RowCount - 1,
                                                      block.FirstColumn + block.ColumnCount - 1)]);
 
                         // ① 整批写值：公式格先留空，随后逐格写公式。
@@ -355,7 +355,7 @@ namespace Excel_Iterate
                                     using (ComBag one = new ComBag())
                                     {
                                         dynamic cell = one.Own(s.Range[
-                                            ComFormulaHost.Address(row, block.FirstColumn + c)]);
+                                            CellAddress.Name(row, block.FirstColumn + c)]);
                                         cell.Value2 = values[r, c];
                                     }
                             }
@@ -370,7 +370,7 @@ namespace Excel_Iterate
                                 using (ComBag one = new ComBag())
                                 {
                                     dynamic cell = one.Own(s.Range[
-                                        ComFormulaHost.Address(block.StartRow + r, block.FirstColumn + c)]);
+                                        CellAddress.Name(block.StartRow + r, block.FirstColumn + c)]);
                                     cell.Formula = Convert.ToString(value, CultureInfo.InvariantCulture);
                                 }
                             }
@@ -393,7 +393,7 @@ namespace Excel_Iterate
                                     object actual = MergeSnapshot.Pick(wf, writtenFormulas, r, c, block.RowCount, block.ColumnCount);
                                     if (!SameFormula(actual, expected) && !SingleCellMatches(s, block.StartRow + r, block.FirstColumn + c, expected, true))
                                         throw new InvalidOperationException("公式写入核对失败："
-                                            + ComFormulaHost.Address(block.StartRow + r, block.FirstColumn + c)
+                                            + CellAddress.Name(block.StartRow + r, block.FirstColumn + c)
                                             + "（期望[" + NormalizeFormula(expected) + "] 实际["
                                             + NormalizeFormula(actual) + "]，可据此判断是宿主规范化差异还是写入失败）");
                                 }
@@ -402,7 +402,7 @@ namespace Excel_Iterate
                                     object actual = MergeSnapshot.Pick(wv, writtenValues, r, c, block.RowCount, block.ColumnCount);
                                     if (!SameValue(actual, expected) && !SingleCellMatches(s, block.StartRow + r, block.FirstColumn + c, expected, false))
                                         throw new InvalidOperationException("数值写入核对失败："
-                                            + ComFormulaHost.Address(block.StartRow + r, block.FirstColumn + c));
+                                            + CellAddress.Name(block.StartRow + r, block.FirstColumn + c));
                                 }
                             }
                     }
@@ -423,8 +423,8 @@ namespace Excel_Iterate
                     using (ComBag chunk = new ComBag())
                     {
                         dynamic range = chunk.Own(s.Range[
-                            ComFormulaHost.Address(region.StartRow, region.FirstColumn) + ":"
-                            + ComFormulaHost.Address(region.StartRow + region.RowCount - 1,
+                            CellAddress.Name(region.StartRow, region.FirstColumn) + ":"
+                            + CellAddress.Name(region.StartRow + region.RowCount - 1,
                                                      region.FirstColumn + region.ColumnCount - 1)]);
                         object[,] values = new object[region.RowCount, region.ColumnCount];
                         for (int r = 0; r < region.RowCount; r++)
@@ -438,7 +438,7 @@ namespace Excel_Iterate
                                 using (ComBag one = new ComBag())
                                 {
                                     dynamic cell = one.Own(s.Range[
-                                        ComFormulaHost.Address(region.StartRow + r, region.FirstColumn + c)]);
+                                        CellAddress.Name(region.StartRow + r, region.FirstColumn + c)]);
                                     cell.Formula = Convert.ToString(region.Formulas[r, c], CultureInfo.InvariantCulture);
                                 }
                             }
@@ -457,7 +457,7 @@ namespace Excel_Iterate
             {
                 try
                 {
-                    dynamic cell = one.Own(s.Range[ComFormulaHost.Address(row, column)]);
+                    dynamic cell = one.Own(s.Range[CellAddress.Name(row, column)]);
                     object actual = isFormula ? MergeSheetReader.ReadFormulas(cell) : cell.Value2;
                     return isFormula ? SameFormula(actual, expected) : SameValue(actual, expected);
                 }

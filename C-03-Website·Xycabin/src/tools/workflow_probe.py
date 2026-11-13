@@ -9,6 +9,8 @@ import tempfile
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT.parent / "C-00-Shared"))
+from process_support import run_process
 sys.path.insert(0, str(ROOT / 'src'))
 from delivery import projects, publish, fingerprints
 from site_core import load, render, attach_installers, embedded_snapshot, installer_assets, verify_installers, validate_snapshot, preview_installers
@@ -17,6 +19,10 @@ import json
 
 # rule=R-23
 def main():
+    from build_report_probe import verify_report
+    verify_report()
+    from quiet_build_probe import verify_quiet_build
+    verify_quiet_build()
     passed = 0
     def check(condition, name):
         nonlocal passed
@@ -138,7 +144,7 @@ def main():
             launcher.write_bytes(raw)
             stub=base/'rebuild.py'
             vstub=base/'validate.py'
-            for outcome,selected in [(outcome,selected) for outcome in ('ok','rebuild','validate') for selected in (("incremental","full") if not is_addin else (None,))]:
+            for outcome,selected,verbose in [(outcome,selected,verbose) for outcome in ('ok','rebuild','validate') for selected in (("incremental","full") if not is_addin else (None,)) for verbose in (False, True)]:
                 code="import sys, json\nprint('ENTRY_ARGS=' + json.dumps(sys.argv[1:]),flush=True)\nprint('完成：中文路径·安装包已经生成',flush=True)\n"
                 if outcome=='rebuild': code+="sys.exit(1)\n"
                 else: code+="print('已请求打开安装器' if '--open-installer-only' in sys.argv else '尚未打开安装器',flush=True)\n"
@@ -148,23 +154,28 @@ def main():
                 else: vcode+="print('收尾验证通过：中文路径',flush=True)\n"
                 vstub.write_text(vcode,encoding='utf-8')
                 command=['cmd.exe','/d','/c','call',str(launcher)]
-                result=subprocess.run(command,input=((b'x2\r\n\r\n' if selected=='full' else b'1\r\n\r\n') if not is_addin else b'Y\r\n\r\n'),capture_output=True,cwd=stage,timeout=20)
+                if verbose:
+                    command.append('--verbose')
+                result=run_process(command,input=((b'2\r\n\r\n' if selected=='full' else b'1\r\n\r\n') if not is_addin else b'Y\r\n\r\n'),capture_output=True,cwd=stage,timeout=20)
                 output=(result.stdout+result.stderr).decode('utf-8','strict')
                 logs.append(str(source)+' '+outcome+'\n'+output)
                 validate_args=[line[len('VALIDATE_ARGS='):] for line in output.splitlines() if line.startswith('VALIDATE_ARGS=')]
+                if is_addin:
+                    entry_args=next(line[len('ENTRY_ARGS='):] for line in output.splitlines() if line.startswith('ENTRY_ARGS='))
+                    check(json.loads(entry_args)==['--background']+(['--verbose'] if verbose else []),'addin rebuild background/verbose '+outcome)
                 if not is_addin:
                     entry_args=next(line[len('ENTRY_ARGS='):] for line in output.splitlines() if line.startswith('ENTRY_ARGS='))
-                    check(json.loads(entry_args)==['--background','--mode',selected],'website launcher mode/background '+outcome+' '+selected)
+                    check(json.loads(entry_args)==['--background','--mode',selected]+(['--verbose'] if verbose else []),'website launcher mode/background '+outcome+' '+selected)
                     if outcome=='rebuild':
                         check(not validate_args,'rebuild failure skips the closing validation '+selected)
                     else:
-                        check([json.loads(a) for a in validate_args]==[['--background','--mode',selected]],'website validate mode/background '+outcome+' '+selected)
+                        check([json.loads(a) for a in validate_args]==[['--background','--mode',selected]+(['--verbose'] if verbose else [])],'website validate mode/background '+outcome+' '+selected)
                     check('1.' in output and '2.' in output and '增量检查' in output and '完整验证' in output,'CMD displays both mode choices')
                     check('\\n1.' not in output,'CMD menu has real line breaks')
                 elif outcome=='rebuild':
                     check(not validate_args,'rebuild failure skips the closing validation')
                 else:
-                    check([json.loads(a) for a in validate_args]==[['--background']],'addin validate background '+outcome)
+                    check([json.loads(a) for a in validate_args]==[['--background']+(['--verbose'] if verbose else [])],'addin validate background '+outcome)
                 check(result.returncode==(0 if outcome=='ok' else 1), 'CMD preserves rebuild/validate status '+str(index)+' '+outcome)
                 expected={'ok':('安装包已经生成' if is_addin else '两个安装包已同步更新'),'rebuild':'构建失败','validate':'收尾验证失败'}[outcome]
                 check(expected in output and '\ufffd' not in output,'CMD Chinese final prompt '+str(index)+' '+outcome)

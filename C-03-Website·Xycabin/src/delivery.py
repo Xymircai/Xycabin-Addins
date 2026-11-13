@@ -4,13 +4,10 @@ import hashlib
 import importlib.util
 import json
 import os
-import subprocess
 import sys
 import uuid
-import time
-import threading
-import queue
 from configurators import CONFIGURE
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "C-00-Shared"))
 
 RUN_STAGES = []
 
@@ -50,51 +47,9 @@ def version(base):
 
 
 def run(command, cwd, log):
-    env = dict(os.environ, PYTHONIOENCODING='utf-8', PYTHONUTF8='1', PYTHONDONTWRITEBYTECODE='1')
-    log = Path(log)
-    log.parent.mkdir(parents=True, exist_ok=True)
-    print('开始：' + log.stem, flush=True)
-    started = time.perf_counter()
-    child = subprocess.Popen(list(map(str, command)), cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    events = queue.Queue()
-    def read():
-        for line in child.stdout:
-            events.put(line)
-        events.put(None)
-    reader = threading.Thread(target=read, daemon=True)
-    reader.start()
-    chunks = []
-    try:
-        with log.open('w', encoding='utf-8') as stream:
-            while True:
-                try:
-                    line = events.get(timeout=15)
-                except queue.Empty:
-                    print('运行中：%s（%.0f秒）' % (log.stem, time.perf_counter()-started), flush=True)
-                    continue
-                if line is None:
-                    break
-                line = line.decode('utf-8', 'replace')
-                chunks.append(line)
-                stream.write(line)
-                stream.flush()
-                value = line.strip()
-                if value.startswith(('TEST:', 'PASS:', 'CACHE:', 'MISS:', 'FAIL:', 'FAILED:', 'Build complete', '[1/', '[2/', '[3/', '[4/')):
-                    print(value, flush=True)
-        code = child.wait()
-    except BaseException:
-        child.kill()
-        child.wait()
-        raise
-    finally:
-        child.stdout.close()
-        reader.join(timeout=2)
-    elapsed = time.perf_counter()-started
-    RUN_STAGES.append({'stage': log.stem, 'seconds': round(elapsed, 3), 'returncode': code})
-    if code:
-        print(''.join(chunks)[-6000:], flush=True)
-        raise RuntimeError('阶段失败，退出码 %s；日志：%s' % (code, log))
-    print('通过：%s（%.2f秒）' % (log.name, elapsed), flush=True)
+    from build_report import run_command
+    result = run_command(command, cwd, log)
+    RUN_STAGES.append(result)
 
 
 def payload_probe(root=ROOT):

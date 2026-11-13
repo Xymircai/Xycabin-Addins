@@ -113,7 +113,8 @@ def verify(parent=ROOT.parent, source_only=False, folders=None, strict_evidence=
                 if source_only and destination in pending_outputs:
                     continue
                 in_audit = any(start <= link.start() < end for start, end in audits)
-                generated = optional is not None and destination.is_relative_to(optional / 'build')
+                generated = (destination.is_relative_to(Path(parent).resolve() / 'build')
+                             or (optional is not None and destination.is_relative_to(optional / 'build')))
                 if in_audit and generated and not strict_evidence:
                     print('INFO: 可选审计证据未携带，不作为重建输入：' + str(destination), flush=True)
                     continue
@@ -168,6 +169,30 @@ def self_test():
         else:
             raise AssertionError('输出目录接受了多余文件')
         (base / PROGRAM / 'extra.py').unlink()
+        # New joint-build evidence lives under repository/build as well as
+        # product/build. R-12 still requires it in strict mode and never
+        # exempts links outside delivery-audit sections.
+        archive = docs / 'B1-Project-Files.md'
+        original_archive = archive.read_text(encoding='utf-8')
+        archive.write_text(original_archive + '\n### (1). 本轮交付证据\n[历史报告](../build/history.json)\n', encoding='utf-8')
+        verify(parent, folders={'C-01-ExcelIterate'})
+        try:
+            verify(parent, folders={'C-01-ExcelIterate'}, strict_evidence=True)
+        except (OSError, ValueError):
+            pass
+        else:
+            raise AssertionError('Strict evidence accepted a missing root-build report')
+        guide = docs / 'A-UserGuide.md'
+        original_guide = guide.read_text(encoding='utf-8')
+        guide.write_text(original_guide + '\n[正文报告](../build/history.json)\n', encoding='utf-8')
+        try:
+            verify(parent, folders={'C-01-ExcelIterate'})
+        except (OSError, ValueError):
+            pass
+        else:
+            raise AssertionError('Non-audit missing root-build link was accepted')
+        guide.write_text(original_guide, encoding='utf-8')
+        archive.write_text(original_archive, encoding='utf-8')
         (docs / 'B3-Spec Coding.md').unlink()
         try:
             verify(parent, folders={'C-01-ExcelIterate'})
@@ -219,7 +244,7 @@ def self_test():
             pass
         else:
             raise AssertionError('Accepted a launcher without CRLF/Python UTF-8')
-    print('LayoutProbe self-test: 13 PASS, 0 FAIL', flush=True)
+    print('LayoutProbe self-test: 16 PASS, 0 FAIL', flush=True)
 
 
 if __name__ == '__main__':

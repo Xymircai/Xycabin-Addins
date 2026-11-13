@@ -23,7 +23,7 @@ namespace Excel_Iterate
             // no delete-then-move fallback when atomic replacement is unavailable.
             using (File.Open(target, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
             string verified = DataMigrationHost.Digest(stage);
-            string directory = Path.Combine(Path.GetDirectoryName(target), "迁移备份", batch);
+            string directory = Path.Combine(Path.GetDirectoryName(target), "复制备份", batch);
             PlainPath(directory); Directory.CreateDirectory(directory); PlainPath(directory);
             string backup = Path.Combine(directory, Path.GetFileName(target));
             if (File.Exists(backup) || Directory.Exists(backup)) throw new IOException("备份文件已存在，未覆盖目标：" + backup);
@@ -60,7 +60,7 @@ namespace Excel_Iterate
             PlainPath(target); PlainPath(backup);
             if (!File.Exists(backup)) throw new IOException("找不到备份文件：" + backup);
             if (!File.Exists(target)) throw new IOException("目标文件不存在：" + target);
-            if (DataMigrationHost.Digest(target) != expectedCurrentHash) throw new IOException("迁移后该文件又被修改过，未还原；备份位于：" + backup);
+            if (DataMigrationHost.Digest(target) != expectedCurrentHash) throw new IOException("复制后该文件又被修改过，未还原；备份位于：" + backup);
             try { using (File.Open(target, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { } }
             catch (IOException) { throw new IOException("文件正在被使用，请先在 WPS 中关闭后再还原。"); }
             catch (UnauthorizedAccessException) { throw new IOException("文件为只读或没有写入权限，未还原。"); }
@@ -79,11 +79,11 @@ namespace Excel_Iterate
                 try { if (File.Exists(stage)) File.Delete(stage); } catch { }
                 throw;
             }
-            if (DataMigrationHost.Digest(target) != original) throw new IOException("还原后内容与备份不一致；迁移后的版本保存在：" + displaced);
+            if (DataMigrationHost.Digest(target) != original) throw new IOException("还原后内容与备份不一致；复制后的版本保存在：" + displaced);
             return displaced;
         }
         // Permanently delete backup files this window created, then remove
-        // the batch folder and the "迁移备份" folder when they end up empty.
+        // the batch folder and the "复制备份" folder when they end up empty.
         // Only the listed files are touched; anything else is left in place.
         internal static void DeleteBackups(IEnumerable<string> files)
         {
@@ -99,7 +99,7 @@ namespace Excel_Iterate
             {
                 if (Directory.Exists(batch) && !Directory.EnumerateFileSystemEntries(batch).Any()) Directory.Delete(batch);
                 string root = Path.GetDirectoryName(batch);
-                if (string.Equals(Path.GetFileName(root), "迁移备份", StringComparison.Ordinal) && Directory.Exists(root) && !Directory.EnumerateFileSystemEntries(root).Any()) Directory.Delete(root);
+                if ((string.Equals(Path.GetFileName(root), "复制备份", StringComparison.Ordinal) || string.Equals(Path.GetFileName(root), "迁移备份", StringComparison.Ordinal)) && Directory.Exists(root) && !Directory.EnumerateFileSystemEntries(root).Any()) Directory.Delete(root);
             }
         }
         private static void PlainPath(string path)

@@ -194,7 +194,7 @@ BUTTONS = [
         "size": "large",
         "icon": None,
         "builtin_icon": "table",
-        "screentip": "审计辅助工具集合：表头匹配合并、合并抵消、批量迁移数据",
+        "screentip": "审计辅助工具集合：表头匹配合并、合并抵消、批量复制数据",
         "supertip": (
             "表头匹配：按表头列名（忽略大小写与首尾空格）匹配列，"
             "\r\n把来源工作簿的列数据合并到目标工作簿同名列下。"
@@ -250,9 +250,9 @@ BUTTONS = [
             },
             {
                 "id": "btnDataMigration",
-                "label": "批量迁移数据",
+                "label": "批量复制数据",
                 "builtin_icon": "table",
-                "screentip": "把源区域迁移到多个目标工作簿的指定位置",
+                "screentip": "把源区域复制到多个目标工作簿的指定位置",
                 "supertip": "内部相对引用随目标位置平移，第三方外链来源及地址不变。\r\n复制公式、固定值、样式及完整合并区域；预检名称与覆盖内容。\r\n默认校验后更新目标原文件并自动备份，也可另存副本。",
                 "action": "feature",
                 "callback": "OnDataMigration",

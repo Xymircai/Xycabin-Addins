@@ -93,7 +93,7 @@ namespace Excel_Iterate
                             if (r == m.Row && c == m.Column) continue;
                             string address = MigrationArea.Cell(r, c); XmlElement cell;
                             if (!cells.TryGetValue(address, out cell))continue;
-                            if (Child(cell, "f") != null) throw new InvalidOperationException("合并从属格包含隐藏公式，暂不能可靠迁移：" + address);
+                            if (Child(cell, "f") != null) throw new InvalidOperationException("合并从属格包含隐藏公式，暂不能可靠复制：" + address);
                             if (Child(cell, "v") == null && Child(cell, "is") == null)continue;
                             var copy = (XmlElement)cell.CloneNode(true);
                             if (copy.GetAttribute("t") == "s")

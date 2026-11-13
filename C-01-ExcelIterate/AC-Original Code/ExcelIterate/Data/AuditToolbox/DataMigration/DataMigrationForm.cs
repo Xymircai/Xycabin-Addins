@@ -32,6 +32,9 @@ namespace Excel_Iterate
         // recalculate, read this range and send it to the workbook named on
         // the same row (逐行重算).
         internal MigrationTrigger Trigger;
+        // Target side only: a row 逐行重算 filled with its matched files (应用).
+        // Target cleanup never removes it; a copied row is ordinary again.
+        internal bool Recalc;
         internal MigrationSide Copy() { var copy = new MigrationSide { Sheet = Sheet, Range = Range, Used = Used, Trigger = Trigger == null ? null : Trigger.Copy() }; copy.Books.AddRange(Books); return copy; }
     }
     // One trigger value row and the target workbook its name resolved to.
@@ -742,14 +745,14 @@ namespace Excel_Iterate
         }
     }
 
-    // 批量迁移数据: 源区域 and 目标区域 are kept in their own pages; 映射 pairs
+    // 批量复制数据: 源区域 and 目标区域 are kept in their own pages; 映射 pairs
     // them row by row (drag ⋮⋮ there to re-pair). A range panel on the right
     // (opened from the window edge) shows the sheet so ranges are dragged.
     internal sealed class DataMigrationForm : Form, IDialogDefaultLayout
     {
         // 写入方式: values or formulas, each with or without the source formats.
         internal const string ModeFormula = "只写公式", ModeValues = "只写数值", ModeValuesFormat = "数值+格式", ModeFormulaFormat = "公式+格式";
-        internal const string ModeFormatOnly = "只迁移格式";
+        internal const string ModeFormatOnly = "只复制格式";
         internal static string ModeText(bool values, bool format, bool formatOnly = false) { return formatOnly ? ModeFormatOnly : values ? (format ? ModeValuesFormat : ModeValues) : (format ? ModeFormulaFormat : ModeFormula); }
         private readonly CheckBox allowEmpty = new CheckBox { Name = "migrationAllowEmpty", Text = "允许全空白源区域（清空目标）", AutoSize = true };
         private readonly CheckBox replaceTargets = new CheckBox { Name = "migrationReplaceTargets", Text = "更新目标原文件（自动备份）", AutoSize = true, Checked = true };
@@ -764,8 +767,8 @@ namespace Excel_Iterate
         // The mapping the 映射 board has selected, kept across rebuilds.
         private MigrationPair mappingFocus;
         private readonly RichTextBox details = new RichTextBox { Name = "migrationDetails", ReadOnly = true, Dock = DockStyle.Fill, BackColor = Color.White, WordWrap = true };
-        private readonly Label status = Ui.Label("在“源区域”“目标区域”页各列出要迁移的区域，“映射”页按行把它们对应起来；右侧“区域选择”可直接框选。", 9, false);
-        private readonly RoundedButton preview = Ui.Button("预检与预览", 120), execute = Ui.Button("执行迁移", 110), restore = Ui.Button("还原操作", 110), clearBackups = Ui.Button("清除备份", 110), open = Ui.Button("打开结果文件夹", 150);
+        private readonly Label status = Ui.Label("在“源区域”“目标区域”页各列出要复制的区域，“映射”页按行把它们对应起来；右侧“区域选择”可直接框选。", 9, false);
+        private readonly RoundedButton preview = Ui.Button("预检与预览", 120), execute = Ui.Button("执行复制", 110), restore = Ui.Button("还原操作", 110), clearBackups = Ui.Button("清除备份", 110), open = Ui.Button("打开结果文件夹", 150);
         private readonly List<Control> inputs = new List<Control>();
         private SplitContainer split;
         private bool splitPlaced;
@@ -844,7 +847,7 @@ namespace Excel_Iterate
 
         internal DataMigrationForm()
         {
-            Text = "批量迁移数据"; DialogSizing.Prepare(this, "migration.data", "table", Ui.Blue);
+            Text = "批量复制数据"; DialogSizing.Prepare(this, "migration.data", "table", Ui.Blue);
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(16) };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 74)); root.RowStyles.Add(new RowStyle(SizeType.Percent, 26)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -883,9 +886,9 @@ namespace Excel_Iterate
             preview.Click += delegate { if (PreviewRequested != null) PreviewRequested(); };
             execute.Click += delegate { if (ExecuteRequested != null) ExecuteRequested(); };
             restore.Name = "migrationRestore"; restore.Click += delegate { RestoreTargets(); };
-            restoreTip.SetToolTip(restore, "把本窗口中以“更新目标原文件”方式迁移过的工作簿，还原为迁移前的备份。");
+            restoreTip.SetToolTip(restore, "把本窗口中以“更新目标原文件”方式复制过的工作簿，还原为复制前的备份。");
             clearBackups.Name = "migrationClearBackups"; clearBackups.Click += delegate { ClearBackups(); };
-            restoreTip.SetToolTip(clearBackups, "永久删除本窗口迁移时生成的备份文件；删除后无法再还原。");
+            restoreTip.SetToolTip(clearBackups, "永久删除本窗口复制时生成的备份文件；删除后无法再还原。");
             restoreTip.SetToolTip(edge, "打开或收起右侧区域选择"); restoreTip.SetToolTip(gear, "预设与设置");
             guardTail.Tick += delegate { GuardWindow(); if (--guardTailTicks <= 0) guardTail.Stop(); };
             open.Click += delegate { OpenResult(); }; close.Click += delegate { Close(); };
@@ -895,7 +898,7 @@ namespace Excel_Iterate
             root.Controls.Add(actions, 0, 3); Controls.Add(root);
             inputs.AddRange(new Control[] { allowEmpty, replaceTargets });
             allowEmpty.CheckedChanged += delegate { Changed(); };
-            replaceTargets.CheckedChanged += delegate { Changed(); Message(replaceTargets.Checked ? "校验通过后更新目标原文件；原版本保存在目标目录的“迁移备份”子文件夹。请先保存并关闭目标。" : "另存“迁移结果”副本，目标原文件不修改；请重新预检。"); };
+            replaceTargets.CheckedChanged += delegate { Changed(); Message(replaceTargets.Checked ? "校验通过后更新目标原文件；原版本保存在目标目录的“复制备份”子文件夹。请先保存并关闭目标。" : "另存“复制结果”副本，目标原文件不修改；请重新预检。"); };
             pump.Tick += delegate { Tick(); }; execute.Enabled = false; restore.Enabled = false; clearBackups.Enabled = false; open.Enabled = false;
             FormClosing += delegate(object sender, FormClosingEventArgs e) { if (Running && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; closeWhenDone = true; if (CancelRequested != null) CancelRequested(); } };
             Disposed += delegate { ClosePopups(); restoreTip.Dispose(); guardTail.Dispose(); pump.Stop(); if (steps != null) { steps.Dispose(); steps = null; } pump.Dispose(); };
@@ -1392,7 +1395,9 @@ namespace Excel_Iterate
                 row.Cells["no"].Value = string.Join("、", RowsUsing(side, target).Select(i => (i + 1).ToString(CultureInfo.InvariantCulture)).ToArray());
                 bool byName = target && IsByName(side);
                 var matched = byName ? MatchedFiles(side) : null;
-                row.Cells["book"].Value = byName ? (matched.Count > 0 ? BooksText(matched) : "（按文件名匹配：未匹配到目标）") : BooksText(side.Books);
+                // Target rows a 逐行重算 source writes to carry a 【重算】 tag.
+                string tag = target && pairs.Any(p => p.Target == side && p.Source.Used && p.Source.Trigger != null) ? "【重算】" : "";
+                row.Cells["book"].Value = tag + (byName ? (matched.Count > 0 ? BooksText(matched) : "（按文件名匹配：未匹配到目标）") : BooksText(side.Books));
                 if (!target) row.Cells["trigger"].Value = side.Trigger != null ? "on" : "";
                 row.Cells["book"].ToolTipText = byName ? (matched.Count > 0 ? "由逐行重算按文件名匹配：" + Environment.NewLine + string.Join(Environment.NewLine, matched.ToArray()) : "逐行重算没有匹配到已添加的目标工作簿")
                     : side.Books.Count == 0 ? "点击选择" + (target ? "目标" : "源") + "工作簿（可多选）" : string.Join(Environment.NewLine, side.Books.ToArray());
@@ -1594,7 +1599,7 @@ namespace Excel_Iterate
             foreach (var pair in pairs.ToList())
             {
                 if (!chosen.Contains(SideOf(pair, target))) continue;
-                if (target) pair.Target = new MigrationSide(); else pair.Source = new MigrationSide();
+                if (target) pair.Target = Remembered(pair.Target); else pair.Source = new MigrationSide();
                 pair.Instances.Clear();
                 if (!pair.Source.Used && !pair.Target.Used) pairs.Remove(pair);
             }
@@ -1711,7 +1716,7 @@ namespace Excel_Iterate
         }
         internal MigrationBookPopup CreateBookPopup(MigrationPair pair, bool target)
         {
-            if (Running) throw new InvalidOperationException("迁移运行期间不能更改工作簿。");
+            if (Running) throw new InvalidOperationException("复制运行期间不能更改工作簿。");
             var side = target ? pair.Target : pair.Source;
             return new MigrationBookPopup(target ? Targets : Sources, Pool(target), side.Books, target ? "目标工作簿" : "源工作簿", delegate(IList<string> chosen)
             {
@@ -1923,7 +1928,7 @@ namespace Excel_Iterate
                 if (otherArea != null) used.Add(new KeyValuePair<MigrationArea, string>(otherArea, "映射第 " + (pairs.IndexOf(other) + 1) + " 行 " + otherArea.Address));
             }
             string hint = !target
-                ? "拖选要迁移的区域（单击为单个单元格）。浅绿为同一工作表中其他源区域。勾选“作为新的源区域加入”可连续框选多块，每块新增一个源区域。"
+                ? "拖选要复制的区域（单击为单个单元格）。浅绿为同一工作表中其他源区域。勾选“作为新的源区域加入”可连续框选多块，每块新增一个源区域。"
                 : source != null ? "单击一个单元格作为起点，按源尺寸 " + source.Rows + " 行 × " + source.Columns + " 列放置；也可拖选完整区域。浅绿为其他映射已占用，红色为重叠。"
                 : "这一行的源区域尚未设置：直接拖选完整的目标区域即可；单击只记下起点。";
             sheetPreview.ShowSheet(snapshot, area, source == null ? 1 : source.Rows, source == null ? 1 : source.Columns, used,
@@ -2002,11 +2007,22 @@ namespace Excel_Iterate
             if (source.Trigger == null) return 0;
             RefreshTrigger(source); if (source.Trigger.Error.Length > 0) return 0;
             var mine = pairs.Where(p => p.Source == source && p.Target.Used).ToList();
-            var template = mine.FirstOrDefault(p => p.Target.Books.Count == 0) ?? mine.FirstOrDefault(); if (template == null) return 0;
+            var template = mine.FirstOrDefault(p => p.Target.Books.Count == 0) ?? mine.FirstOrDefault();
+            if (template == null)
+            {
+                // Its target row was deleted or cleared: 应用 brings it back
+                // with the sheet and range it had, if remembered.
+                template = pairs.FirstOrDefault(p => p.Source == source && !p.Target.Used); if (template == null) return 0;
+                if (pairs.Any(p => p.Target == template.Target && p != template)) template.Target = Remembered(template.Target);
+                template.Target.Used = true; template.Target.Books.Clear(); template.Instances.Clear();
+                mine.Add(template);
+            }
             var covered = new HashSet<string>(mine.Where(p => p.Target != template.Target).SelectMany(p => p.Target.Books), StringComparer.OrdinalIgnoreCase);
             var files = new List<string>();
             foreach (var row in source.Trigger.Rows) if (row.Path.Length > 0 && !covered.Contains(row.Path) && !files.Contains(row.Path, StringComparer.OrdinalIgnoreCase)) files.Add(row.Path);
-            if (files.Count == 0 || (files.Count == template.Target.Books.Count && files.All(f => template.Target.Books.Contains(f, StringComparer.OrdinalIgnoreCase)))) return 0;
+            if (files.Count == 0) return 0;
+            template.Target.Recalc = true;
+            if (files.Count == template.Target.Books.Count && files.All(f => template.Target.Books.Contains(f, StringComparer.OrdinalIgnoreCase))) return 0;
             template.Target.Books.Clear(); template.Target.Books.AddRange(files);
             foreach (var p in pairs.Where(x => x.Target == template.Target)) p.Instances.Clear();
             return files.Count;
@@ -2096,17 +2112,19 @@ namespace Excel_Iterate
         // lists them as a candidate, and no ordinary mapping writes to them.
         private int DropUnmatchedTargets()
         {
-            // Target rows superseded by the by-name rows: not by-name, and
-            // either unpaired or writing only to files 逐行重算 matched.
+            // Target rows superseded by the by-name rows: not by-name, not a
+            // 逐行重算 row, and either unpaired or writing only to files
+            // 逐行重算 matched. A cleared row keeps its sheet and range
+            // (unused), so a later 逐行重算 of that source reuses them.
             var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var source in DistinctSides(false).Where(x => x.Trigger != null)) { RefreshTrigger(source); foreach (var row in source.Trigger.Rows) if (row.Path.Length > 0) matched.Add(row.Path); }
             int cleared = 0;
             if (matched.Count > 0)
                 foreach (var pair in pairs.ToList())
                 {
-                    var side = pair.Target; if (!side.Used || pairs.Any(x => x.Target == side && x.Source.Trigger != null)) continue;
+                    var side = pair.Target; if (!side.Used || side.Recalc || pairs.Any(x => x.Target == side && x.Source.Trigger != null)) continue;
                     if (pair.Source.Used && side.Books.Any(b => !matched.Contains(b))) continue;
-                    foreach (var other in pairs.Where(x => x.Target == side)) other.Target = new MigrationSide();
+                    foreach (var other in pairs.Where(x => x.Target == side).ToList()) other.Target = Remembered(side);
                     cleared++;
                 }
             pairs.RemoveAll(x => !x.Source.Used && !x.Target.Used);
@@ -2121,6 +2139,9 @@ namespace Excel_Iterate
             if (drop.Count > 0) { foreach (var side in DistinctSides(false).Where(s => s.Trigger != null)) side.Trigger.Signature = ""; foreach (var pair in pairs) pair.Instances.Clear(); }
             return drop.Count + cleared;
         }
+        // An unused target side that remembers a removed row's sheet and range.
+        private static MigrationSide Remembered(MigrationSide side)
+        { return new MigrationSide { Sheet = side.Sheet, Range = side.Range }; }
         private string TriggerTag(MigrationSide side)
         {
             if (side.Trigger == null) return "";
@@ -2344,7 +2365,7 @@ namespace Excel_Iterate
             panel.Controls.Add(addCondition, 1, next); next++;
             line("目标文件", nameBox, next, false, delegate(MigrationArea area) { value.NameColumn = area.Address; }); next++;
             int others = OtherTriggerSets(side);
-            var note = new Label { Text = "触发值依次填入触发单元格，并执行重算操作后再迁移；目标文件名列会自动匹配所选择的工作簿，只对匹配到的文件执行迁移，忽略缺失或溢出文件。"
+            var note = new Label { Text = "触发值依次填入触发单元格，并执行重算操作后再复制；目标文件名列会自动匹配所选择的工作簿，只对匹配到的文件执行复制，忽略缺失或溢出文件。"
                 + (value.Extra.Count > 0 ? Environment.NewLine + "多组触发单元格在每一行重算前一并填入，取同一行的值；某组触发值只选一个单元格时，每一行都用它的值。" : "")
                 + (others > 0 ? Environment.NewLine + "这张源表已有另外 " + others + " 套逐行重算设置，各自独立。" : ""), AutoSize = true, MaximumSize = new Size(Ui.Px(this, 320), 0), ForeColor = Ui.InkDim, Margin = new Padding(0, p8, 0, 0) };
             panel.Controls.Add(note, 0, next); panel.SetColumnSpan(note, 3);
@@ -2888,7 +2909,7 @@ namespace Excel_Iterate
             var ready = previewed.Mappings.Where(m => m.Result != null && m.Result.Ready && m.Result.Status == "可执行").ToList();
             foreach (var m in ready) { m.Result = new MigrationTarget { Path = m.TargetPath, Sheet = m.TargetSheet, Start = m.Start, Status = "待执行" }; plan.Mappings.Add(m); }
             // Every pass updates its target in place. For result copies the
-            // orchestrator first points each target at one "_迁移结果" copy,
+            // orchestrator first points each target at one "_复制结果" copy,
             // so all source ranges land in the same copy.
             Group(plan, ready, true);
             lastPlan = plan; RefreshRows();
@@ -2981,7 +3002,7 @@ namespace Excel_Iterate
             restore.Enabled = !Running && restorePoints.Any(p => !p.Restored && !p.Cleared);
             clearBackups.Enabled = !Running && restorePoints.Any(p => !p.Cleared);
         }
-        // Files this window created in "迁移备份": the pre-migration backup
+        // Files this window created in "复制备份": the pre-migration backup
         // and, after a restore, the displaced migrated version.
         private static IEnumerable<string> BackupFiles(RestorePoint point)
         {
@@ -2995,8 +3016,8 @@ namespace Excel_Iterate
             if (pending.Count == 0) { UpdateRestore(); return; }
             int files = pending.Sum(p => BackupFiles(p).Count(File.Exists));
             int restorable = pending.Count(p => !p.Restored);
-            string question = "将永久删除本窗口迁移时生成的 " + files + " 个备份文件（涉及 " + pending.Count + " 个目标工作簿）。" + Environment.NewLine + Environment.NewLine
-                + (restorable > 0 ? "删除后，这 " + restorable + " 个已更新的工作簿将无法再还原为迁移前的版本。" : "删除后无法恢复这些备份。") + Environment.NewLine
+            string question = "将永久删除本窗口复制时生成的 " + files + " 个备份文件（涉及 " + pending.Count + " 个目标工作簿）。" + Environment.NewLine + Environment.NewLine
+                + (restorable > 0 ? "删除后，这 " + restorable + " 个已更新的工作簿将无法再还原为复制前的版本。" : "删除后无法恢复这些备份。") + Environment.NewLine
                 + "此操作无法撤销。" + Environment.NewLine + Environment.NewLine + "是否清除备份？";
             if (confirm && UiDialog.Show(this, question, "清除备份", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
             int cleared = 0; var failures = new List<string>();
@@ -3016,10 +3037,10 @@ namespace Excel_Iterate
             // Newest first: a file migrated twice steps back one batch at a time.
             var pending = restorePoints.Where(p => !p.Restored && !p.Cleared).Reverse().ToList();
             if (pending.Count == 0) { UpdateRestore(); return; }
-            string question = "将把 " + pending.Count + " 个已更新的目标工作簿还原为迁移前的备份。" + Environment.NewLine + Environment.NewLine
+            string question = "将把 " + pending.Count + " 个已更新的目标工作簿还原为复制前的备份。" + Environment.NewLine + Environment.NewLine
                 + "· 请先在 WPS 中关闭这些工作簿。" + Environment.NewLine
-                + "· 迁移后的版本会另存到对应目录的“迁移备份”文件夹，不会丢失。" + Environment.NewLine
-                + "· 迁移后又被修改过的文件不会还原，以免覆盖这些修改。" + Environment.NewLine + Environment.NewLine + "是否继续？";
+                + "· 复制后的版本会另存到对应目录的“复制备份”文件夹，不会丢失。" + Environment.NewLine
+                + "· 复制后又被修改过的文件不会还原，以免覆盖这些修改。" + Environment.NewLine + Environment.NewLine + "是否继续？";
             if (confirm && UiDialog.Show(this, question, "还原操作", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
             int restored = 0; var failures = new List<string>();
             foreach (var point in pending)
@@ -3034,7 +3055,7 @@ namespace Excel_Iterate
                 }
             }
             RefreshResults(); UpdateRestore();
-            Message((restored > 0 ? "已还原 " + restored + " 个工作簿为迁移前的备份；如需再次迁移请重新预检。" : "未还原任何工作簿。")
+            Message((restored > 0 ? "已还原 " + restored + " 个工作簿为复制前的备份；如需再次复制请重新预检。" : "未还原任何工作簿。")
                 + (failures.Count == 0 ? "" : " 未还原：" + string.Join("；", failures.ToArray())));
         }
         // ---------------- presets ----------------
@@ -3098,7 +3119,7 @@ namespace Excel_Iterate
         // is read or written until the user runs 预检.
         internal void ApplyPresetData(Dictionary<string, object> data, IDictionary<string, string> remap)
         {
-            if (Running) throw new InvalidOperationException("迁移运行期间不能应用预设。");
+            if (Running) throw new InvalidOperationException("复制运行期间不能应用预设。");
             MigrationPreset.From(data, null);
             Func<string, string> map = delegate(string path)
             {
@@ -3154,7 +3175,7 @@ namespace Excel_Iterate
         private string SuggestedPresetName()
         {
             var source = SourceBooks.FirstOrDefault();
-            return (source == null ? "迁移预设" : Path.GetFileNameWithoutExtension(source.Path)) + " " + DateTime.Now.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture).Replace(':', '.');
+            return (source == null ? "复制预设" : Path.GetFileNameWithoutExtension(source.Path)) + " " + DateTime.Now.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture).Replace(':', '.');
         }
         // 保存为预设: returns the saved file, or null when cancelled.
         internal string SavePreset()
@@ -3170,7 +3191,7 @@ namespace Excel_Iterate
         }
         internal void ShowPresetManager()
         {
-            if (Running) { Message("迁移运行期间不能管理预设。"); return; }
+            if (Running) { Message("复制运行期间不能管理预设。"); return; }
             ClosePopups();
             string json = HostDialogService.ShowIsolatedResult<string>(this,
                 delegate { return new MigrationPresetManager(null); },
@@ -3362,11 +3383,21 @@ namespace Excel_Iterate
         internal DateTime Saved;
         internal Dictionary<string, object> Data;
         internal int Sources, Targets, Mappings;
+        // Presets saved before the rename live in "复制预设"; that folder is
+        // moved to "复制预设" the first time the library is used.
         internal static string Library
-        { get { return System.IO.Path.Combine(DialogSizeStore.RootOverride ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), typeof(Connect).Assembly.GetName().Name, "迁移预设"); } }
+        {
+            get
+            {
+                string root = System.IO.Path.Combine(DialogSizeStore.RootOverride ?? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), typeof(Connect).Assembly.GetName().Name);
+                string folder = System.IO.Path.Combine(root, "复制预设"), old = System.IO.Path.Combine(root, "迁移预设");
+                try { if (!Directory.Exists(folder) && Directory.Exists(old)) Directory.Move(old, folder); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                return Directory.Exists(folder) || !Directory.Exists(old) ? folder : old;
+            }
+        }
         internal static MigrationPreset From(Dictionary<string, object> data, string file)
         {
-            if (data == null || MigrationJson.Str(data, "format") != Format) throw new InvalidOperationException("不是批量迁移数据的预设文件");
+            if (data == null || MigrationJson.Str(data, "format") != Format) throw new InvalidOperationException("不是批量复制数据的预设文件");
             long version = MigrationJson.Num(data, "version");
             if (version < 1) throw new InvalidOperationException("预设文件缺少版本号");
             if (version > Version) throw new InvalidOperationException("预设由更新版本的加载项创建（格式版本 " + version + "），请先升级加载项");
@@ -3790,7 +3821,7 @@ namespace Excel_Iterate
             apply.Enabled = rename.Enabled = remove.Enabled = export.Enabled = has;
             if (!has)
             {
-                SetDetail(all.Count == 0 ? "还没有保存的预设。" + Environment.NewLine + Environment.NewLine + "在批量迁移窗口右上角的齿轮里点“保存为预设…”，或点上方“导入预设…”导入别人分享的预设文件。" : "没有名称匹配的预设。");
+                SetDetail(all.Count == 0 ? "还没有保存的预设。" + Environment.NewLine + Environment.NewLine + "在批量复制窗口右上角的齿轮里点“保存为预设…”，或点上方“导入预设…”导入别人分享的预设文件。" : "没有名称匹配的预设。");
                 return;
             }
             ShowLines(preset.DescribeLines());
@@ -3872,7 +3903,7 @@ namespace Excel_Iterate
         }
         private void Import()
         {
-            string[] files = HostDialogService.OpenFiles(this, "迁移预设 (*" + MigrationPreset.Extension + ")|*" + MigrationPreset.Extension + "|JSON 文件 (*.json)|*.json", "导入预设", true, "");
+            string[] files = HostDialogService.OpenFiles(this, "复制预设 (*" + MigrationPreset.Extension + ")|*" + MigrationPreset.Extension + "|JSON 文件 (*.json)|*.json", "导入预设", true, "");
             if (files.Length == 0) return;
             var failures = new List<string>(); string last = null;
             foreach (string file in files)
@@ -3890,7 +3921,7 @@ namespace Excel_Iterate
         private void Export()
         {
             var preset = Current; if (preset == null) return;
-            string chosen = HostDialogService.SaveFile(this, "导出预设", "迁移预设 (*" + MigrationPreset.Extension + ")|*" + MigrationPreset.Extension, Path.GetFileName(preset.FilePath));
+            string chosen = HostDialogService.SaveFile(this, "导出预设", "复制预设 (*" + MigrationPreset.Extension + ")|*" + MigrationPreset.Extension, Path.GetFileName(preset.FilePath));
             if (chosen == null) return;
             string file = chosen.EndsWith(MigrationPreset.Extension, StringComparison.OrdinalIgnoreCase) ? chosen : chosen + MigrationPreset.Extension;
             try { MigrationPreset.Write(file, preset.Data); UiDialog.Show(this, "已导出到：" + Environment.NewLine + file, "导出预设", MessageBoxButtons.OK, MessageBoxIcon.Information, MessageBoxDefaultButton.Button1); }

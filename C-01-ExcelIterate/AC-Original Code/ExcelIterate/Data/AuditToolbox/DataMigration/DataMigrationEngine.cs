@@ -92,7 +92,7 @@ namespace Excel_Iterate
         { string ext = Path.GetExtension(path); return Array.Exists(new[] { ".xlsx", ".xlsm", ".xls", ".et" }, e => string.Equals(e, ext, StringComparison.OrdinalIgnoreCase)); }
         internal static string OutputPath(string target, Func<string, bool> exists)
         {
-            string stem = Path.Combine(Path.GetDirectoryName(target), Path.GetFileNameWithoutExtension(target) + "_迁移结果"), ext = Path.GetExtension(target);
+            string stem = Path.Combine(Path.GetDirectoryName(target), Path.GetFileNameWithoutExtension(target) + "_复制结果"), ext = Path.GetExtension(target);
             for (int i = 1; ; i++) { string candidate = stem + (i == 1 ? "" : "_" + i) + ext; if (!exists(candidate)) return candidate; }
         }
         // Range endpoint order is not semantic: WPS saves $C$6:B5 as B5:$C$6.
@@ -149,7 +149,7 @@ namespace Excel_Iterate
                     while (i < formula.Length) { if (formula[i++] != '"') continue; if (i < formula.Length && formula[i] == '"') { i++; continue; } closed = true; break; }
                     if (!closed) throw new InvalidOperationException("公式字符串未闭合。"); output.Append(formula.Substring(start, i - start)); continue;
                 }
-                if (c == '{' || c == '}' || c == '@' || c == '#' || c == '|') throw new InvalidOperationException("暂不迁移数组、溢出、错误引用或动态/特殊引用公式。");
+                if (c == '{' || c == '}' || c == '@' || c == '#' || c == '|') throw new InvalidOperationException("暂不复制数组、溢出、错误引用或动态/特殊引用公式。");
                 // A qualified token consumes its address as one unit, including a
                 // range, so the second endpoint of an external range stays frozen.
                 string qualifier; int end;
@@ -200,13 +200,13 @@ namespace Excel_Iterate
                     {
                         string function = token.ToUpperInvariant();
                         if (function == "INDIRECT" || function == "EVALUATE" || function.StartsWith("_XLFN.", StringComparison.Ordinal))
-                            throw new InvalidOperationException("无法可靠迁移动态引用或扩展函数：" + token);
+                            throw new InvalidOperationException("无法可靠复制动态引用或扩展函数：" + token);
                     }
                     else if (!string.Equals(token, "TRUE", StringComparison.OrdinalIgnoreCase) && !string.Equals(token, "FALSE", StringComparison.OrdinalIgnoreCase)) AddDependency(result, context, token, scope);
                     output.Append(token); continue;
                 }
-                if (c == '[' || c == ']' || c == '\'' || c == '!') throw new InvalidOperationException("暂不迁移结构化表引用或无法解析的外链。");
-                if (c == ':') throw new InvalidOperationException("暂不迁移三维或跨前缀区域引用。");
+                if (c == '[' || c == ']' || c == '\'' || c == '!') throw new InvalidOperationException("暂不复制结构化表引用或无法解析的外链。");
+                if (c == ':') throw new InvalidOperationException("暂不复制三维或跨前缀区域引用。");
                 if (!char.IsWhiteSpace(c) && "+-*/^&=<>(),%;".IndexOf(c) < 0) throw new InvalidOperationException("无法解析的公式字符：" + c);
                 output.Append(c); i++;
             }
@@ -252,7 +252,7 @@ namespace Excel_Iterate
             }
             if (qualifier.Length == 0) throw new InvalidOperationException("引用前缀为空。");
             int bracketEnd = qualifier.LastIndexOf(']'); string sheet = bracketEnd >= 0 ? qualifier.Substring(bracketEnd + 1) : qualifier;
-            if (sheet.IndexOf(':') >= 0) throw new InvalidOperationException("暂不迁移三维工作表引用。");
+            if (sheet.IndexOf(':') >= 0) throw new InvalidOperationException("暂不复制三维工作表引用。");
             return true;
         }
         // null means this workbook. Relative external paths are resolved against
@@ -263,7 +263,7 @@ namespace Excel_Iterate
             if (left < 0)
             {
                 if (qualifier.IndexOf('\\') >= 0 || qualifier.IndexOf('/') >= 0 || SupportedFile(qualifier))
-                    throw new InvalidOperationException("暂不迁移无工作表的外部名称引用：" + qualifier);
+                    throw new InvalidOperationException("暂不复制无工作表的外部名称引用：" + qualifier);
                 return null;
             }
             if (right <= left || qualifier.IndexOf('[', left + 1) >= 0) throw new InvalidOperationException("外链前缀无效。");
@@ -326,7 +326,7 @@ namespace Excel_Iterate
                 // accepting those would silently change their meaning.
                 foreach (RefSpan span in FormulaRefRewriter.Scan(name.Formula))
                     if (span.Kind != RefKind.CrossBook && (!span.Column1Absolute || (!span.IsWholeColumn && !span.Row1Absolute) || (span.IsRange && (!span.Column2Absolute || (!span.IsWholeColumn && !span.Row2Absolute)))))
-                        throw new InvalidOperationException("暂不迁移依赖活动单元格的相对定义名称：" + name.Name);
+                        throw new InvalidOperationException("暂不复制依赖活动单元格的相对定义名称：" + name.Name);
                 MigrationFormula translated = Translate(name.Formula, context, name.Scope);
                 foreach (var dependency in translated.Dependencies) visit(dependency);
                 result.Add(new MigrationName { Scope = name.Scope.Length == 0 ? "" : context.MapSheet(name.Scope), Name = name.Name, Formula = translated.Text, Visible = name.Visible });

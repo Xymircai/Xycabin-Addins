@@ -110,7 +110,7 @@ internal static class DataMigrationLiveProbe
             }
             else { DrainPumped(host.Preview(new MigrationRequest { SourcePath = source, SourceSheet = "迁移源", SourceRange = "A1", AllowEmptySource = true, Targets = targets })); DrainPumped(host.Execute()); }
             foreach (var target in targets) { Console.WriteLine("TARGET: " + target.Path + " " + target.Status + " " + target.Error + "\n" + target.FailureDetails); Check(target.Status == "成功", "two open target workbooks processed independently"); if (target.Output.Length > 0) session.TrackFile(target.Output); }
-            if(args[0]=="--repair")foreach(var target in targets){string output=Path.Combine(Path.GetFullPath(args[4]),Path.GetFileNameWithoutExtension(target.Path)+"_迁移修正结果.xlsx");session.Export(target.Output,output);Console.WriteLine("REPAIRED_OUTPUT: "+output);}
+            if(args[0]=="--repair")foreach(var target in targets){string output=Path.Combine(Path.GetFullPath(args[4]),Path.GetFileNameWithoutExtension(target.Path)+"_复制修正结果.xlsx");session.Export(target.Output,output);Console.WriteLine("REPAIRED_OUTPUT: "+output);}
         }
         foreach (string file in Directory.GetFiles(session.DirectoryPath, "*", SearchOption.AllDirectories)) session.TrackFile(file);
     }
@@ -346,7 +346,7 @@ internal static class DataMigrationLiveProbe
                                     dynamic outputSheet = refs.Take(result.ActiveSheet), header = refs.Take(outputSheet.Range["B100"]), formula = refs.Take(outputSheet.Range["D101"]), date = refs.Take(outputSheet.Range["D113"]);
                                     Check(Convert.ToString(outputSheet.Name) == "目标表" && Convert.ToString(header.Value2) == "测试项目" && Convert.ToString(formula.Formula) == "=C101", "重新打开结果显示目标表且包含标题和实际公式");
                                     Check(Convert.ToDouble(date.Value2) == new DateTime(2026, 10, 29).ToOADate() && Convert.ToString(date.Text) == "2026-10-29", "ISO 日期迁移后仍为正确日历日期而非 1905 年");
-                                    Check(Path.GetFileName(target.Output).StartsWith(Path.GetFileNameWithoutExtension(target.Path) + "_迁移结果", StringComparison.Ordinal), "中文正式结果文件名保留目标原名");
+                                    Check(Path.GetFileName(target.Output).StartsWith(Path.GetFileNameWithoutExtension(target.Path) + "_复制结果", StringComparison.Ordinal), "中文正式结果文件名保留目标原名");
                                     dynamic windows = refs.Take(result.Windows), window = refs.Take(windows.Item(1));
                                     Check(Convert.ToInt32(window.ScrollRow) == 100, "重新打开结果直接显示迁移位置而非空白 A1");
                                 }

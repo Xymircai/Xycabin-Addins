@@ -75,7 +75,8 @@ internal static class SummaryAnnualChecks
             SummaryLeadReader.WriteSelection(lead, selection);
             check("公司勾选按实际来源行回写且保留间隔行", object.Equals(lead.Cells[2, 3].Value2, true) && object.Equals(lead.Cells[5, 3].Value2, false) && object.Equals(lead.Cells[3, 3].Value2, "保留间隔行"), "勾选行错位或未选公司被选用");
 
-            string folder = Path.Combine(Path.GetTempPath(), "summary-years-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(folder);
+            // Letters only: random digits such as "2174" would read as a second year folder.
+            string folder = Path.Combine(Path.GetTempPath(), "summary-years-" + Guid.NewGuid().ToString("N").Replace('0', 'g').Replace('1', 'h').Replace('2', 'i').Replace('3', 'j').Replace('4', 'k').Replace('5', 'l').Replace('6', 'm').Replace('7', 'n').Replace('8', 'o').Replace('9', 'p')); Directory.CreateDirectory(folder);
             try
             {
                 foreach (int year in new[] { 2023, 2024, 2025, 2026 })

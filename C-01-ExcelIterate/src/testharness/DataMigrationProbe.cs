@@ -66,16 +66,16 @@ namespace Excel_Iterate.TestHarness
             Reject(delegate { DataMigrationEngine.Translate("='[北京]明细'!A1", d, "源表"); }, "a formula that uses a same-name link is still blocked");
             // 逐行重算: target names match only the added targets, exactly after
             // normalisation only; near or partial names match nothing.
-            Check(DataMigrationForm.NormalizeName("！00-芜湖市繁昌区乡村振兴发展集团有限公司（合并）.xlsx") == DataMigrationForm.NormalizeName("！00-芜湖市繁昌区乡村振兴发展集团有限公司(合并)")
-                && DataMigrationForm.NormalizeName("03-01-繁花乡 文化.xlsx") == "繁花乡文化" && DataMigrationForm.NormalizeName("2024年报") == "2024年报", "names normalise extension, width, numbering, ！ and spaces only");
-            var pool = new[] { @"D:\目标\！00-芜湖市繁昌区乡村振兴发展集团有限公司（合并）.xlsx", @"D:\目标\！01-芜湖市繁昌区乡村振兴发展集团有限公司.xlsx", @"D:\目标\！03-01-芜湖市繁昌区繁花乡韵文化传媒有限公司.xlsx", @"D:\目标\！02-芜湖市繁昌区五华鸡产业发展有限公司.xlsx" };
-            var exact = new MigrationTriggerRow { Row = 2, Value = "x", Name = "！00-芜湖市繁昌区乡村振兴发展集团有限公司（合并）" }; DataMigrationForm.MatchRow(exact, pool);
+            Check(DataMigrationForm.NormalizeName("！00-示例市甲区城乡发展集团有限公司（合并）.xlsx") == DataMigrationForm.NormalizeName("！00-示例市甲区城乡发展集团有限公司(合并)")
+                && DataMigrationForm.NormalizeName("03-01-乙乡 文化.xlsx") == "乙乡文化" && DataMigrationForm.NormalizeName("2024年报") == "2024年报", "names normalise extension, width, numbering, ！ and spaces only");
+            var pool = new[] { @"D:\目标\！00-示例市甲区城乡发展集团有限公司（合并）.xlsx", @"D:\目标\！01-示例市甲区城乡发展集团有限公司.xlsx", @"D:\目标\！03-01-示例市甲区乙乡文化传媒有限公司.xlsx", @"D:\目标\！02-示例市甲区丙产业发展有限公司.xlsx" };
+            var exact = new MigrationTriggerRow { Row = 2, Value = "x", Name = "！00-示例市甲区城乡发展集团有限公司（合并）" }; DataMigrationForm.MatchRow(exact, pool);
             Check(exact.Kind == "精确" && exact.Path == pool[0] && exact.Ready, "an exact name picks its workbook even when a near name exists");
-            var fuzzy = new MigrationTriggerRow { Row = 3, Value = "x", Name = "繁昌区繁花乡韵文化传媒有限公司" }; DataMigrationForm.MatchRow(fuzzy, pool);
+            var fuzzy = new MigrationTriggerRow { Row = 3, Value = "x", Name = "甲区乙乡文化传媒有限公司" }; DataMigrationForm.MatchRow(fuzzy, pool);
             Check(fuzzy.Kind == "缺失" && fuzzy.Path.Length == 0 && fuzzy.Candidates.Count == 0 && !fuzzy.Ready, "a partial name no longer matches (fuzzy matching removed)");
             var missing = new MigrationTriggerRow { Row = 4, Value = "x", Name = "完全无关的单位" }; DataMigrationForm.MatchRow(missing, pool);
             Check(missing.Kind == "缺失" && missing.Path.Length == 0, "an unrelated name matches nothing rather than the closest file");
-            var twins = new MigrationTriggerRow { Row = 5, Value = "x", Name = "乡村振兴" }; DataMigrationForm.MatchRow(twins, new[] { @"D:\a\乡村振兴.xlsx", @"D:\b\01-乡村振兴.xlsx", @"D:\a\乡村振兴乙.xlsx" });
+            var twins = new MigrationTriggerRow { Row = 5, Value = "x", Name = "城乡发展" }; DataMigrationForm.MatchRow(twins, new[] { @"D:\a\城乡发展.xlsx", @"D:\b\01-城乡发展.xlsx", @"D:\a\城乡发展乙.xlsx" });
             Check(twins.Kind == "多个候选" && twins.Path.Length == 0 && twins.Candidates.Count == 2, "the same name in two folders requires a choice; a longer name is not a candidate");
             var spare = new MigrationPlan(); spare.Unused.Add(@"D:\a\多余.xlsx");
             Check(DataMigrationForm.PlanSummary(spare).Contains("1 个目标工作簿没有触发行匹配，不会写入"), "added targets no trigger row matched are reported, not written");
@@ -86,14 +86,14 @@ namespace Excel_Iterate.TestHarness
             Check(MigrationArea.Parse("$B$2:D4").Address == "B2:D4", "rectangular addresses normalized");
             Check(!MigrationArea.Parse("B2:C3").Contains(MigrationArea.Parse("A2:C3")), "partial merged area does not fit selection");
             Reject(delegate { MigrationArea.Parse("B2:A1"); }, "reversed area rejected");
-            Check(DataMigrationEngine.OutputPath(@"C:\fixtures\a.xlsm", p => p.EndsWith("_迁移结果.xlsm")) == @"C:\fixtures\a_迁移结果_2.xlsm", "output collision preserves extension and existing file");
+            Check(DataMigrationEngine.OutputPath(@"C:\fixtures\a.xlsm", p => p.EndsWith("_复制结果.xlsm")) == @"C:\fixtures\a_复制结果_2.xlsm", "output collision preserves extension and existing file");
             c = Context(0, 0);
             Check(DataMigrationEngine.ComparisonFormula("=SUM($C$6:B5)", c) == DataMigrationEngine.ComparisonFormula("=SUM(B5:$C$6)", c), "reversed range endpoints compare equal after WPS normalization");
             Check(DataMigrationEngine.ComparisonFormula("=SUM($C5:B$6)", c) == DataMigrationEngine.ComparisonFormula("=SUM(B5:$C$6)", c), "range normalization preserves each axis dollar locks");
             Check(DataMigrationEngine.ComparisonFormula("=SUM($C$6:B5)", c) != DataMigrationEngine.ComparisonFormula("=SUM($B$5:C6)", c), "different dollar locks are not hidden by comparison");
             Check(DataMigrationEngine.ComparisonFormula("=\"$C$6:B5\"", c) == "=\"$C$6:B5\"", "formula string literals are not canonicalized as references");
             Check(DataMigrationEngine.DirectSelfReference("=$C4", "目标表", 4, 3) && !DataMigrationEngine.DirectSelfReference("='明细'!$C4", "目标表", 4, 3), "direct destination self-reference is distinguished from another sheet");
-            Check(DataMigrationEngine.OutputPath(@"C:\fixtures\审计底稿（甲）.xlsx", p => false) == @"C:\fixtures\审计底稿（甲）_迁移结果.xlsx", "formal output preserves Unicode workbook name without temporary identifiers");
+            Check(DataMigrationEngine.OutputPath(@"C:\fixtures\审计底稿（甲）.xlsx", p => false) == @"C:\fixtures\审计底稿（甲）_复制结果.xlsx", "formal output preserves Unicode workbook name without temporary identifiers");
         }
         private static void PackageChecks(string root)
         {
@@ -174,13 +174,13 @@ namespace Excel_Iterate.TestHarness
         private static void TargetSelectionChecks(string root)
         {
             string folder = Path.Combine(root, "批量目标"), sub = Path.Combine(folder, "子文件夹"); Directory.CreateDirectory(sub);
-            foreach (string name in new[] { "甲.xls", "乙.XLSX", "丙.xlsm", "丁.et", "说明.txt", "~$锁文件.xlsx", ".xy-migration-read-test.xlsx", "甲_迁移结果.xlsx", "甲_迁移结果_2.xls", "甲_迁移修正结果.xlsx", "源.xlsx" }) File.WriteAllText(Path.Combine(folder, name), "fixture");
+            foreach (string name in new[] { "甲.xls", "乙.XLSX", "丙.xlsm", "丁.et", "说明.txt", "~$锁文件.xlsx", ".xy-migration-read-test.xlsx", "甲_复制结果.xlsx", "甲_复制结果_2.xls", "甲_复制修正结果.xlsx", "源.xlsx" }) File.WriteAllText(Path.Combine(folder, name), "fixture");
             File.WriteAllText(Path.Combine(sub, "不递归.xlsx"), "fixture");
             var scan = MigrationTargetScan.Expand(new[] { folder, Path.Combine(folder, "甲.xls"), folder }, Path.Combine(folder, "源.xlsx"));
             Check(scan.Files.Count == 4 && scan.Errors.Count == 0, "folder selection discovers four supported workbook formats and deduplicates overlapping selections");
-            Check(scan.Files.All(p => Path.GetDirectoryName(p) == folder) && !scan.Files.Any(p => p.Contains("迁移结果") || p.Contains("迁移修正结果") || Path.GetFileName(p).StartsWith("~$") || Path.GetFileName(p).StartsWith(".xy-") || Path.GetFileName(p) == "源.xlsx"), "folder scan excludes subfolders, source, locks, temporary files and generated results");
+            Check(scan.Files.All(p => Path.GetDirectoryName(p) == folder) && !scan.Files.Any(p => p.Contains("复制结果") || p.Contains("复制修正结果") || Path.GetFileName(p).StartsWith("~$") || Path.GetFileName(p).StartsWith(".xy-") || Path.GetFileName(p) == "源.xlsx"), "folder scan excludes subfolders, source, locks, temporary files and generated results");
             Check(MigrationTargetScan.Expand(new[] { sub, Path.Combine(folder,"不存在") }, "").Files.Count == 1 && MigrationTargetScan.Expand(new[] { Path.Combine(folder,"不存在") }, "").Errors.Count == 1, "one bad selection does not discard files discovered elsewhere");
-            Check(MigrationTargetScan.Expand(new[] { Path.Combine(folder,"甲_迁移结果.xlsx") }, "").Files.Count == 1, "explicit file selection can still use an earlier result intentionally");
+            Check(MigrationTargetScan.Expand(new[] { Path.Combine(folder,"甲_复制结果.xlsx") }, "").Files.Count == 1, "explicit file selection can still use an earlier result intentionally");
             var app = new FakeApp(); string sourcePath=Path.Combine(root,"check-source.xls"), first=Path.Combine(root,"check-first.xls"), second=Path.Combine(root,"check-second.xls");
             var source=app.Workbooks.Create(sourcePath,"源表"); source.Sheets[0].Cell("B1").Value2=88.0; source.Persist();
             app.Workbooks.Create(first,"目标表"); app.Workbooks.Create(second,"目标表"); string secondHash=DataMigrationHost.Digest(second);
@@ -195,7 +195,7 @@ namespace Excel_Iterate.TestHarness
                 Check(request.Targets.Count==1 && request.Targets[0].Path==first, "workbooks not chosen for a row are absent from the executable plan");
                 app.Workbooks.Find(first).Close(false);
                 using(var host=new DataMigrationHost(app)){Drain(host.Preview(request));Drain(host.Execute());}
-                Check(request.Targets[0].Status=="成功" && DataMigrationHost.Digest(second)==secondHash && !File.Exists(Path.Combine(root,"check-second_迁移结果.xls")), "only the chosen target produces an output and excluded original bytes remain unchanged");
+                Check(request.Targets[0].Status=="成功" && DataMigrationHost.Digest(second)==secondHash && !File.Exists(Path.Combine(root,"check-second_复制结果.xls")), "only the chosen target produces an output and excluded original bytes remain unchanged");
                 int invalidated=0; form.InputsChanged+=delegate{invalidated++;};
                 pair.Enabled=false; form.RefreshResults();
                 Reject(delegate{form.BuildPlan();}, "a disabled row blocks preview rather than falling back to anything else");
@@ -322,7 +322,7 @@ namespace Excel_Iterate.TestHarness
             string hash = DataMigrationHost.Digest(target);
             string backup = MigrationOutputTransaction.Commit(stage, target, hash, "batch1");
             Check(File.ReadAllText(target) == "verified" && File.ReadAllText(backup) == "original" && !File.Exists(stage), "atomic replacement retains exact original backup and original Unicode filename");
-            Check(Path.GetDirectoryName(backup) == Path.Combine(folder, "迁移备份", "batch1") && !Directory.GetFiles(folder, "*_迁移结果*").Any(), "replacement produces no result-suffix workbook in the target directory");
+            Check(Path.GetDirectoryName(backup) == Path.Combine(folder, "复制备份", "batch1") && !Directory.GetFiles(folder, "*_复制结果*").Any(), "replacement produces no result-suffix workbook in the target directory");
             File.WriteAllText(stage, "next"); bool failed = false;
             try { MigrationOutputTransaction.Commit(stage, target, hash, "stale"); } catch (IOException) { failed = true; }
             Check(failed && File.ReadAllText(target) == "verified" && File.Exists(stage), "changed original is rejected without consuming the verified staging file");
@@ -369,7 +369,7 @@ namespace Excel_Iterate.TestHarness
             var updated = app.Workbooks.Open(targets[0].Path, 0, true);
             Check(updated.Sheets[0].Cell("B100").Formula == "=A100" && updated.Windows.Item(1).Visible, "updated original reopens at a visible workbook view with migrated formula");
             updated.Close(false);
-            Check(!Directory.GetFiles(folder, "*_迁移结果*").Any() && !Directory.GetFiles(folder, ".xy-migration-*").Any(), "successful and failed processing leave no result-suffix or reader files in the working directory");
+            Check(!Directory.GetFiles(folder, "*_复制结果*").Any() && !Directory.GetFiles(folder, ".xy-migration-*").Any(), "successful and failed processing leave no result-suffix or reader files in the working directory");
             var open = app.Workbooks.Open(targets[0].Path, 0, false); var blocked = new MigrationTarget { Path = targets[0].Path, Sheet = "目标表", Start = "B100" };
             request = Request(source.FullName, blocked); request.ReplaceTargets = true;
             string openedHash = DataMigrationHost.Digest(blocked.Path);
@@ -563,7 +563,7 @@ namespace Excel_Iterate.TestHarness
                 Check(p1.ValuesOnly && p2.ValuesOnly, "rows created in the window paste values by default");
                 Check(!p1.KeepFormat && DataMigrationForm.ModeText(true, false) == "只写数值" && DataMigrationForm.ModeText(true, true) == "数值+格式" && DataMigrationForm.ModeText(false, false) == "只写公式" && DataMigrationForm.ModeText(false, true) == "公式+格式", "new rows write values without formats; four write modes");
                 var toggleMode = (Action<int>)typeof(MigrationMappingBoard).GetField("ModeToggled", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).GetValue(form.Mappings);
-                foreach (string expected in new[] { "数值+格式", "只写公式", "公式+格式", "只迁移格式", "只写数值" })
+                foreach (string expected in new[] { "数值+格式", "只写公式", "公式+格式", "只复制格式", "只写数值" })
                 {
                     toggleMode(0);
                     Check(DataMigrationForm.ModeText(p1.ValuesOnly, p1.KeepFormat, p1.FormatOnly) == expected, "mapping mode click cycles to " + expected);
@@ -648,15 +648,23 @@ namespace Excel_Iterate.TestHarness
                 typeof(DataMigrationForm).GetMethod("DropUnmatchedTargets", flags).Invoke(form, new object[0]);
                 typeof(DataMigrationForm).GetMethod("RebuildViews", flags).Invoke(form, new object[0]);
                 Check(!duplicate.Target.Used && !form.PairItems().Any(p => p.Target == gap) && form.Targets.Rows.Count == 2, "applying recalculation removes redundant and unpaired ordinary target rows");
+                Check(duplicate.Target.Sheet == "表" && duplicate.Target.Range == "E1" && duplicate.Target.Books.Count == 0, "a cleared target row remembers its sheet and range");
                 Check(independent.Target == kept && kept.Used && form.TargetBooks.Select(b => b.Path).OrderBy(p => p).SequenceEqual(new[] { first, other }.OrderBy(p => p)), "target cleanup preserves an independent ordinary mapping and its workbook");
                 src.Trigger.Chosen[2] = other; src.Trigger.Signature = ""; form.RefreshResults();
                 Check(src.Trigger.Rows[0].Path == other && src.Trigger.Rows[0].Kind == "已确认" && form.Targets.Rows.Cast<System.Windows.Forms.DataGridViewRow>().Count(r => r.Tag == recalc) == 1
-                    && form.Targets.Rows.Cast<System.Windows.Forms.DataGridViewRow>().Any(r => r.Tag == recalc && Convert.ToString(r.Cells["book"].Value) == Path.GetFileName(other)), "manual trigger target override shows the chosen workbook in the by-name row");
+                    && form.Targets.Rows.Cast<System.Windows.Forms.DataGridViewRow>().Any(r => r.Tag == recalc && Convert.ToString(r.Cells["book"].Value) == "【重算】" + Path.GetFileName(other)), "manual trigger target override shows the chosen workbook in the by-name row, tagged 【重算】");
                 typeof(DataMigrationForm).GetMethod("SplitByFile", flags).Invoke(form, new object[] { src });
                 Check(recalc.Target.Books.Count == 1 && recalc.Target.Books[0] == other && recalc.Target.Range == "D1" && form.PairItems().Count(p => p.Source == src) == 1,
                     "applying recalculation turns the by-name row into an ordinary row per matched workbook, keeping its sheet and range");
+                Check(recalc.Target.Recalc && !recalc.Target.Copy().Recalc, "the applied recalculation row is tagged; a copy of it is ordinary");
                 src.Trigger.Chosen[2] = ""; src.Trigger.Signature = ""; form.RefreshResults();
                 Check(src.Trigger.Rows[0].Kind == "跳过" && src.Trigger.Rows[0].Path.Length == 0 && independent.Target == kept, "skipping a trigger target leaves the independent ordinary mapping intact");
+                // Deleting the 【重算】 row, then 应用 again, brings it back with its sheet and range.
+                recalc.Target = new MigrationSide { Sheet = "表", Range = "D1" };
+                src.Trigger.Chosen[2] = other; src.Trigger.Signature = ""; form.RefreshResults();
+                typeof(DataMigrationForm).GetMethod("SplitByFile", flags).Invoke(form, new object[] { src });
+                Check(recalc.Target.Used && recalc.Target.Recalc && recalc.Target.Books.SequenceEqual(new[] { other }) && recalc.Target.Sheet == "表" && recalc.Target.Range == "D1",
+                    "applying recalculation again recreates a deleted recalculation row with its sheet and range");
             }
         }
         private static void PresetChecks()

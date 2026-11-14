@@ -567,37 +567,39 @@ namespace Excel_Iterate.TestHarness
                 Check(p1.ValuesOnly && p2.ValuesOnly, "rows created in the window paste values by default");
                 Check(!p1.KeepFormat && MigrationPair.ModeText(true, false) == "只写数值" && MigrationPair.ModeText(true, true) == "数值+格式" && MigrationPair.ModeText(false, false) == "只写公式" && MigrationPair.ModeText(false, true) == "公式+格式", "new rows write values without formats; four write modes");
                 var board = form.Mappings;
-                Check(board.BeginModeSelection(0) && board.ModeSelector.DropDownStyle == System.Windows.Forms.ComboBoxStyle.DropDownList
-                    && board.ModeSelector.Items.Cast<string>().SequenceEqual(new[] { "只写数值", "数值+格式", "只写公式", "公式+格式", "只写格式", "粘贴链接" }), "mapping dropdown has all six ordered modes");
-                board.ModeSelector.SelectedItem = "粘贴链接"; board.CloseModeSelection();
+                Check(board.BeginModeSelection(0) && !board.ModeMenuOpen
+                    && board.ModeChoices.SequenceEqual(new[] { "只写数值", "数值+格式", "只写公式", "公式+格式", "只写格式", "粘贴链接" }), "mapping dropdown has all six ordered modes");
+                board.PendingMode = "粘贴链接"; board.CloseModeSelection();
                 Check(p1.Mode == "只写数值", "cancelling a pending dropdown selection preserves the row");
-                board.BeginModeSelection(0); board.ModeSelector.SelectedItem = "粘贴链接";
-                typeof(System.Windows.Forms.ComboBox).GetMethod("OnKeyDown", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(board.ModeSelector, new object[] { new System.Windows.Forms.KeyEventArgs(System.Windows.Forms.Keys.Escape) });
-                Check(p1.Mode == "只写数值", "Escape cancels a pending mode without changing the mapping");
-                board.BeginModeSelection(0); board.ModeSelector.SelectedItem = "粘贴链接"; board.Width++; CommitMode(board);
+                board.BeginModeSelection(0); board.PendingMode = "粘贴链接"; board.CloseModeSelection(); CommitMode(board);
+                Check(p1.Mode == "只写数值", "closing the mode menu (Escape) cancels a pending mode without changing the mapping");
+                board.BeginModeSelection(0); board.PendingMode = "粘贴链接"; board.Width++; CommitMode(board);
                 Check(p1.Mode == "只写数值", "resizing closes a pending editor without applying it");
-                board.BeginModeSelection(0); board.ModeSelector.SelectedItem = "粘贴链接"; form.ShowPage(1); CommitMode(board);
+                board.BeginModeSelection(0); board.PendingMode = "粘贴链接"; form.ShowPage(1); CommitMode(board);
                 Check(p1.Mode == "只写数值", "changing pages cancels the mode editor");
                 var planField = typeof(DataMigrationForm).GetField("lastPlan", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
                 foreach (string expected in new[] { "数值+格式", "只写公式", "公式+格式", "只写格式", "粘贴链接", "只写数值" })
                 {
                     planField.SetValue(form, new MigrationPlan());
-                    board.BeginModeSelection(0); board.ModeSelector.SelectedItem = expected; CommitMode(board);
+                    board.BeginModeSelection(0); board.PendingMode = expected; CommitMode(board);
                     Check(p1.Mode == expected && planField.GetValue(form) == null, "dropdown selects " + expected + " and invalidates precheck");
                 }
+                foreach (string expected in new[] { "数值+格式", "只写公式", "公式+格式", "只写格式", "粘贴链接", "只写数值" })
+                    Check(board.CycleMode(0) && p1.Mode == expected, "clicking the mode pill steps to " + expected);
                 var unchangedPlan = new MigrationPlan(); planField.SetValue(form, unchangedPlan);
                 board.BeginModeSelection(0); CommitMode(board);
                 Check(ReferenceEquals(planField.GetValue(form), unchangedPlan), "choosing the existing mode preserves precheck");
-                board.BeginModeSelection(0); board.ModeSelector.SelectedItem = "粘贴链接"; board.ReadOnly = true; CommitMode(board);
+                board.BeginModeSelection(0); board.PendingMode = "粘贴链接"; board.ReadOnly = true; CommitMode(board);
                 Check(p1.Mode == "只写数值" && !board.BeginModeSelection(0), "running locks and closes the dropdown without applying a pending choice"); board.ReadOnly = false;
-                board.BeginModeSelection(0); board.ModeSelector.SelectedItem = "粘贴链接";
+                board.BeginModeSelection(0); board.PendingMode = "粘贴链接";
                 board.UpdateItem(0, new MigrationMappingBoard.Entry { ValuesOnly = true }); CommitMode(board);
                 Check(!p1.PasteLinks, "a replaced mapping entry rejects a stale dropdown commit"); form.RefreshResults();
                 p1.Source.Trigger = new MigrationTrigger();
                 form.RefreshResults(); board.BeginModeSelection(0);
-                Check(board.ModeSelector.Items.Cast<string>().SequenceEqual(new[] { "只写数值", "数值+格式" }), "recalculation dropdown only offers two values modes");
-                board.ModeSelector.SelectedItem = "数值+格式"; CommitMode(board); Check(p1.ValuesOnly && p1.KeepFormat && !p1.PasteLinks, "recalculation selects values with formats");
-                board.BeginModeSelection(0); board.ModeSelector.SelectedItem = "只写数值"; CommitMode(board); Check(p1.ValuesOnly && !p1.KeepFormat, "recalculation selects values without formats");
+                Check(board.ModeChoices.SequenceEqual(new[] { "只写数值", "数值+格式" }), "recalculation dropdown only offers two values modes");
+                board.PendingMode = "数值+格式"; CommitMode(board); Check(p1.ValuesOnly && p1.KeepFormat && !p1.PasteLinks, "recalculation selects values with formats");
+                board.BeginModeSelection(0); board.PendingMode = "只写数值"; CommitMode(board); Check(p1.ValuesOnly && !p1.KeepFormat, "recalculation selects values without formats");
+                Check(board.CycleMode(0) && p1.KeepFormat && board.CycleMode(0) && !p1.KeepFormat && p1.ValuesOnly, "clicking a recalculation pill steps between its two values modes");
                 Reject(delegate { p1.SelectMode(MigrationPair.ModeLinks); }, "recalculation cannot select links through the model");
                 p1.Source.Trigger = null;
                 Check(p3 == p1 && form.PairItems().Count == 2 && form.Sources.Rows.Count == 2 && form.Targets.Rows.Count == 1 && form.Mappings.Count == 2, "a new target fills the first row without one instead of shifting pairs");
@@ -751,7 +753,7 @@ namespace Excel_Iterate.TestHarness
                 "name index preserves pool order for manual candidates and never matches an empty name");
         }
         private static void CommitMode(MigrationMappingBoard board)
-        { typeof(System.Windows.Forms.ComboBox).GetMethod("OnSelectionChangeCommitted", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).Invoke(board.ModeSelector, new object[] { EventArgs.Empty }); }
+        { board.CommitModeSelection(); }
         private static void LinkConfigurationChecks()
         {
             Check(DataMigrationEngine.SourceLink(@"C:\fixtures\！01-示例集团.xlsx", "Sheet1", 3, 1) == "='C:\\fixtures\\[！01-示例集团.xlsx]Sheet1'!$A$3", "links quote Chinese workbook names and lock both coordinates");
@@ -1019,7 +1021,7 @@ namespace Excel_Iterate.TestHarness
                             return new MigrationMappingBoard.Entry { SourceUsed = true, TargetUsed = true, SourceTitle = "源工作簿 · Sheet1", SourceDetail = "A3:B4", TargetTitle = "目标工作簿 · 工作表", TargetDetail = "D8:E9", ValuesOnly = row.ValuesOnly, KeepFormat = row.KeepFormat, FormatOnly = row.FormatOnly, PasteLinks = row.PasteLinks, Status = "就绪（待预检）" }; }).ToList();
                         board.SetItems(entries, 5, false); board.CreateControl();
                         board.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(Path.ChangeExtension(path, ".modes.png"), ImageFormat.Png);
-                        Check(board.BeginModeSelection(5), "native dropdown editor prepares without showing a popup");
+                        Check(board.BeginModeSelection(5) && !board.ModeMenuOpen, "mode editor prepares without showing its menu");
                         board.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(Path.ChangeExtension(path, ".editor.png"), ImageFormat.Png);
                     }
                 }

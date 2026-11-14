@@ -54,6 +54,7 @@ C-03-Website·Xycabin/AA-Program/index.html
 /.local-signing.json
 /.local-build.py
 /本机测试打包.bat
+/本机完整打包.bat
 
 # ============================================================
 # VSTO / .NET 中间产物

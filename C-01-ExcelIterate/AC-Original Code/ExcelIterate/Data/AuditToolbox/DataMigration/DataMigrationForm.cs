@@ -142,9 +142,14 @@ namespace Excel_Iterate
         private readonly VScrollBar scroll = new VScrollBar { Dock = DockStyle.Right, Visible = false, TabStop = false };
         private readonly Timer hold = new Timer { Interval = 200 }, edgeScroll = new Timer { Interval = 40 };
         private readonly ToolTip tip = new ToolTip();
-        internal readonly ComboBox ModeSelector = new ComboBox { Name = "migrationWriteMode", DropDownStyle = ComboBoxStyle.DropDownList, Visible = false, IntegralHeight = true };
+        // 方式: click the pill to step to the next way; click its arrow (or F4)
+        // for a menu styled like the window's other menus.
+        private ContextMenuStrip modeMenu;
         private int modeRow = -1;
         private Entry modeEntry;
+        private string[] modeChoices = new string[0];
+        // The way the open editor would apply (set by the menu; tests set it directly).
+        internal string PendingMode;
         private Font body = Ui.MakeFont(10f, FontStyle.Regular, null), head = Ui.MakeFont(9f, FontStyle.Bold, null);
         private float scale = 1f;
         private int current = -1, hoverRow = -1, pressRow = -1, dropRow = -1;
@@ -166,16 +171,6 @@ namespace Excel_Iterate
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
             BackColor = Color.White; TabStop = true;
             Controls.Add(scroll);
-            Controls.Add(ModeSelector);
-            ModeSelector.SelectionChangeCommitted += delegate { CommitModeSelection(); };
-            ModeSelector.DropDownClosed += delegate { CloseModeSelection(); };
-            ModeSelector.Leave += delegate { if (!ModeSelector.DroppedDown) CloseModeSelection(); };
-            ModeSelector.KeyDown += delegate(object sender, KeyEventArgs e)
-            {
-                if (e.KeyCode != Keys.Escape && e.KeyCode != Keys.Enter) return;
-                if (e.KeyCode == Keys.Enter) CommitModeSelection(); else CloseModeSelection();
-                Focus(); e.Handled = true; e.SuppressKeyPress = true;
-            };
             scroll.ValueChanged += delegate { CloseModeSelection(); Invalidate(); };
             scroll.VisibleChanged += delegate { CloseModeSelection(); Invalidate(); };
             hold.Tick += delegate { hold.Stop(); if (pressRow >= 0 && (Control.MouseButtons & MouseButtons.Left) != 0) BeginDrag(); };
@@ -203,36 +198,65 @@ namespace Excel_Iterate
             current = index; currentTarget = target; EnsureVisible(index); Invalidate();
             if (CurrentChanged != null) CurrentChanged();
         }
+        internal IList<string> ModeChoices { get { return modeChoices; } }
+        internal bool ModeMenuOpen { get { return modeMenu != null && modeMenu.Visible; } }
+        // Prepare the editor for a row without showing it.
         internal bool BeginModeSelection(int row)
         {
             CloseModeSelection();
             if (readOnly || dragging || row < 0 || row >= items.Count) return false;
             EnsureVisible(row);
-            var item = items[row]; var choices = item.Recalculates ? MigrationPair.RecalculationModes : MigrationPair.Modes;
-            ModeSelector.Font = body;
-            ModeSelector.Items.Clear(); ModeSelector.Items.AddRange(choices);
-            ModeSelector.SelectedItem = MigrationPair.ModeText(item.ValuesOnly, item.KeepFormat, item.FormatOnly, item.PasteLinks);
-            var rect = Pill(Columns().Mode, RowTop(row));
-            rect.Height = ModeSelector.PreferredHeight; rect.Y = RowTop(row) + (RowHeight - rect.Height) / 2;
-            ModeSelector.Bounds = rect; ModeSelector.DropDownWidth = Math.Max(rect.Width, choices.Max(s => TextRenderer.MeasureText(s, body).Width) + P(32));
-            modeRow = row; modeEntry = item; ModeSelector.Visible = true; ModeSelector.BringToFront();
+            var item = items[row];
+            modeChoices = item.Recalculates ? MigrationPair.RecalculationModes : MigrationPair.Modes;
+            modeRow = row; modeEntry = item; PendingMode = CurrentMode(item);
             return true;
         }
+        private static string CurrentMode(Entry item) { return MigrationPair.ModeText(item.ValuesOnly, item.KeepFormat, item.FormatOnly, item.PasteLinks); }
         private void ShowModeSelector(int row)
-        { if (BeginModeSelection(row)) { ModeSelector.Focus(); ModeSelector.DroppedDown = true; } }
-        private void CommitModeSelection()
         {
-            int row = modeRow; var item = modeEntry; string mode = ModeSelector.SelectedItem as string;
-            bool valid = !readOnly && row >= 0 && row < items.Count && ReferenceEquals(items[row], item) && mode != null;
-            bool changed = valid && mode != MigrationPair.ModeText(item.ValuesOnly, item.KeepFormat, item.FormatOnly, item.PasteLinks);
+            if (!BeginModeSelection(row)) return;
+            var item = modeEntry; string now = PendingMode;
+            if (modeMenu == null)
+            {
+                modeMenu = new ContextMenuStrip { ShowImageMargin = false, ShowCheckMargin = false, Renderer = new MigrationModeRenderer(), BackColor = Color.White, Padding = new Padding(P(4)) };
+                modeMenu.Closed += delegate { BeginInvoke(new Action(delegate { if (!ModeMenuOpen) CloseModeSelection(); Invalidate(); })); };
+            }
+            modeMenu.Font = body; modeMenu.Items.Clear();
+            var pill = Pill(Columns().Mode, RowTop(row));
+            foreach (string choice in modeChoices)
+            {
+                string mode = choice;
+                var entry = new ToolStripMenuItem(mode) { Checked = mode == now };
+                entry.Click += delegate { if (ReferenceEquals(modeEntry, item)) { PendingMode = mode; CommitModeSelection(); } };
+                modeMenu.Items.Add(entry);
+            }
+            int widest = modeChoices.Max(c => TextRenderer.MeasureText(c, body).Width);
+            modeMenu.MinimumSize = new Size(Math.Max(pill.Width, widest + P(40)), 0);
+            foreach (ToolStripItem entry in modeMenu.Items) { entry.AutoSize = false; entry.Width = modeMenu.MinimumSize.Width - P(8); entry.Height = body.Height + P(16); }
+            Invalidate();
+            modeMenu.Show(this, new Point(pill.Left, pill.Bottom + P(4)));
+        }
+        // A click on the pill itself: the next way in the list (wrapping).
+        internal bool CycleMode(int row)
+        {
+            if (!BeginModeSelection(row)) return false;
+            int at = Array.IndexOf(modeChoices, PendingMode);
+            PendingMode = modeChoices[(at + 1) % modeChoices.Length];
+            CommitModeSelection();
+            return true;
+        }
+        internal void CommitModeSelection()
+        {
+            int row = modeRow; var item = modeEntry; string mode = PendingMode;
+            bool valid = !readOnly && row >= 0 && row < items.Count && ReferenceEquals(items[row], item) && mode != null && Array.IndexOf(modeChoices, mode) >= 0;
+            bool changed = valid && mode != CurrentMode(item);
             CloseModeSelection();
             if (changed && ModeSelected != null) ModeSelected(row, mode);
         }
         internal void CloseModeSelection()
         {
-            modeRow = -1; modeEntry = null;
-            if (ModeSelector.DroppedDown) ModeSelector.DroppedDown = false;
-            ModeSelector.Visible = false;
+            modeRow = -1; modeEntry = null; PendingMode = null;
+            if (modeMenu != null && modeMenu.Visible) modeMenu.Close();
         }
         protected override void OnVisibleChanged(EventArgs e) { if (!Visible) CloseModeSelection(); base.OnVisibleChanged(e); }
 
@@ -378,6 +402,8 @@ namespace Excel_Iterate
             using (var path = Round(pill, P(4))) using (var brush = new SolidBrush(pillBack)) using (var pen = new Pen(Ui.GridFrame)) { g.FillPath(brush, path); g.DrawPath(pen, path); }
             var modeText = new Rectangle(pill.Left + P(5), pill.Top, pill.Width - P(27), pill.Height);
             TextRenderer.DrawText(g, MigrationPair.ModeText(values, item.KeepFormat, item.FormatOnly, item.PasteLinks), body, modeText, pillInk, Line | TextFormatFlags.HorizontalCenter);
+            // The arrow end opens the menu; a hairline separates it from the part that steps.
+            using (var pen = new Pen(Color.FromArgb(70, pillInk))) g.DrawLine(pen, pill.Right - P(26), pill.Top + P(5), pill.Right - P(26), pill.Bottom - P(5));
             int mx = pill.Right - P(13), my = pill.Top + pill.Height / 2;
             using (var pen = new Pen(pillInk, Math.Max(1f, scale))) g.DrawLines(pen, new[] { new Point(mx - P(3), my - P(2)), new Point(mx, my + P(1)), new Point(mx + P(3), my - P(2)) });
             // 状态: coloured dot + text
@@ -532,7 +558,11 @@ namespace Excel_Iterate
                 if (row == pressRow && part == pressPart)
                 {
                     if (part == Part.Check && EnabledToggled != null) EnabledToggled(row);
-                    else if (part == Part.Mode) ShowModeSelector(row);
+                    else if (part == Part.Mode)
+                    {
+                        var pill = Pill(Columns().Mode, RowTop(row));
+                        if (e.X >= pill.Right - P(26)) ShowModeSelector(row); else CycleMode(row);
+                    }
                 }
             }
             pressRow = -1; pressPart = Part.None;
@@ -718,6 +748,41 @@ namespace Excel_Iterate
             // item's full height instead.
             var text = e.TextRectangle; e.TextRectangle = new Rectangle(text.Left, 0, text.Width, e.Item.Height);
             e.TextFormat = (e.TextFormat & ~(TextFormatFlags.Top | TextFormatFlags.Bottom)) | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine;
+            base.OnRenderItemText(e);
+        }
+    }
+
+    // The 方式 menu: the window's menu look with roomier rows. The way in use
+    // sits on a light blue rounded block in blue text; hover is a paler grey
+    // block. No tick column.
+    internal sealed class MigrationModeRenderer : ToolStripProfessionalRenderer
+    {
+        internal MigrationModeRenderer() : base(new ProfessionalColorTable()) { RoundedEdges = false; }
+        protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e) { e.Graphics.Clear(Color.White); }
+        protected override void OnRenderToolStripBorder(ToolStripRenderEventArgs e)
+        {
+            var g = e.Graphics; var r = new Rectangle(Point.Empty, e.ToolStrip.Size); r.Width--; r.Height--;
+            using (var pen = new Pen(Color.FromArgb(214, 220, 230))) g.DrawRectangle(pen, r);
+        }
+        protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+        {
+            var item = e.Item as ToolStripMenuItem; bool on = item != null && item.Checked;
+            if (!on && !e.Item.Selected) return;
+            float u = e.Graphics.DpiX / 96f;
+            var rect = new RectangleF(4 * u, 2 * u, e.Item.Width - 8 * u, e.Item.Height - 4 * u);
+            var smoothing = e.Graphics.SmoothingMode; e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            Color back = on ? (e.Item.Selected ? Color.FromArgb(222, 233, 255) : Ui.SelectBack) : Color.FromArgb(244, 246, 250);
+            using (var path = Ui.RoundRect(rect, 6 * u)) using (var brush = new SolidBrush(back)) e.Graphics.FillPath(brush, path);
+            e.Graphics.SmoothingMode = smoothing;
+        }
+        protected override void OnRenderItemCheck(ToolStripItemImageRenderEventArgs e) { }
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            var item = e.Item as ToolStripMenuItem; bool on = item != null && item.Checked; float u = e.Graphics.DpiX / 96f;
+            e.TextColor = on ? Ui.Blue : Ui.Ink;
+            int left = (int)(16 * u);
+            e.TextRectangle = new Rectangle(left, 0, Math.Max(0, e.Item.Width - left - (int)(8 * u)), e.Item.Height);
+            e.TextFormat = (e.TextFormat & ~(TextFormatFlags.Top | TextFormatFlags.Bottom | TextFormatFlags.HorizontalCenter | TextFormatFlags.Right)) | TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine;
             base.OnRenderItemText(e);
         }
     }
@@ -1014,12 +1079,14 @@ namespace Excel_Iterate
             AddGridColumn(g, "size", "尺寸", 100, true);
             g.Columns["pick"].Resizable = DataGridViewTriState.False; g.Columns["pick"].ToolTipText = "框选区域（打开方式可在右上角设置中切换）";
             g.Columns["no"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+            g.Columns["book"].HeaderCell = new MigrationSelectionHeader { Value = role + "工作簿", ToolTipText = "点击下拉箭头，选择工作簿替换选中行的工作簿（只选一行时替换全部行；逐行重算的行不变）。" };
             g.Columns["sheet"].HeaderCell = new MigrationSelectionHeader { Value = role + "工作表", ToolTipText = "点击下拉箭头，把各行都存在的工作表一次应用到全部。" };
             g.Columns["range"].HeaderCell = new MigrationSelectionHeader { Value = role + "区域", ToolTipText = "点击下拉箭头，从已输入的区域中选一个，应用到选中的行（只选一行时应用到全部）。" };
             g.ColumnHeaderMouseClick += delegate(object sender, DataGridViewCellMouseEventArgs e)
             {
                 if (e.Button != MouseButtons.Left) return;
-                if (g.Columns[e.ColumnIndex].Name == "sheet") ShowSheetMenu(target);
+                if (g.Columns[e.ColumnIndex].Name == "book") ShowBooksForRows(g, target);
+                else if (g.Columns[e.ColumnIndex].Name == "sheet") ShowSheetMenu(target);
                 else if (g.Columns[e.ColumnIndex].Name == "range") ShowRangePopup(g, target);
             };
             // Only the range is typed; workbook and sheet are picked from popups.
@@ -1057,7 +1124,7 @@ namespace Excel_Iterate
             // Vertical rules so each value reads under its own column.
             g.CellBorderStyle = DataGridViewCellBorderStyle.Single;
             g.CellPainting += PaintHeaderRule;
-            g.HandleCreated += delegate { g.Columns["sheet"].HeaderCell.Style.Padding = new Padding(Ui.Px(g, 6), 0, Ui.Px(g, 28), 0); g.Columns["range"].HeaderCell.Style.Padding = new Padding(Ui.Px(g, 6), 0, Ui.Px(g, 28), 0); g.Columns["pick"].HeaderCell.Style.Padding = new Padding(1); if (g.Columns.Contains("trigger")) g.Columns["trigger"].HeaderCell.Style.Padding = new Padding(1); };
+            g.HandleCreated += delegate { g.Columns["book"].HeaderCell.Style.Padding = new Padding(Ui.Px(g, 6), 0, Ui.Px(g, 28), 0); g.Columns["sheet"].HeaderCell.Style.Padding = new Padding(Ui.Px(g, 6), 0, Ui.Px(g, 28), 0); g.Columns["range"].HeaderCell.Style.Padding = new Padding(Ui.Px(g, 6), 0, Ui.Px(g, 28), 0); g.Columns["pick"].HeaderCell.Style.Padding = new Padding(1); if (g.Columns.Contains("trigger")) g.Columns["trigger"].HeaderCell.Style.Padding = new Padding(1); };
             FitLikeTargets(g, new Dictionary<string, int> { { "book", 34 }, { "sheet", 24 }, { "range", 22 }, { "size", 20 } });
         }
         // Workbook and sheet cells: plain text with a small chevron, like the
@@ -1140,6 +1207,41 @@ namespace Excel_Iterate
             var cell = grid.GetCellDisplayRectangle(grid.Columns["range"].Index, -1, true);
             sheetPopup.Show(grid, new Point(cell.Left, cell.Bottom));
             MigrationDropDownWatch.Attach(sheetPopup);
+        }
+        // 工作簿 header: the chosen workbooks replace those of the selected rows
+        // (all rows when at most one is selected), several of them sharing a
+        // row. 逐行重算 rows keep theirs: their files come from the name match.
+        private void ShowBooksForRows(DataGridView grid, bool target)
+        {
+            if (Running || grid.ReadOnly || grid.Rows.Count == 0) return;
+            bool wasOpen = bookPopup != null && bookPopup.Visible; ClosePopups(); if (wasOpen) return;
+            EndEdits();
+            string role = target ? "目标" : "源";
+            if (Pool(target).Count == 0) { Message("还没有添加" + role + "工作簿：先点下方的“添加" + role + "工作簿…”。"); return; }
+            var selected = grid.SelectedRows.Cast<DataGridViewRow>().Select(r => r.Tag as MigrationPair).Where(p => p != null).Select(p => SideOf(p, target)).Distinct().ToList();
+            var sides = (selected.Count > 1 ? selected : DistinctSides(target)).Where(x => !Recalculated(x, target)).ToList();
+            if (sides.Count == 0) { Message("选中的都是逐行重算的行，它们的工作簿按文件名匹配，不在这里替换。"); return; }
+            var first = sides[0].Books;
+            var current = sides.All(x => x.Books.SequenceEqual(first, StringComparer.OrdinalIgnoreCase)) ? first.ToList() : new List<string>();
+            bookPopup = new MigrationBookPopup(grid, Pool(target), current, role + "工作簿", delegate(IList<string> chosen)
+            {
+                if (Running) return;
+                if (chosen.Count == 0) { Message("至少选择一个工作簿。"); return; }
+                foreach (var side in sides) { side.Books.Clear(); side.Books.AddRange(chosen); }
+                foreach (var pair in pairs) if (sides.Contains(SideOf(pair, target))) pair.Instances.Clear();
+                RefreshRows(); Changed(); UpdatePreview(); ShowPairDetails();
+                Message("已将 " + sides.Count + " 行" + role + "区域的工作簿替换为：" + string.Join("、", chosen.Select(f => Path.GetFileName(f)).ToArray()) + "。");
+            }, delegate { BeginInvoke(new Action(delegate { PickBooks(target, null); })); });
+            var cell = grid.GetCellDisplayRectangle(grid.Columns["book"].Index, -1, true);
+            bookPopup.Show(grid, new Point(cell.Left, cell.Bottom));
+            MigrationDropDownWatch.Attach(bookPopup);
+        }
+        // A row whose workbooks belong to 逐行重算: a source that recalculates,
+        // or a target one writes to (or that 应用 filled).
+        private bool Recalculated(MigrationSide side, bool target)
+        {
+            if (!target) return side.Trigger != null;
+            return side.Recalc || IsByName(side) || pairs.Any(p => p.Target == side && p.Source.Used && p.Source.Trigger != null);
         }
         // The sheet of one range: same searchable popup as 统一设置.
         private void ShowRowSheetPopup(DataGridView grid, DataGridViewRow row, bool target)

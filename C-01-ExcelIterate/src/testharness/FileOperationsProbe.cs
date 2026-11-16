@@ -17,6 +17,93 @@ class FileOperationsProbe
     static FileOperationResult RunRename(RenamePlan plan,Func<bool> cancel,Action<string,string> move) { return FileRenamer.Execute(plan,cancel??(()=>false),_=>{},move); }
     static Dictionary<string,string> Contents(string root){return FilePaths.Scan(root,true,new List<string>()).ToDictionary(f=>f.Path,f=>WpsShared.SourcePaths.ReadAllText(f.Path),StringComparer.OrdinalIgnoreCase);}
     static void Same(string root,Dictionary<string,string> before,string label){var now=Contents(root);Check(before.Count==now.Count&&before.All(p=>now.ContainsKey(p.Key)&&now[p.Key]==p.Value),label);}
+    static void JournalLockCheck()
+    {
+        var batch=OperationBatch.Create(Root(),"Rename");
+        var held=File.Open(batch.Journal,FileMode.Open,FileAccess.Read,FileShare.ReadWrite);
+        var release=new System.Threading.Thread(delegate() {System.Threading.Thread.Sleep(125);held.Dispose();});
+        release.IsBackground=true;release.Start();
+        try {batch.State="Completed";batch.Persist();}
+        finally {release.Join();}
+        Check(OperationBatch.Find(batch.Root).State=="Completed","journal commits after real sharing lock is released");
+    }
+    sealed class JournalFailure : IOException
+    {
+        internal JournalFailure(int code) : base("injected journal failure") {HResult=unchecked((int)0x80070000)|code;}
+    }
+    static void JournalPersistenceChecks()
+    {
+        int attempts=0;var waits=new List<int>();
+        var initial=new OperationBatch {Root=Root(),Id=Guid.NewGuid().ToString("N"),Kind="Rename"};
+        initial.Persist((temporary,journal)=>{attempts++;throw new JournalFailure(1175);},waits.Add);
+        Check(attempts==0&&waits.Count==0&&OperationBatch.Find(initial.Root).State=="Active","first journal is created without replacement");
+        initial.State="Completed";
+        initial.Persist((temporary,journal)=>{attempts++;},waits.Add);
+        Check(attempts==1&&waits.Count==0,"successful replacement returns without retry or delay");
+        initial.Persist();
+        Check(OperationBatch.Find(initial.Root).State=="Completed"&&!File.Exists(initial.Journal+".tmp"),"real replacement commits XML and consumes temporary snapshot");
+        foreach(int code in new[]{32,33,1175})
+        {
+            var batch=OperationBatch.Create(Root(),"Rename");batch.State="Completed";
+            attempts=0;waits.Clear();byte[] snapshot=null;bool same=true;
+            batch.Persist((temporary,journal)=>
+            {
+                byte[] candidate=File.ReadAllBytes(temporary);
+                if(snapshot==null)snapshot=candidate;else same&=snapshot.SequenceEqual(candidate);
+                if(++attempts<=2)throw new JournalFailure(code);
+                File.Replace(temporary,journal,null);
+            },waits.Add);
+            Check(attempts>=3&&attempts<=5&&waits.SequenceEqual(Enumerable.Range(0,attempts-1).Select(i=>50<<i)),"transient replacement uses bounded backoff "+code);
+            Check(same&&OperationBatch.Find(batch.Root).State=="Completed"&&!File.Exists(batch.Journal+".tmp"),"retry commits the same complete snapshot "+code);
+        }
+        foreach(int code in new[]{32,33,1175,5,112,1176,1177})
+        {
+            var batch=OperationBatch.Create(Root(),"Rename");byte[] original=File.ReadAllBytes(batch.Journal);batch.State="Completed";
+            attempts=0;waits.Clear();IOException failure=null;JournalFailure injected=null;
+            try {batch.Persist((temporary,journal)=>{attempts++;throw injected=new JournalFailure(code);},waits.Add);}
+            catch(IOException ex) {failure=ex;}
+            int expected=code==32||code==33||code==1175?5:1;
+            Check(failure!=null&&attempts==expected&&waits.SequenceEqual(Enumerable.Range(0,expected-1).Select(i=>50<<i)),"persistent or nonretryable error is bounded "+code);
+            Check(object.ReferenceEquals(failure.InnerException,injected)&&failure.Message.Contains("0x"+injected.HResult.ToString("X8"))&&failure.Message.Contains(batch.Journal)&&failure.Message.Contains(batch.Journal+".tmp")&&failure.Message.Contains("尝试"+expected+"次"),"terminal journal error preserves cause and diagnostic context "+code);
+            var candidate=new System.Xml.XmlDocument();candidate.Load(batch.Journal+".tmp");
+            Check(original.SequenceEqual(File.ReadAllBytes(batch.Journal))&&OperationBatch.Find(batch.Root).State=="Active"&&candidate.DocumentElement["State"].InnerText=="Completed","failed replacement retains valid original and candidate "+code);
+            batch.Persist();Check(OperationBatch.Find(batch.Root).State=="Completed","retained journal can be committed after failure "+code);
+        }
+        foreach(bool removeTemporary in new[]{false,true})
+        foreach(bool duringWait in new[]{false,true})
+        {
+            var batch=OperationBatch.Create(Root(),"Rename");batch.State="Completed";attempts=0;waits.Clear();
+            string removed=removeTemporary?batch.Journal+".tmp":batch.Journal;IOException failure=null;
+            try
+            {
+                batch.Persist((temporary,journal)=>{attempts++;if(!duringWait)File.Delete(removed);throw new JournalFailure(1175);},
+                    delay=>{waits.Add(delay);if(duringWait)File.Delete(removed);});
+            }
+            catch(IOException ex) {failure=ex;}
+            Check(failure!=null&&attempts==1&&waits.Count==(duringWait?1:0),"missing replacement input stops retries "+removeTemporary+"/"+duringWait);
+            var retained=new System.Xml.XmlDocument();retained.Load(removeTemporary?batch.Journal:batch.Journal+".tmp");
+            Check(retained.DocumentElement["State"].InnerText==(removeTemporary?"Active":"Completed"),"remaining recovery evidence is readable "+removeTemporary+"/"+duringWait);
+        }
+        var denied=OperationBatch.Create(Root(),"Rename");attempts=0;waits.Clear();bool rejected=false;
+        try {denied.Persist((temporary,journal)=>{attempts++;throw new UnauthorizedAccessException("injected permission denial");},waits.Add);}
+        catch(UnauthorizedAccessException) {rejected=true;}
+        Check(rejected&&attempts==1&&waits.Count==0&&File.Exists(denied.Journal)&&File.Exists(denied.Journal+".tmp"),"permission errors propagate immediately with both records retained");
+
+        string root=Root();Put(root,"A/a.xlsx","restore after journal lock");var before=Contents(root);
+        var organized=Organize(FileOrganizer.Plan(root,new OrganizeOptions {Classify=true}),null,null,null);
+        FileStream held=null;IOException blocked=null;
+        try
+        {
+            try {organized.Batch.Undo(null,path=>{Directory.Delete(path,false);held=File.Open(organized.Batch.Journal,FileMode.Open,FileAccess.Read,FileShare.ReadWrite);});}
+            catch(IOException ex) {blocked=ex;}
+        }
+        finally {if(held!=null)held.Dispose();}
+        Check(blocked!=null&&File.Exists(organized.Batch.Journal)&&File.Exists(organized.Batch.Journal+".tmp"),"persistent real lock retains recovery evidence after files are restored");
+        var reopened=OperationBatch.Find(root);Check(reopened.CanUndo,"directory progress remains recoverable after persistence failure");
+        var undo=reopened.Undo(null);Check(!undo.RecoveryIncomplete,"reopened undo completes after journal lock release: "+undo.Text);
+        Same(root,before,"journal retry restores original paths and contents");
+        reopened.Confirm(RecycleFiles.Send);Check(OperationBatch.Find(root)==null,"confirmation cleans recovered batch records");
+    }
     static void OrganizerChecks()
     {
         string previewRoot=Root();for(int i=0;i<250;i++)Put(previewRoot,"原目录/文件"+i+".txt","content");
@@ -31,13 +118,13 @@ class FileOperationsProbe
             var options=new OrganizeOptions {Replace=(mask&1)!=0,Classify=(mask&2)!=0,Filter=(mask&4)!=0};options.Types.Add("XLSX");
             var plan=FileOrganizer.Plan(root,options);Check(plan.Preview.Contains("暂存")&&plan.Preview.Contains("确认操作"),"deferred backup preview "+mask);
             var result=Organize(plan,_=>{throw new Exception("must not recycle before confirmation");},null,null);
-            Check(result.Failed==0,"all option combinations "+mask);Check(Directory.Exists(Path.Combine(root,"deep")),"source folders retained");
+            Check(result.Failed==0,"all option combinations "+mask+"\r\n"+result.Text);Check(Directory.Exists(Path.Combine(root,"deep")),"source folders retained");
             string dest=options.Classify?Path.Combine(root,"xlsx"):root;Check(WpsShared.SourcePaths.Exists(Path.Combine(dest,"a.xlsx")),"destination "+mask);
             if(options.Replace)Check(WpsShared.SourcePaths.ReadAllText(Path.Combine(dest,"a.xlsx"))=="latest","latest wins");else Check(WpsShared.SourcePaths.GetFiles(dest,"*.xlsx").Length==2,"numbering retains all");
             Check(result.Batch.Journal.StartsWith(root+"\\")&&WpsShared.SourcePaths.Exists(result.Batch.LogPath),"journal and log local");
             Reject(()=>Organize(FileOrganizer.Plan(root,options),null,null,null),"pending batch blocks repeat");
             var restored=OperationBatch.Find(root);Check(restored!=null&&restored.CanUndo,"reopen restores pending batch");
-            var undo=restored.Undo(null);Check(!undo.RecoveryIncomplete,"complete inverse "+mask);Same(root,before,"all original paths and contents restored "+mask);
+            var undo=restored.Undo(null);Check(!undo.RecoveryIncomplete,"complete inverse "+mask+"\r\n"+undo.Text);Same(root,before,"all original paths and contents restored "+mask);
             Check(!options.Classify||!Directory.Exists(Path.Combine(root,"xlsx")),"new classification directory removed on undo "+mask);
             restored.Confirm(RecycleFiles.Send);Check(OperationBatch.Find(root)==null,"confirmation removes only owned logs");Check(WpsShared.SourcePaths.ReadAllText(Path.Combine(root,"备份/user.txt"))=="user-owned","user backup retained");
         }
@@ -157,7 +244,7 @@ class FileOperationsProbe
     {
         sandbox=Path.Combine(Path.GetTempPath(),"EI-FeatureProbe-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(sandbox);
         int exit=0;
-        try {OrganizerChecks();DirectoryChecks();RenameChecks();SavingChecks();}
+        try {JournalLockCheck();JournalPersistenceChecks();OrganizerChecks();DirectoryChecks();RenameChecks();SavingChecks();}
         catch(Exception ex){Console.WriteLine("FAIL "+ex);exit=1;}
         finally
         {

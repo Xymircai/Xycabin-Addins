@@ -105,10 +105,29 @@ namespace Excel_Iterate
             FilePaths.CheckAncestors(path);
         }
         internal void Persist()
+        { Persist((temporary,journal)=>File.Replace(temporary,journal,null),System.Threading.Thread.Sleep); }
+        internal void Persist(Action<string,string> replace,Action<int> pause)
         {
             string temp=Journal+".tmp";
             using(var writer=XmlWriter.Create(temp,new XmlWriterSettings { Encoding=new UTF8Encoding(false),Indent=true })) new XmlSerializer(typeof(OperationBatch)).Serialize(writer,this);
-            if(File.Exists(Journal))File.Replace(temp,Journal,null);else File.Move(temp,Journal);
+            if(!File.Exists(Journal)) {File.Move(temp,Journal);return;}
+            // Retry only failures that leave both names intact; never delete the last recovery record.
+            for(int attempt=1;;attempt++)
+            {
+                try {replace(temp,Journal);return;}
+                catch(IOException ex)
+                {
+                    bool transient=ex.HResult==unchecked((int)0x80070020)
+                        ||ex.HResult==unchecked((int)0x80070021)||ex.HResult==unchecked((int)0x80070497);
+                    if(transient&&attempt<5&&File.Exists(temp)&&File.Exists(Journal))
+                    {
+                        pause(50<<(attempt-1));
+                        if(File.Exists(temp)&&File.Exists(Journal))continue;
+                    }
+                    throw new IOException("恢复记录原子替换失败（尝试"+attempt+"次，HRESULT=0x"+ex.HResult.ToString("X8")
+                        +"）；恢复记录："+Journal+"；临时记录："+temp+"。"+ex.Message,ex);
+                }
+            }
         }
         internal void Log(string value) { File.AppendAllText(LogPath,DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff")+"  "+value+"\r\n",new UTF8Encoding(false)); }
         internal void DirectoryFor(string path)

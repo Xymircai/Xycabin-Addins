@@ -35,7 +35,7 @@ def main():
         status = 'success'
     finally:
         write_json(BUILD / 'validate-run-summary.json', report.summary(status, **result))
-    report.manual_items(site=False)
+    report.manual_items()
 
 
 def validate(args, report):

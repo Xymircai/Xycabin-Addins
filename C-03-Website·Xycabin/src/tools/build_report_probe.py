@@ -91,16 +91,15 @@ def verify_report():
                  patch('build_report.popen_process', side_effect=AssertionError('manual checklist launched a process')), \
                  patch.object(Path, 'write_text', side_effect=AssertionError('manual checklist rewrote a file')), \
                  patch.object(Path, 'unlink', side_effect=AssertionError('manual checklist deleted a file')):
-                human.manual_items(site=False)
+                human.manual_items()
         finally:
             if nested is not None:
                 os.environ['XY_REPORT_NESTED'] = nested
         lines = [line for line in human_console.getvalue().splitlines() if line.startswith('[H-')]
-        check([line[1:5] for line in lines] == ['H-%02d' % i for i in range(1, 14)], 'manual items follow Spec order')
+        check([line[1:5] for line in lines] == ['H-01', 'H-02'], 'only the two manual items follow Spec order')
         check(all('通过' not in line for line in lines), 'manual items never claim automatic success')
-        check('[H-13] 本轮不适用｜特定示例代码优化' in lines, 'example optimization stays inactive without an explicit task')
-        check(all('本轮不适用' in line for line in lines if line.startswith(('[H-07]', '[H-08]', '[H-09]', '[H-10]'))),
-              'ordinary builds do not start redundancy cleanup')
+        check('[H-02] 本轮不适用｜代码优化' in lines, 'general code optimization stays inactive without an explicit task')
+        check('[H-01] 本轮不适用｜冗余清理' in lines, 'ordinary builds do not start redundancy cleanup')
         check(human.gates == [] and data['gates'] == report.gates, 'manual guidance never creates an automatic gate result')
         fake = root / 'repository'
         (fake / 'C-04-Devlog').mkdir(parents=True)
@@ -112,19 +111,21 @@ def verify_report():
             check(True, 'a duplicate Spec table row cannot disappear in a dictionary')
         else:
             raise AssertionError('duplicate Spec row accepted')
-        hrow = next(line for line in spec.splitlines() if line.startswith('| H-13 |'))
-        hdefinition = next(line for line in spec.splitlines() if line.startswith('**H-13**'))
+        hrow = next(line for line in spec.splitlines() if line.startswith('| H-02 |'))
+        hdefinition = next(line for line in spec.splitlines() if line.startswith('**H-02**'))
         for changed, label in [
                 (spec.replace(hdefinition, ''), 'missing manual definition'),
                 (spec + '\n' + hdefinition, 'duplicate manual definition'),
-                (spec.replace('**H-12**', '**H-TMP**').replace('**H-13**', '**H-12**').replace('**H-TMP**', '**H-13**'), 'reordered definitions'),
+                (spec.replace('**H-01**', '**H-TMP**').replace('**H-02**', '**H-01**').replace('**H-TMP**', '**H-02**'), 'reordered definitions'),
                 (spec.replace(hrow, ''), 'missing manual summary'),
                 (spec + '\n' + hrow, 'duplicate manual summary'),
-                (spec.replace('| H-12 |', '| H-TMP |').replace('| H-13 |', '| H-12 |').replace('| H-TMP |', '| H-13 |'), 'reordered summary'),
-                (spec.replace(hrow, hrow.replace('特定示例代码优化', '错误主题')), 'inconsistent manual title'),
+                (spec.replace('| H-01 |', '| H-TMP |').replace('| H-02 |', '| H-01 |').replace('| H-TMP |', '| H-02 |'), 'reordered summary'),
+                (spec.replace(hrow, hrow.replace('代码优化', '错误主题')), 'inconsistent manual title'),
                 (spec.replace(hrow, re.sub(r'\| 用户明确要求.*?\|', '| |', hrow)), 'missing manual trigger'),
                 (spec.replace(hrow, hrow.replace('本轮不适用', '自动通过')), 'automatic manual success'),
-                (spec.replace(hrow, hrow.replace('本轮不适用', '人工核对')), 'automatic optimization applicability')]:
+                (spec.replace(hrow, hrow.replace('本轮不适用', '人工核对')), 'automatic optimization applicability'),
+                (spec + '\n**H-03** 已移除事项。验收：人工。证据：记录。', 'retired manual definition'),
+                (spec + '\n' + hrow.replace('H-02', 'H-13'), 'retired manual summary')]:
             (fake / 'C-04-Devlog/B3-Spec Coding.md').write_text(changed, encoding='utf-8')
             try:
                 spec_items(fake)

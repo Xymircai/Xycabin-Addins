@@ -18,12 +18,9 @@ GATE_ROW = re.compile(r'^\|\s*(G-\d{2})\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|
 H_ROW = re.compile(r'^\*\*(H-\d{2})\*\*\s*(.+)$', re.M)
 H_SUMMARY_ROW = re.compile(r'^\|\s*(H-\d{2})\s*\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)\|\s*$', re.M)
 H_ITEMS = {
-    'H-01': '维护顺序', 'H-02': '构建期禁编辑', 'H-03': '安装与卸载报告', 'H-04': '排障顺序',
-    'H-05': '实机 COM 验收', 'H-06': '弹窗真实交互验收', 'H-07': '清理触发', 'H-08': '冗余候选条件',
-    'H-09': '五类盘点', 'H-10': 'fixture 与删除边界', 'H-11': '网站经验归属', 'H-12': '固定图样不读桌面',
-    'H-13': '特定示例代码优化',
+    'H-01': '冗余清理', 'H-02': '代码优化',
 }
-H_DEFAULT_INACTIVE = frozenset(('H-03', 'H-04', 'H-07', 'H-08', 'H-09', 'H-10', 'H-13'))
+H_DEFAULT_INACTIVE = frozenset(H_ITEMS)
 DEVELOPER_GATES = ('G-03', 'G-05', 'G-06', 'G-07')
 BUILD_GATES = tuple('G-%02d' % i for i in range(1, 23) if 'G-%02d' % i not in DEVELOPER_GATES)
 GATE_SCOPES = {'G-%02d' % i: 'developer' if 'G-%02d' % i in DEVELOPER_GATES else 'delivery' if i == 23 else 'build'
@@ -246,11 +243,11 @@ class BuildReport:
             raise ValueError('\n'.join(errors))
         return data
 
-    def manual_items(self, site=True):
+    def manual_items(self):
         if os.environ.get('XY_REPORT_NESTED') == '1':
             return
         for key, title in self.humans:
-            inactive = key in H_DEFAULT_INACTIVE or (not site and key == 'H-11')
+            inactive = key in H_DEFAULT_INACTIVE
             self.console.write('[%s] %s｜%s\n' % (key, '本轮不适用' if inactive else '人工核对', title))
         self.console.write('详细日志：' + str(self.directory.resolve()) + '\n')
         self.console.flush()

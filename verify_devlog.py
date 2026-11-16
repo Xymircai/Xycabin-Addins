@@ -516,8 +516,10 @@ def self_test():
     assert set(RULES) == {'R-%02d' % index for index in range(1, 31)}
     assert H_LINE.findall('**H-01** 甲。验收：x。证据：y。\n**H-02** 乙。验收：x。证据：y。\n') == ['H-01', 'H-02']
     hsample = (DOCS / 'B3-Spec Coding.md').read_text(encoding='utf-8-sig')
+    assert list(H_ITEMS.items()) == [('H-01', '冗余清理'), ('H-02', '代码优化')]
     assert check_h_items(hsample) == []
-    assert any('缺少人工门禁条目 H-13' in item for item in check_h_items(re.sub(r'^\*\*H-13\*\*.*$', '', hsample, flags=re.M)))
+    assert any('缺少人工门禁条目 H-02' in item for item in check_h_items(re.sub(r'^\*\*H-02\*\*.*$', '', hsample, flags=re.M)))
+    assert any('未登记人工门禁条目 H-13' in item for item in check_h_items(hsample + '\n**H-13** 已移除事项。验收：人工。证据：记录。'))
     assert any('H 编号重复' in item for item in check_h_items(hsample + '\n**H-01** 乙。验收：人工。证据：记录。'))
     swapped = hsample.replace('**H-01**', '**H-X1**').replace('**H-02**', '**H-01**').replace('**H-X1**', '**H-02**')
     assert any('顺序' in item for item in check_h_items(swapped))
@@ -554,7 +556,7 @@ def self_test():
         path.write_text(text + '\n# 三. Word与Excel共享门禁\n', encoding='utf-8')
         assert any('两个一级章节' in item for item in verify_file(path))
         assert check_rules(text.replace('**R-30**', '**R-99**'))
-    print('VerifyDevlog self-test: 25 PASS, 0 FAIL', flush=True)
+    print('VerifyDevlog self-test: 27 PASS, 0 FAIL', flush=True)
 
 
 def main():

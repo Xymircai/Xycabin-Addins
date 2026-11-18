@@ -9,7 +9,7 @@ namespace Excel_Iterate
     // captures the displaced target as the recovery file in the same operation.
     internal static class MigrationOutputTransaction
     {
-        internal static string Commit(string stage, string target, string expectedHash, string batch)
+        internal static string Commit(string stage, string target, string expectedHash, string batch, out string verified)
         {
             stage = Path.GetFullPath(stage); target = Path.GetFullPath(target);
             if (string.Equals(stage, target, StringComparison.OrdinalIgnoreCase) ||
@@ -22,7 +22,7 @@ namespace Excel_Iterate
             // Fail before commit on ordinary sharing/read-only errors. There is
             // no delete-then-move fallback when atomic replacement is unavailable.
             using (File.Open(target, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) { }
-            string verified = DataMigrationHost.Digest(stage);
+            verified = DataMigrationHost.Digest(stage);
             string directory = Path.Combine(Path.GetDirectoryName(target), "复制备份", batch);
             PlainPath(directory); Directory.CreateDirectory(directory); PlainPath(directory);
             string backup = Path.Combine(directory, Path.GetFileName(target));

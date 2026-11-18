@@ -64,6 +64,15 @@ namespace Excel_IterateSetup
 
         internal static readonly string[] Payload = Id.Payload;
 
+        internal static IEnumerable<string> InstalledPayload()
+        {
+            foreach (string name in Payload) yield return name;
+#if WPS_EXCEL
+            // An earlier Excel installer deployed this companion.
+            yield return "MigrationComBinder.exe";
+#endif
+        }
+
         /// <summary>部署清单文件名。换名字时上面的 Payload 也要跟着改。</summary>
         internal const string PayloadVstoName = Id.PayloadVstoName;
 
@@ -219,7 +228,7 @@ namespace Excel_IterateSetup
                     return InstallFlow.Install(new InstallActions {
                         FindRuntime = FindAndLogRuntime,
                         CleanupSubscriptions = PrepareSubscriptions,
-                        ReleasePayload = delegate { PrepareMaintenance(dir); ReleasePayload(dir); },
+                        ReleasePayload = delegate { PrepareMaintenance(dir); ReleasePayload(dir, Log); },
                         InvokeInstall = delegate(string tool) { return RunStandardInstall(tool, dir); },
                         Register = delegate { WriteRegistry(dir); AddToAddinsWl(); RegisterMaintenance(dir); },
                         Complete = delegate {
@@ -234,10 +243,10 @@ namespace Excel_IterateSetup
             finally { SetBusy(false); }
         }
 
-        private void ReleasePayload(string dir)
+        private static void ReleasePayload(string dir, Action<string> log)
         {
             Directory.CreateDirectory(dir);
-            Log("安装目录：" + dir);
+            log("安装目录：" + dir);
             Assembly self = Assembly.GetExecutingAssembly();
             foreach (string name in Program.Payload)
             {
@@ -247,7 +256,7 @@ namespace Excel_IterateSetup
                     using (FileStream dst = new FileStream(Path.Combine(dir, name), FileMode.Create, FileAccess.Write))
                         src.CopyTo(dst);
                 }
-                Log("  已释放 " + name);
+                log("  已释放 " + name);
             }
         }
 
@@ -278,11 +287,11 @@ namespace Excel_IterateSetup
                         RemovePayloadAndRegistration = delegate {
                             if (!string.IsNullOrEmpty(registeredDir)) {
                                 SaveLastInstallDir(registeredDir, "已保留上次安装目录：" + registeredDir);
-                                DeletePayload(registeredDir, Program.Payload);
+                                DeletePayload(registeredDir, Program.InstalledPayload());
                             }
                             if (IsUsableDir(dir) && !string.Equals(dir, registeredDir, StringComparison.OrdinalIgnoreCase)
                                 && File.Exists(Path.Combine(dir, Program.PayloadVstoName)))
-                                DeletePayload(dir, Program.Payload);
+                                DeletePayload(dir, Program.InstalledPayload());
                             Registry.CurrentUser.DeleteSubKeyTree(Program.AddinKeyPath, false);
                             RemoveOwnedInclusion(Program.PayloadVstoName);
                             RemoveFromAddinsWl();
@@ -668,7 +677,7 @@ namespace Excel_IterateSetup
             }
         }
 
-        private void DeletePayload(string dir, string[] payload)
+        private void DeletePayload(string dir, IEnumerable<string> payload)
         {
             if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
             foreach (string name in payload)

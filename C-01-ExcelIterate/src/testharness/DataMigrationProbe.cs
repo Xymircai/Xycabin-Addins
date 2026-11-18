@@ -2,10 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.IO.Pipes;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
+using System.Threading;
 using Excel_Iterate;
 
 namespace Excel_Iterate.TestHarness
@@ -324,19 +327,26 @@ namespace Excel_Iterate.TestHarness
             string target = Path.Combine(folder, "审计底稿.xlsm"), stage = Path.Combine(folder, ".xy-migration-stage.xlsm");
             File.WriteAllText(target, "original"); File.WriteAllText(stage, "verified");
             string hash = DataMigrationHost.Digest(target);
-            string backup = MigrationOutputTransaction.Commit(stage, target, hash, "batch1");
+            string committedHash;
+            string backup = MigrationOutputTransaction.Commit(stage, target, hash, "batch1", out committedHash);
             Check(File.ReadAllText(target) == "verified" && File.ReadAllText(backup) == "original" && !File.Exists(stage), "atomic replacement retains exact original backup and original Unicode filename");
             Check(Path.GetDirectoryName(backup) == Path.Combine(folder, "复制备份", "batch1") && !Directory.GetFiles(folder, "*_复制结果*").Any(), "replacement produces no result-suffix workbook in the target directory");
+            File.WriteAllText(target, "external edit");
+            var recovery = new MigrationRecovery();
+            recovery.Record(target, backup, committedHash);
+            var rejectedRestore = MigrationRecovery.Restore(recovery.Pending);
+            Check(rejectedRestore.Single().Value.Length > 0 && File.ReadAllText(target) == "external edit", "late UI attachment uses the committed digest and refuses to undo another editor's changes");
+            File.WriteAllText(target, "verified");
             File.WriteAllText(stage, "next"); bool failed = false;
-            try { MigrationOutputTransaction.Commit(stage, target, hash, "stale"); } catch (IOException) { failed = true; }
+            try { MigrationOutputTransaction.Commit(stage, target, hash, "stale", out committedHash); } catch (IOException) { failed = true; }
             Check(failed && File.ReadAllText(target) == "verified" && File.Exists(stage), "changed original is rejected without consuming the verified staging file");
             hash = DataMigrationHost.Digest(target); failed = false;
             using (File.Open(target, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
-                try { MigrationOutputTransaction.Commit(stage, target, hash, "locked"); } catch (IOException) { failed = true; }
+                try { MigrationOutputTransaction.Commit(stage, target, hash, "locked", out committedHash); } catch (IOException) { failed = true; }
             Check(failed && File.ReadAllText(target) == "verified", "locked target fails before replacement");
-            failed = false; try { MigrationOutputTransaction.Commit(stage, target, hash, "batch1"); } catch (IOException) { failed = true; }
+            failed = false; try { MigrationOutputTransaction.Commit(stage, target, hash, "batch1", out committedHash); } catch (IOException) { failed = true; }
             Check(failed && File.ReadAllText(backup) == "original" && File.ReadAllText(target) == "verified", "existing recovery file is never overwritten");
-            string nextBackup = MigrationOutputTransaction.Commit(stage, target, hash, "batch2");
+            string nextBackup = MigrationOutputTransaction.Commit(stage, target, hash, "batch2", out committedHash);
             Check(File.ReadAllText(target) == "next" && File.ReadAllText(nextBackup) == "verified" && File.ReadAllText(backup) == "original", "repeated migration preserves each preceding version independently");
         }
         private static void QuietReplaceChecks(string root)
@@ -385,6 +395,14 @@ namespace Excel_Iterate.TestHarness
                 Check(!blocked.Ready && blocked.Error.Contains("关闭") && blocked.Output.Length == 0 && blocked.Backup.Length == 0 && app.Workbooks.Items.Contains(open) && DataMigrationHost.Digest(blocked.Path) == openedHash, "execution rejects an open replacement target with save-and-close guidance and leaves the original unchanged");
             }
             open.Close(false);
+            var stale = new MigrationTarget { Path = targets[0].Path, Sheet = "目标表", Start = "B100", ExpectedFingerprint = hashes[targets[0].Path] };
+            var peer = new MigrationTarget { Path = targets[2].Path, Sheet = "目标表", Start = "B100" };
+            using (var host = new DataMigrationHost(app))
+            {
+                Drain(host.Preview(Request(source.FullName, stale, peer)));
+                Check(!stale.Ready && stale.Error.Contains("预检后已变化") && peer.Ready,
+                    "a target changed after approval fails independently during the execution precheck");
+            }
             var cancelled = new MigrationTarget { Path = targets[2].Path, Sheet = "目标表", Start = "B100" };
             request = Request(source.FullName, cancelled); request.ReplaceTargets = true; string before = DataMigrationHost.Digest(cancelled.Path);
             using (var host = new DataMigrationHost(app))
@@ -519,6 +537,136 @@ namespace Excel_Iterate.TestHarness
             using (var file = File.Create(macro)) using (var zip = new ZipArchive(file, ZipArchiveMode.Create)) using (var writer = new StreamWriter(zip.CreateEntry("xl/vbaProject.bin").Open())) writer.Write("fixture VBA bytes");
             Check(DataMigrationHost.MacroFingerprints(macro).Count == 1, "VBA payload fingerprint captured independently of workbook edits");
         }
+        private static void BackgroundLaunchErrorChecks(string root)
+        {
+            string missing = Path.Combine(root, "missing-worker.exe");
+            var launch = typeof(MigrationBackgroundSession).GetMethod("StartProcess", BindingFlags.Instance | BindingFlags.NonPublic);
+            try { launch.Invoke(new MigrationBackgroundSession(), new object[] { missing, "\"" + missing + "\"" }); }
+            catch (TargetInvocationException failure)
+            {
+                var error = failure.InnerException as System.ComponentModel.Win32Exception;
+                Check(error != null && error.NativeErrorCode == 2 && error.Message.Contains("Win32 2")
+                    && error.Message.Contains(new System.ComponentModel.Win32Exception(2).Message),
+                    "missing background executable reports the original Win32 code and system message");
+                return;
+            }
+            throw new InvalidOperationException("The nonexistent background executable was not rejected.");
+        }
+
+        private static void BackgroundBindingChecks()
+        {
+            Check(MigrationComBridge.PrivateAutomationDesktop() == null, "an ordinary process is not a private WPS publisher");
+            string name = MigrationComBridge.PipeName(MigrationComBridge.DesktopPrefix + Guid.NewGuid().ToString("N"));
+            using (var server = MigrationComBridge.CreatePipe(name))
+            using (var client = new NamedPipeClientStream(".", name, PipeDirection.InOut))
+            {
+                var wait = server.BeginWaitForConnection(null, null);
+                client.Connect(1000);
+                bool rejected = false, inspected = false;
+                try
+                {
+                    MigrationComBridge.Receive(server, wait, pid => { inspected = pid != 0; return false; }, CancellationToken.None, 1000);
+                }
+                catch (IOException error) { rejected = error.Message.Contains("管道进程"); }
+                Check(inspected && rejected, "the pipe verifies peer identity before reading any data from an unowned process");
+            }
+
+            foreach (var header in new[] { new[] { 2, 1 }, new[] { 1, 65537 } })
+                using (var server = MigrationComBridge.CreatePipe(name))
+                using (var client = new NamedPipeClientStream(".", name, PipeDirection.InOut))
+                {
+                    var wait = server.BeginWaitForConnection(null, null);
+                    client.Connect(1000);
+                    using (var writer = new BinaryWriter(client, System.Text.Encoding.UTF8, true))
+                    {
+                        writer.Write(header[0]);
+                        writer.Write(header[1]);
+                        writer.Flush();
+                    }
+                    bool rejected = false;
+                    try { MigrationComBridge.Receive(server, wait, pid => true, CancellationToken.None, 1000); }
+                    catch (InvalidDataException) { rejected = true; }
+                    Check(rejected, "the pipe rejects an incompatible version or oversized packet before COM unmarshaling");
+                }
+
+            using (var server = MigrationComBridge.CreatePipe(name))
+            {
+                bool timedOut = false;
+                try { MigrationComBridge.Receive(server, server.BeginWaitForConnection(null, null), pid => true, CancellationToken.None, 200); }
+                catch (TimeoutException) { timedOut = true; }
+                Check(timedOut, "the pipe releases the listener when the private add-in does not connect");
+            }
+            using (var server = MigrationComBridge.CreatePipe(name))
+            using (var client = new NamedPipeClientStream(".", name, PipeDirection.InOut))
+            using (var cancellation = new CancellationTokenSource())
+            {
+                var wait = server.BeginWaitForConnection(null, null);
+                client.Connect(1000);
+                bool cancelled = false;
+                cancellation.CancelAfter(200);
+                try { MigrationComBridge.Receive(server, wait, pid => true, cancellation.Token, 1000); }
+                catch (OperationCanceledException error) { cancelled = error.CancellationToken == cancellation.Token; }
+                Check(cancelled, "cancellation interrupts a peer that connects without sending its packet");
+            }
+        }
+
+        private static void FiveTargetValuesChecks(string root)
+        {
+            var app = new FakeApp();
+            var source = app.Workbooks.Create(Path.Combine(root, "迁移源.xlsx"), "Lead");
+            double[] values = { 17, 23, 41, 59, 83 };
+            for (int i = 0; i < values.Length; i++) source.Sheets[0].Cell("J" + (i + 2)).Value2 = values[i];
+            source.Persist();
+            source.Close(false);
+            string sourceHash = DataMigrationHost.Digest(source.FullName);
+
+            var pair = new MigrationPair
+            {
+                Source = new MigrationSide { Used = true, Sheet = "Lead", Range = "J2:J6" },
+                Target = new MigrationSide { Used = true, Sheet = "Sheet1", Range = "F2:F6" },
+                ValuesOnly = true
+            };
+            pair.Source.Books.Add(source.FullName);
+            for (int i = 1; i <= 5; i++)
+            {
+                var book = app.Workbooks.Create(Path.Combine(root, "迁移目标 (" + i + ").xlsx"), "Sheet1");
+                book.Sheets[0].Cell("F2").NumberFormat = "0.00";
+                book.Sheets[0].Cell("A1").Value2 = "保留";
+                book.Persist();
+                book.Close(false);
+                pair.Target.Books.Add(book.FullName);
+            }
+            var originals = pair.Target.Books.ToDictionary(path => path, DataMigrationHost.Digest);
+            var configuration = new MigrationConfiguration(new[] { pair }, new MigrationBook[0], new MigrationBook[0], true, false);
+            var plan = new MigrationPlanner(configuration).Build();
+            var request = plan.Passes.Single().Request;
+            Check(request.ValuesOnly && plan.Mappings.Count == 5 && plan.Mappings.All(m => m.TargetRange == "F2:F6"),
+                "one Lead!J2:J6 mapping expands to five values-only Sheet1!F2:F6 writes");
+            using (var host = new DataMigrationHost(app, interactiveWindows: false))
+            {
+                Drain(host.Preview(request));
+                Check(request.Targets.All(t => t.Ready) && originals.All(item => DataMigrationHost.Digest(item.Key) == item.Value),
+                    "preflight accepts all five destinations and preserves their original bytes");
+                Drain(host.Execute());
+            }
+            foreach (var target in request.Targets)
+            {
+                Check(target.Status == "成功" && target.Output == target.Path && DataMigrationHost.Digest(target.Backup) == originals[target.Path],
+                    "values-only replacement succeeded with its exact original backup: " + Path.GetFileName(target.Path));
+                var output = app.Workbooks.Open(target.Path, 0, true);
+                try
+                {
+                    var sheet = output.Sheets[0];
+                    var cells = Enumerable.Range(2, 5).Select(row => sheet.Cell("F" + row)).ToArray();
+                    Check(cells.Select(cell => cell.Value2).SequenceEqual(values.Cast<object>()) && cells.All(cell => !cell.HasFormula)
+                        && sheet.Cell("F2").NumberFormat == "0.00" && Equals(sheet.Cell("A1").Value2, "保留"),
+                        "five values, the target format and the unrelated cell survive reopening: " + Path.GetFileName(target.Path));
+                }
+                finally { output.Close(false); }
+            }
+            Check(DataMigrationHost.Digest(source.FullName) == sourceHash && app.Workbooks.Count == 0,
+                "one-to-five migration preserves the source and closes its temporary workbooks");
+        }
         [STAThread] public static int Main(string[] args)
         {
             string root = Path.Combine(Path.GetTempPath(), "migration-probe-" + Guid.NewGuid().ToString("N")); Directory.CreateDirectory(root);
@@ -529,6 +677,7 @@ namespace Excel_Iterate.TestHarness
                 MappingSummaryChecks(); FormulaChecks(); PackageChecks(root); FidelityChecks(root); WatchChecks(); PickerChecks(root); TargetSelectionChecks(root); SelectionPopupChecks(root); PumpChecks(); HostChecks(root); TransactionChecks(root); QuietReplaceChecks(root); SnapshotRaceChecks(root); LinkChecks(root); LinkConfigurationChecks();
                 using (var form = new DataMigrationForm()) Check(!form.Visible && form.Mappings.Count == 0 && form.Sources.Columns.Count == 7 && form.Targets.Columns.Count == 6 && form.Sources.Columns.Contains("pick") && form.Sources.Columns.Contains("trigger") && !form.Targets.Columns.Contains("trigger"), "production form constructs without host access");
                 LayoutChecks(); RecalculationTargetChecks(root); PresetChecks(); ArchitectureChecks();
+                FiveTargetValuesChecks(root); BackgroundBindingChecks(); BackgroundLaunchErrorChecks(root);
                 if (args.Length == 2 && args[0] == "--render") Render(root, Path.GetFullPath(args[1]));
                 Console.WriteLine("PASS: DataMigrationProbe " + count + " assertions; managed fixtures only, no WPS connection");
                 Directory.Delete(root, true); return 0;

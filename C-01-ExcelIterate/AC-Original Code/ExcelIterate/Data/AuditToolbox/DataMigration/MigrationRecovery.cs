@@ -12,10 +12,11 @@ namespace Excel_Iterate
         internal int RestorableCount { get { return points.Count(p => !p.Restored); } }
         internal List<Point> Backups { get { return points.Where(p => !p.Cleared).ToList(); } }
         internal List<Point> Pending { get { return points.Where(p => !p.Restored && !p.Cleared).Reverse().ToList(); } }
-        internal void Record(string path, string backup)
+        internal void Record(string path, string backup, string committedHash)
         {
-            if (string.IsNullOrEmpty(backup) || !File.Exists(backup) || points.Any(p => string.Equals(p.Backup, backup, StringComparison.OrdinalIgnoreCase))) return;
-            points.Add(new Point { Path = path, Backup = backup, Hash = DataMigrationHost.Digest(path) });
+            if (string.IsNullOrEmpty(backup) || string.IsNullOrEmpty(committedHash) || !File.Exists(backup) ||
+                points.Any(p => string.Equals(p.Backup, backup, StringComparison.OrdinalIgnoreCase))) return;
+            points.Add(new Point { Path = path, Backup = backup, Hash = committedHash });
         }
         internal static IEnumerable<string> Files(Point point)
         {

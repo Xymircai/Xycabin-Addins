@@ -114,6 +114,8 @@ internal static class PayloadProbe
                 }
             Assembly dll = Assembly.LoadFile(Path.Combine(root, "build", name + ".dll"));
             if (dll.GetName().Version.ToString() != version) throw new Exception("DLL version mismatch");
+            if (name == "Excel_Iterate" && Array.IndexOf(dll.GetManifestResourceNames(), "Excel_Iterate.MigrationComBinder.exe") >= 0)
+                throw new Exception("Excel payload still embeds the retired migration helper");
             VerifyDocumentAssets(root, dll, Path.GetFullPath(args[5]));
             // Check embedded documents without opening the Agent reader windows.
             foreach (string document in new string[] { "DevExperience", "UserGuide" })

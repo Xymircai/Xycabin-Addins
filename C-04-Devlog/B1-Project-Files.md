@@ -1,6 +1,6 @@
 **三项目档案与版本**
 
-最后更新：2026-11-17 ｜ 当前版本：**0.9.9.3** ｜ 交付物：`Excel_Iterate_Setup.exe`、`WordUpdater_Setup.exe`、`XyCabin.html`
+最后更新：2026-11-18 ｜ 当前版本：**0.9.9.3** ｜ 交付物：`Excel_Iterate_Setup.exe`、`WordUpdater_Setup.exe`、`XyCabin.html`
 
 # 一. Agent及开发者接手概览
 
@@ -98,6 +98,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (1). 当前实现与待验收
 
+批量复制数据的预检及执行默认在私有桌面的独立 WPS 会话中处理。后台任务启动已注册的 WPS 表格程序，私有会话中的 Excel-Iterate 经本地管道回传自身自动化接口。启动失败时在迁移窗口和日志中显示具体阶段及可用的 Win32 错误信息，用户可为本次操作手动确认改用前台。迁移窗支持最小化，完成时通过 Windows 通知报告结果。
+
 批量复制数据的映射方式改为下拉选择：只写数值、数值+格式、只写公式、公式+格式、只写格式、粘贴链接，新行仍默认只写数值。逐行重算保留两种数值方式；取消不改配置，修改方式后重新预检，运行期间锁定。粘贴链接逐格引用原始源文件的绝对地址，保留目标格式与尺寸，不导入源公式依赖；完整合并区域只链接主格。版本 2 预设保存链接方式并兼容版本 1，保存重开分别核公式和计划外链。源码及离线探针入口沿用 B4，真实外链刷新、下拉交互、焦点与 DPI 另列验收。
 
 本轮按用户最新指令跳过需要 computer-use 的核验：真实按钮、键入焦点、子菜单、Esc、跨屏 DPI、浏览器打开行为及安装授权均未执行。95 项登记功能分别记录后台断言、宿主自建样本证据和界面未执行项，不将后台通过表述为全部真实功能通过；实际安装的旧 Word DLL 不代表本轮构建结果。OCR 未配置的服务只核对缺凭据提示，不执行真实识别或上传样本。功能覆盖记录见本轮交付证据。
@@ -159,6 +161,15 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 本轮沿用版本与发布身份，公共源码迁至C-00-Shared，项目清单直接引用，生成文件与产品入口保留原位置。抵消窗口在首次可见前应用最大化，来源事件先订阅再回填；局部缓冲覆盖布局、网格和拖柄，尺寸预览保持普通窗口。默认布局按窗口及DPI延迟测量；从属扫描和抵消预检通过原宿主线程分块读取、后台纯数据运算，来源变化时中止。宿主不支持变化监听时回退同步读取并记录兼容路径。EliminationSession统一持有目标、快照和任务，大结果预览按需取值，仍完整测宽、支持复制；取消与失败重试保留尚未还原的目标。实际WPS黑影、键入、菜单、跨屏DPI与写入还原由用户验收，离线检查不能代替。
 
 ### (2). 本轮交付证据
+
+本轮移除独立迁移助手，由私有 WPS 内的加载项提供自动化接口。迁移离线 353 项断言及 Excel 后台回归 32 项通过。确认单独启动的私有 WPS 会加载 VSTO，另用受控进程核对接口传输及封送数据清理。同一 SHA-256 安装包通过实机功能区验收，预检和复制均在独立 WPS 完成，日志确认五份结果提交及两次 Windows 通知。用户在两项操作时切换窗口，确认焦点保持正常。相同安装的脚本探针通过四种格式和两种保存方式，核对一对五的 25 个值及五份原件备份，前台窗口 2834 次采样无变化。补充的数值探针首次与另一轮手工迁移的时间重叠，接口回传超时，串行复测通过。见 [多格式探针](../build/migration-hosted-binding/installed-background-buttons.log)、[数值探针](../build/migration-hosted-binding/installed-background-values.log)及[探针首次尝试](../build/migration-hosted-binding/installed-background-values-attempt1.log)。见 [现场故障](../build/migration-hosted-binding/installed-failure-extract.log)、[私有 WPS 启动](../build/migration-hosted-binding/private-wps-boot.log)、[跨进程接口夹具](../build/migration-hosted-binding/private-bridge-fixture.log)和[功能区验收记录](../build/migration-hosted-binding/ribbon-acceptance.json)。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 18:13:43 至 18:17:45（北京时间），退出码 0，重建标识 `7468089bc0414f37a53f63c4a590efeb`，收尾标识 `1125448073fe4c8c9619cf2d9eac46bb`。成果 `Excel_Iterate_Setup.exe` 为 5749248 字节，SHA-256 为 `b32bfe16598fde220171e47163c96ceb488d1a331ea3e2b4ccd0a69338bcd69e`。见 [BAT 控制台记录](../build/migration-hosted-binding/bat-console.log)及 [验收摘要](../build/migration-hosted-binding/delivery-summary.json)。
+
+
+本轮将批量复制数据的后台连接程序移至安装时部署，修复宿主运行时写入程序被拒绝。正式安装包在隔离目录通过文件释放和重试修复，迁移离线 351 项断言及 Excel 后台回归 32 项通过。以释放后的正式 DLL 和连接程序运行真实 WPS COM，自建一对五数值映射和四种格式的两种保存方式均通过，前台窗口 2777 次采样无变化。验证由脚本触发生产控件，用户的 WPS 安装和功能区入口未替换或测试。见 [安装器释放及重试](../build/migration-installed-worker/installer-release-excel.log)、[一对五实机验证](../build/migration-installed-worker/packaged-background-values.log)和[四种格式实机验证](../build/migration-installed-worker/packaged-background-buttons.log)。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 16:55:12 至 16:59:07（北京时间），退出码 0，重建标识 `c3c578d87338499e8da0d8640b42c6ce`，收尾标识 `0e94008b48ac4b9b816adddf4f549da2`。正式成果 `Excel_Iterate_Setup.exe` 为 5758976 字节，SHA-256 为 `231258b5e65036873f5c3ce76bb48846cbfbc381ca6cb08593a8f9e4a44c6c22`。见 [BAT 控制台记录](../build/migration-installed-worker/bat-console.log)及 [交付摘要](../build/migration-installed-worker/delivery-summary.json)。
+
+本轮修正批量复制数据的后台启动流程。既有宿主日志定位在创建连接程序进程，旧版日志缺少 Windows 错误码。迁移离线 347 项断言通过，验证 Lead!J2:J6 只写数值到五个 Sheet1!F2:F6，并核对程序文件缺失时的 Win32 诊断。Excel 完整后台回归 32 项通过。按用户要求未执行 WPS 的实机预检或复制，未安装本轮成果。见 [旧版失败日志](../build/migration-startup-fix/installed-failure-extract.log)、[旧版离线对照](../build/migration-startup-fix/baseline-offline.log)及 [修复版离线验证](../build/migration-startup-fix/candidate-offline.log)。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 15:59:31 至 16:03:36（北京时间），退出码 0，重建标识 `e3b12f3596b24de09be9bda8ff60a927`，收尾标识 `ee0ab77920894e6d892521af109d9860`。正式成果 `Excel_Iterate_Setup.exe` 为 5754368 字节，SHA-256 为 `116ef44d7ff4dd7083e2ee5a3405723d5a7d3010aab337b0ff3d2b41dd996407`。见 [BAT 控制台记录](../build/migration-startup-fix/bat-console.log)及 [交付摘要](../build/migration-startup-fix/delivery-summary.json)。
+
+本轮交付批量复制数据后台运行。Excel 完整后台回归 32 项，迁移离线 333 项断言通过。真实 WPS 自建样本以生产按钮完成四种格式的原件更新和另存副本，保持最小化、活动工作簿、选区和输入桌面的原前台窗口。Windows 实际显示完成通知。见 [实机按钮与文件校验](../build/migration-background/background-buttons.log)和 [通知显示](../build/migration-background/windows-notification.log)。验证使用自建样本和生产控件，实际安装后的功能区交互仍待验收。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 14:46:03 至 14:50:13（北京时间），退出码 0，重建标识 `b440e79cbdee461892b764d26a16a36b`，收尾标识 `c5eed06f2b9b4af38843a482bd6a2390`。正式成果 `Excel_Iterate_Setup.exe` 为 5752832 字节，SHA-256 为 `274a0d8b8dba667383f2409d036c1e9682fee10679d303923bdecc568ab8346c`。见 [BAT 控制台记录](../build/migration-background/bat-console.log)及 [交付摘要](../build/migration-background/delivery-summary.json)。
 
 本轮将人工专项清单收敛为 H-01“冗余清理”和 H-02“代码优化”，删除其余旧 H 正文，统一 BAT 完整交付要求迁入 R-17；历史证据不改写。实际通过 cmd.exe 运行 [C-03 网站统一重建批处理](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)并输入“2. 完整验证”，起止 00:14:42—00:18:34，BAT 退出 0。文档自检 27 项、报告回归 38 项，以及 Excel／Word 完整后台 32／25 任务和 19 个适用 G 通过，缓存复用 0。Excel 安装包 5719552 字节，SHA-256：01075cde4c7eb355556e9f356e85938e370594666403c1c2cd52c7e5c5b5b7a4。重建 ed1dd12de69b4ee7a0ddd70307fc7f63，收尾 5c4c8b5ca59b42baa498b2f450594d35。两项 H 提示均为“本轮不适用”，未执行真实清理或业务代码优化；沿用版本 0.9.9.3 与固定发布者，未安装或连接 WPS。见 [两项 H 清单交付记录](../build/h-checklist-reduction/delivery-summary.json)。
 
@@ -500,6 +511,15 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+本轮随联合构建同步核对 WordUpdater，完整后台回归 25 项通过。安装器释放五个清单载荷，见 [释放记录](../build/migration-hosted-binding/installer-release-word.log)。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 18:13:43 至 18:17:45（北京时间），退出码 0，重建标识 `7468089bc0414f37a53f63c4a590efeb`，收尾标识 `1125448073fe4c8c9619cf2d9eac46bb`。成果 `WordUpdater_Setup.exe` 为 4333056 字节，SHA-256 为 `059dc388c14751b94691cadd026774d8b2cf448686232ad105f92a211713a785`。见 [BAT 控制台记录](../build/migration-hosted-binding/bat-console.log)及 [验收摘要](../build/migration-hosted-binding/delivery-summary.json)。
+
+
+本轮随联合构建同步交付 WordUpdater，完整后台回归 25 项通过。隔离释放核对仅包含原五载荷，见 [释放记录](../build/migration-installed-worker/installer-release-word.log)。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 16:55:12 至 16:59:07（北京时间），退出码 0，重建标识 `c3c578d87338499e8da0d8640b42c6ce`，收尾标识 `0e94008b48ac4b9b816adddf4f549da2`。正式成果 `WordUpdater_Setup.exe` 为 4333056 字节，SHA-256 为 `b34b9847e031f63bb22cfd113aba81082aaa6ad028b53f20c573fa2c2620bf87`。见 [BAT 控制台记录](../build/migration-installed-worker/bat-console.log)及 [交付摘要](../build/migration-installed-worker/delivery-summary.json)。
+
+本轮随联合构建同步交付 WordUpdater，完整后台回归 25 项通过。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 15:59:31 至 16:03:36（北京时间），退出码 0，重建标识 `e3b12f3596b24de09be9bda8ff60a927`，收尾标识 `ee0ab77920894e6d892521af109d9860`。正式成果 `WordUpdater_Setup.exe` 为 4331008 字节，SHA-256 为 `d873849ba51a2a97283a61c4131a1ba720e6737659cbf1ffda205ebe7d36d125`。见 [BAT 控制台记录](../build/migration-startup-fix/bat-console.log)及 [交付摘要](../build/migration-startup-fix/delivery-summary.json)。
+
+本轮随联合构建同步交付 WordUpdater，完整后台回归 25 项通过。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 14:46:03 至 14:50:13（北京时间），退出码 0，重建标识 `b440e79cbdee461892b764d26a16a36b`，收尾标识 `c5eed06f2b9b4af38843a482bd6a2390`。正式成果 `WordUpdater_Setup.exe` 为 4330496 字节，SHA-256 为 `d228e71a25365c98abf5241f2ad44a8f194ab4fdd6c93c56cfc15266e523f148`。见 [BAT 控制台记录](../build/migration-background/bat-console.log)及 [交付摘要](../build/migration-background/delivery-summary.json)。
+
 本轮将人工专项清单收敛为 H-01“冗余清理”和 H-02“代码优化”，删除其余旧 H 正文，统一 BAT 完整交付要求迁入 R-17；历史证据不改写。实际通过 cmd.exe 运行 [C-03 网站统一重建批处理](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)并输入“2. 完整验证”，起止 00:14:42—00:18:34，BAT 退出 0。共享验证入口已同步无网站专属筛选的人工提示调用，Word 完整后台 25 任务、签名与五载荷核对通过，缓存复用 0。Word 安装包 4333056 字节，SHA-256：18c41a32d1389f5d51ce27c5a1938287e299b888cd34e76cca481e588a2f9511。重建 ed1dd12de69b4ee7a0ddd70307fc7f63，收尾 5c4c8b5ca59b42baa498b2f450594d35。版本 0.9.9.3 与固定发布者沿用；两项 H 默认不适用，未执行真实清理、业务优化或 WPS 操作，既定前台项另验。见 [两项 H 清单交付记录](../build/h-checklist-reduction/delivery-summary.json)。
 
 本轮按 B3 的 H-01／R-17 实际通过 cmd.exe 运行 [C-03 网站统一重建批处理](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，输入“2. 完整验证”，起止 22:37:02—22:41:18，BAT 退出 0。Word 业务源码未改，随开发经验更新内嵌资源；完整后台 25 任务及清单双签名、五载荷和联合交付核对通过，缓存复用 0。Word 安装包 4333056 字节，SHA-256：15a80f1f75bc844c2d28c64886f5a777794101ef5cacef255b205991ed63898b。重建运行 e559c2833d174d78865c93a310483adf，收尾运行 841fd1d0c3694a94aff39c555b7b5646。版本 0.9.9.3 与固定发布者沿用；未安装、未连接 WPS，前台另验。见 [真实 BAT 交付记录](../build/agent-bat-entry/delivery-summary.json)。
@@ -625,6 +645,15 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 源码与正式产物内容指纹控制增量；两包、独立页和交付记录统一事务发布。后台前端/下载/音频替身不发声、不真实下载，不能代替file页面、听感、浏览器许可或安装效果。当前交付摘要在审计区，方法不重复历史流水。
 
 ### (2). 本轮交付证据
+
+本轮联合构建的 18 个重建关口及 G-23 均通过。网页中的两个下载包与联合构建成果逐字节一致。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 18:13:43 至 18:17:45（北京时间），退出码 0，重建标识 `7468089bc0414f37a53f63c4a590efeb`，收尾标识 `1125448073fe4c8c9619cf2d9eac46bb`。成果 `XyCabin.html` 为 14667520 字节，SHA-256 为 `6d1d98d13d4f07efc0011e478930e6f78ed12fef7fed5d58d3eea2d108e243ef`。见 [BAT 控制台记录](../build/migration-hosted-binding/bat-console.log)及 [验收摘要](../build/migration-hosted-binding/delivery-summary.json)。
+
+
+本轮联合交付的 18 个重建关口及 G-23 均通过。网页中的两个下载包与正式安装包逐字节一致。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 16:55:12 至 16:59:07（北京时间），退出码 0，重建标识 `c3c578d87338499e8da0d8640b42c6ce`，收尾标识 `0e94008b48ac4b9b816adddf4f549da2`。正式成果 `XyCabin.html` 为 14680492 字节，SHA-256 为 `22ac0779597071a62c9a6ac0d9e197b553c47ee57fa9d35676b9547a2644401c`。见 [BAT 控制台记录](../build/migration-installed-worker/bat-console.log)及 [交付摘要](../build/migration-installed-worker/delivery-summary.json)。
+
+本轮联合交付的 18 个重建关口及 G-23 均通过。网页中的两个下载包与正式安装包逐字节一致。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 15:59:31 至 16:03:36（北京时间），退出码 0，重建标识 `e3b12f3596b24de09be9bda8ff60a927`，收尾标识 `ee0ab77920894e6d892521af109d9860`。正式成果 `XyCabin.html` 为 14671620 字节，SHA-256 为 `ea28dd82afc865546e3b65d07215ed37ec006b5c48b26f0325abea76db3052d5`。见 [BAT 控制台记录](../build/migration-startup-fix/bat-console.log)及 [交付摘要](../build/migration-startup-fix/delivery-summary.json)。
+
+本轮联合交付的 18 个重建关口及 G-23 均通过。网页下载载荷与两个正式安装包逐字节核对一致。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 14:46:03 至 14:50:13（北京时间），退出码 0，重建标识 `b440e79cbdee461892b764d26a16a36b`，收尾标识 `c5eed06f2b9b4af38843a482bd6a2390`。正式成果 `XyCabin.html` 为 14668888 字节，SHA-256 为 `330150895d950aaec3ac767b2ddf34b05790f9ed8db2c529bce7ac0dd957918c`。见 [BAT 控制台记录](../build/migration-background/bat-console.log)及 [交付摘要](../build/migration-background/delivery-summary.json)。
 
 本轮将人工专项清单收敛为 H-01“冗余清理”和 H-02“代码优化”，删除其余旧 H 正文，统一 BAT 完整交付要求迁入 R-17；历史证据不改写。实际通过 cmd.exe 运行 [C-03 网站统一重建批处理](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)并输入“2. 完整验证”，起止 00:14:42—00:18:34，BAT 退出 0。18 个构建关口及独立 G-23 全部通过，两个产品后台 32／25 任务均本轮执行，缓存复用 0。BAT 末尾仅显示两项 H，均为“本轮不适用”，不产生自动通过结论。XyCabin.html 为 14627928 字节，SHA-256：fcca9e52fea2132b49049341133b277b93992ecd49995486300806fff9c83ea4。重建 ed1dd12de69b4ee7a0ddd70307fc7f63，收尾 5c4c8b5ca59b42baa498b2f450594d35。构建期间六份文档原始字节未变，之后仅回填三处审计节；未安装或操作 WPS。见 [两项 H 清单交付记录](../build/h-checklist-reduction/delivery-summary.json)。
 

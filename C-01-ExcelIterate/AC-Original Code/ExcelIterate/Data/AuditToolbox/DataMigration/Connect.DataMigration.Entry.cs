@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Windows.Forms;
 
 namespace Excel_Iterate
@@ -9,10 +11,10 @@ namespace Excel_Iterate
     public partial class Connect
     {
         private static DataMigrationForm _migrationForm;
-        private static DataMigrationHost _migrationHost;
-        // The previewed plan and a stop flag for its passes.
         private static MigrationPlan _migrationPlan;
-        private static bool _planCancelled;
+        private static CancellationTokenSource _migrationCancellation;
+        private static NotifyIcon _migrationNotice;
+        private static System.Windows.Forms.Timer _migrationNoticeTimer;
         public void OnDataMigration(object control)
         {
             if (_busy) return;
@@ -21,28 +23,10 @@ namespace Excel_Iterate
             {
                 if (!EnsureApplication()) throw new InvalidOperationException("请先打开 WPS 表格。");
                 var form = new DataMigrationForm(); _migrationForm = form;
-                form.PreviewRequested += delegate
-                {
-                    MigrationAction(form, delegate
-                    {
-                        ResetMigration(); var plan = form.BuildPlan();
-                        if (!ConfirmOverrides(form, plan)) return;
-                        if (!ReleaseBusyWorkbooks(form, plan, false)) return;
-                        _migrationPlan = plan; _planCancelled = false;
-                        form.Run(RunPlan(form, plan, false), delegate { form.RefreshResults(); }, delegate(Exception error) { form.Message(error.Message); ResetMigration(); });
-                    });
-                };
-                form.ExecuteRequested += delegate
-                {
-                    MigrationAction(form, delegate
-                    {
-                        if (_migrationPlan == null) throw new InvalidOperationException("请先重新预检。");
-                        if (!ReleaseBusyWorkbooks(form, _migrationPlan, true)) return;
-                        ExecutePlan(form);
-                    });
-                };
-                form.CancelRequested += delegate { _planCancelled = true; if (_migrationHost != null) _migrationHost.Cancelled = true; };
-                form.InputsChanged += ResetMigration;
+                form.PreviewRequested += delegate { MigrationAction(form, delegate { PreviewPlan(form, true); }); };
+                form.ExecuteRequested += delegate { MigrationAction(form, delegate { ExecutePlan(form, true); }); };
+                form.CancelRequested += CancelMigration;
+                form.InputsChanged += delegate { ResetMigration(); form.ClearForegroundRun(); };
                 // Sheet names come from the package for .xlsx/.xlsm (no WPS open);
                 // other formats use a hidden read-only copy, as before.
                 form.BooksPicked += delegate(bool target, string[] paths)
@@ -117,10 +101,20 @@ namespace Excel_Iterate
             }
             catch (Exception error) { Log("批量复制数据默认源：" + error); }
         }
+        private static void PreviewPlan(DataMigrationForm form, bool background)
+        {
+            ResetMigration();
+            form.ClearForegroundRun();
+            MigrationConfiguration snapshot;
+            var plan = form.BuildPlan(out snapshot);
+            if (!ConfirmOverrides(form, plan) || !ReleaseBusyWorkbooks(form, plan, false)) return;
+            StartMigration(form, plan, false, background, delegate { form.ApplyPreview(plan, snapshot); });
+        }
+
         // Runs every pass of a plan through the existing single-source engine.
         // A pass that fails only marks its own mappings; the other passes go
         // on, which is what gives each target its partial save.
-        private static IEnumerable<MigrationProgress> RunPlan(DataMigrationForm form, MigrationPlan plan, bool execute)
+        private static IEnumerable<MigrationProgress> RunPlan(object app, MigrationPlan plan, bool execute, bool foreground, CancellationToken cancellation)
         {
             // Passes share one host, so each source copy is opened once (for
             // 逐行重算 only its trigger cell changes between rows).
@@ -138,22 +132,25 @@ namespace Excel_Iterate
             var clock = System.Diagnostics.Stopwatch.StartNew();
             try
             {
+                cancellation.ThrowIfCancellationRequested();
+                if (plan.OutputCopies) PrepareOutputCopies(plan, cancellation);
                 for (int index = 0; index < passes.Count; index++)
                 {
                     var pass = passes[index];
                     string label = "[" + (index + 1) + "/" + passes.Count + "] " + pass.Source.Label + " " + pass.Request.SourceSheet + "!" + pass.Request.SourceRange + "：";
-                    if (_planCancelled) { MarkPass(pass, "已取消", "已取消，未执行"); continue; }
-                    // One host for the whole run: every source is opened (as its
-                    // read copy) once and closed at the end, never saved. A
-                    // source the user has open in WPS is read in place and
-                    // left open. A failed pass starts a fresh host.
+                    if (cancellation.IsCancellationRequested) { MarkPass(pass, "已取消", "已取消，未执行"); continue; }
+                    pass.Request.Targets.RemoveAll(t => t.Status == "失败");
+                    if (pass.Request.Targets.Count == 0) continue;
+                    // The background host reads saved copies; only the explicit
+                    // foreground route can borrow an already open workbook.
                     bool reuse = host != null && (hostSource != null || batch);
                     if (!reuse)
                     {
-                        if (host != null) { _migrationHost = null; try { host.Dispose(); } catch (Exception error) { Log("复制会话释放：" + error); } }
-                        host = new DataMigrationHost(_app) { HoldTargets = !chain }; hostSource = pass.Request.SourcePath;
+                        var previous = host; host = null;
+                        if (previous != null) previous.Dispose();
+                        host = new DataMigrationHost(app, cancellation, foreground) { HoldTargets = batch };
+                        hostSource = pass.Request.SourcePath;
                     }
-                    _migrationHost = host;
                     Exception failure;
                     MigrationProgress step;
                     // Execution re-checks each target right before writing.
@@ -175,20 +172,14 @@ namespace Excel_Iterate
                     try { while (Advance(run, out step, out failure)) yield return new MigrationProgress(label + step.Message, step.Pause); }
                     finally { run.Dispose(); }
                     if (failure != null) { MarkPass(pass, failure is OperationCanceledException ? "已取消" : "失败", "执行：" + failure.Message); hostSource = null; }
-                    if (!plan.OutputCopies) foreach (var target in pass.Request.Targets) if (target.Status == "成功") form.RecordRestorePoint(target.Path, target.Backup);
-                    if (host.Cancelled) _planCancelled = true;
                 }
                 if (batch && host != null && host.KeptTargets > 0)
                 {
-                    _migrationHost = host;
-                    if (_planCancelled) host.Cancelled = true;
                     Exception failure; MigrationProgress step;
                     var run = host.ExecuteKept().GetEnumerator();
                     try { while (Advance(run, out step, out failure)) yield return step; }
                     finally { run.Dispose(); }
                     if (failure != null) foreach (var pass in plan.Passes) MarkPass(pass, failure is OperationCanceledException ? "已取消" : "失败", "执行：" + failure.Message);
-                    if (!plan.OutputCopies) foreach (var target in plan.Passes.SelectMany(p => p.Request.Targets)) if (target.Status == "成功") form.RecordRestorePoint(target.Path, target.Backup);
-                    if (host.Cancelled) _planCancelled = true;
                 }
                 if (!execute) plan.PrecheckMilliseconds = clock.ElapsedMilliseconds;
                 plan.Finished = DateTime.Now; plan.Executed = execute; plan.RunMilliseconds = clock.ElapsedMilliseconds;
@@ -196,8 +187,8 @@ namespace Excel_Iterate
             }
             finally
             {
-                _migrationHost = null;
-                if (host != null) try { host.Dispose(); } catch (Exception error) { Log("复制会话释放：" + error); }
+                try { if (host != null) host.Dispose(); }
+                finally { FinishOutputCopies(plan); }
             }
         }
         private static bool Advance(IEnumerator<MigrationProgress> steps, out MigrationProgress step, out Exception failure)
@@ -212,9 +203,10 @@ namespace Excel_Iterate
                 if (target.Status != "成功" && target.Status != "失败")
                 { target.Status = status; target.Ready = false; target.Error = error; }
         }
-        private static void ExecutePlan(DataMigrationForm form)
+        private static void ExecutePlan(DataMigrationForm form, bool background)
         {
             var previewed = _migrationPlan;
+            if (previewed == null) throw new InvalidOperationException("请先重新预检。");
             var ready = previewed.Mappings.Where(m => m.Result != null && m.Result.Ready && m.Result.Status == "可执行").ToList();
             if (ready.Count == 0) throw new InvalidOperationException("没有通过预检的写入。");
             int overwrite = ready.Sum(m => m.Result.Overwritten), filled = ready.Count(m => m.Result.Overwritten > 0);
@@ -229,7 +221,7 @@ namespace Excel_Iterate
             string text = (empty.Count > 0 ? "以下源区域全部为空，会清空目标对应区域：" + string.Join("、", empty.Take(5).ToArray()) + (empty.Count > 5 ? " 等" : "") + line : "")
                 + (overwrite > 0 ? "目标区域已有数据：" + filled + " 处写入中共有 " + overwrite + " 个单元格已有内容，执行后将被源数据覆盖（源中为空的单元格会清空目标）。" + line : "")
                 + saving + line + (overwrite > 0 ? "是否覆盖原数据？" : "是否执行？");
-            if (UiDialog.Show(text, overwrite > 0 ? "确认覆盖原数据" : "确认执行复制", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            if (UiDialog.Show(form, text, overwrite > 0 ? "确认覆盖原数据" : "确认执行复制", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
             // Formulas that refer to sheets a target lacks are pasted as
             // values there, but only with the user's consent.
             var fallback = ready.Where(m => m.Result.ValueFallbacks > 0).ToList();
@@ -239,24 +231,88 @@ namespace Excel_Iterate
                     + (fallback.Count > 10 ? Environment.NewLine + "…… 共 " + fallback.Count + " 处" : "");
                 string warn = "以下目标缺少源公式引用的工作表：" + Environment.NewLine + Environment.NewLine + list + Environment.NewLine + Environment.NewLine
                     + "这些单元格将改为粘贴源中的当前计算结果（数值），其他单元格照常复制。" + Environment.NewLine + Environment.NewLine + "是否继续？";
-                if (UiDialog.Show(warn, "目标缺少工作表", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) { form.Message("已取消执行：可为目标补上缺少的工作表，或把映射改为“只写数值”。"); return; }
+                if (UiDialog.Show(form, warn, "目标缺少工作表", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) { form.Message("已取消执行：可为目标补上缺少的工作表，或把映射改为“只写数值”。"); return; }
             }
-            var plan = form.ExecutionPlan(previewed);
-            if (plan.OutputCopies) PrepareOutputCopies(plan);
-            _migrationPlan = null; _planCancelled = false;
-            form.Run(RunPlan(form, plan, true),
-                delegate { FinishOutputCopies(plan); form.RefreshResults(); },
-                delegate(Exception error) { FinishOutputCopies(plan); form.Message(error.Message); });
+            Action apply;
+            var plan = form.ExecutionPlan(previewed, out apply);
+            if (!ReleaseBusyWorkbooks(form, plan, true)) return;
+            StartMigration(form, plan, true, background, apply);
         }
-        // Result-copy mode: one "_复制结果" copy per target receives every pass.
-        private static void PrepareOutputCopies(MigrationPlan plan)
+
+        private static void StartMigration(DataMigrationForm form, MigrationPlan plan, bool execute, bool background, Action apply)
         {
-            foreach (string path in plan.Mappings.Select(m => m.TargetPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList())
+            var cancellation = new CancellationTokenSource();
+            _migrationCancellation = cancellation;
+            var token = cancellation.Token;
+            var steps = background
+                ? MigrationBackgroundSession.Run(app => RunPlan(app, plan, execute, false, token), token)
+                : RunPlan(_app, plan, execute, true, token);
+            Action<Exception> finish = delegate(Exception error)
             {
-                string output = DataMigrationEngine.OutputPath(path, p => File.Exists(p) || Directory.Exists(p));
-                File.Copy(path, output, false); plan.Outputs[path] = output;
+                bool cancelled = cancellation.IsCancellationRequested || error is OperationCanceledException;
+                _migrationCancellation = null;
+                cancellation.Dispose();
+                if (error != null && !cancelled) Log("批量复制数据：" + error);
+                if (!cancelled && error is MigrationBackgroundUnavailableException)
+                {
+                    form.OfferForegroundRun(execute, delegate { MigrationAction(form, delegate { TryForeground(form, execute); }); });
+                    form.Message(error.Message.TrimEnd('。', '.') + "。可在本窗口选择改用前台运行。");
+                }
+                else
+                {
+                    if (cancelled || error != null)
+                        foreach (var pass in plan.Passes)
+                            MarkPass(pass, cancelled ? "已取消" : "失败", cancelled ? "已取消，未执行" : error.Message);
+                    _migrationPlan = !execute && !cancelled && error == null ? plan : null;
+                    apply();
+                    if (execute && plan.ReplaceTargets)
+                        foreach (var target in plan.Mappings.Select(m => m.Result).Where(t => t.Status == "成功"))
+                            form.RecordRestorePoint(target.Path, target.Backup, target.CommittedHash);
+                    if (cancelled) form.Message((execute ? "复制" : "预检") + "已取消。已成功提交的目标及其备份保留。");
+                    else if (error != null) form.Message(error.Message);
+                }
+                NotifyMigration(plan, execute, cancelled, error);
+            };
+            try { form.Run(steps, delegate { finish(null); }, finish); }
+            catch { _migrationCancellation = null; cancellation.Dispose(); throw; }
+        }
+
+        private static void TryForeground(DataMigrationForm form, bool execute)
+        {
+            if (UiDialog.Show(form, "这次操作将在当前 WPS 实例中运行。处理中可能出现临时工作簿并切换焦点。是否继续？",
+                execute ? "改用前台复制" : "改用前台预检", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            if (execute) ExecutePlan(form, false); else PreviewPlan(form, false);
+        }
+
+        // Result-copy mode: one "_复制结果" copy per target receives every pass.
+        private static void PrepareOutputCopies(MigrationPlan plan, CancellationToken cancellation)
+        {
+            foreach (var group in plan.Mappings.GroupBy(m => m.TargetPath, StringComparer.OrdinalIgnoreCase))
+            {
+                cancellation.ThrowIfCancellationRequested();
+                string path = group.Key;
+                try
+                {
+                    string expected = group.First().Result.ExpectedFingerprint;
+                    if (group.Any(m => m.Result.ExpectedFingerprint != expected) || DataMigrationHost.Digest(path) != expected)
+                        throw new IOException("目标在预检后已变化，请重新预检：" + path);
+                    string output = DataMigrationEngine.OutputPath(path, p => File.Exists(p) || Directory.Exists(p));
+                    using (var source = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var copy = File.Open(output, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    {
+                        plan.Outputs[path] = output;
+                        source.CopyTo(copy);
+                    }
+                    if (DataMigrationHost.Digest(output) != expected || DataMigrationHost.Digest(path) != expected)
+                        throw new IOException("创建结果副本期间目标发生变化，请重新预检：" + path);
+                    foreach (var mapping in group) mapping.Result.Path = output;
+                }
+                catch (Exception error)
+                {
+                    foreach (var mapping in group) { mapping.Result.Status = "失败"; mapping.Result.Error = error.Message; }
+                    Log("创建复制结果副本：" + error);
+                }
             }
-            foreach (var pass in plan.Passes) foreach (var target in pass.Request.Targets) target.Path = plan.Outputs[target.Path];
         }
         private static void FinishOutputCopies(MigrationPlan plan)
         {
@@ -318,9 +374,7 @@ namespace Excel_Iterate
                 + (save.Count == 0 ? "" : line + line + "有未保存修改（将保存，不关闭）：" + line + string.Join(line, save.Select(p => "· " + Path.GetFileName(p)).ToArray()))
                 + (close.Count == 0 ? "" : line + line + "要更新原文件的目标（将保存并关闭，完成后可重新打开）：" + line + string.Join(line, close.Select(p => "· " + Path.GetFileName(p)).ToArray()))
                 + line + line + "保存会把你在这些工作簿中尚未保存的修改一并写入文件。" + line + (close.Count == 0 ? "是否保存后继续？" : "是否保存并关闭后继续？");
-            // Saving alone is done for the user and reported; only closing a
-            // target the user has open still asks first.
-            if (close.Count > 0 && UiDialog.Show(form, text, "工作簿被占用", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button1) != DialogResult.Yes)
+            if (UiDialog.Show(form, text, "工作簿被占用", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes)
             { form.Message(execute ? "已取消：请保存并关闭要更新的目标工作簿后再执行。" : "已取消：请先保存这些工作簿再预检。"); return false; }
             var failures = new List<string>();
             foreach (string path in save.Concat(close))
@@ -353,19 +407,55 @@ namespace Excel_Iterate
             return true;
         }
         private static void MigrationAction(DataMigrationForm form, Action action)
-        { try { action(); } catch (Exception error) { Log("批量复制数据：" + error); form.Message(error.Message); } }
+        { if (!form.Running) try { action(); } catch (Exception error) { Log("批量复制数据：" + error); form.Message(error.Message); } }
+        private static void CancelMigration()
+        {
+            if (_migrationCancellation != null) _migrationCancellation.Cancel();
+        }
         private static void ResetMigration()
         {
             if (_migrationPlan != null) foreach (var mapping in _migrationPlan.Mappings)
                 if (mapping.Result != null && mapping.Result.Status == "可执行") { mapping.Result.Ready = false; mapping.Result.Status = "需重新预检"; }
             _migrationPlan = null;
-            var host = _migrationHost; _migrationHost = null;
-            if (host != null) try { host.Dispose(); } catch (Exception error) { Log("复制会话释放：" + error); }
+        }
+
+        private static void NotifyMigration(MigrationPlan plan, bool execute, bool cancelled, Exception error)
+        {
+            string action = execute ? "复制" : "预检";
+            var results = plan.Mappings.Select(m => m.Result).ToList();
+            int passed = execute ? results.Count(t => t.Status == "成功") : results.Count(t => t.Ready && t.Status == "可执行");
+            int failures = results.Count(t => t.Status == "失败" || t.Status == "冲突");
+            string state = cancelled ? "已取消" : error != null ? "失败" : "完成";
+            string note = error is MigrationBackgroundUnavailableException
+                ? "后台会话启动失败。请返回批量复制数据窗口查看详情。"
+                : (execute ? "成功 " : "可执行 ") + passed + " 处，失败或冲突 " + failures + " 处。";
+            try
+            {
+                if (_migrationNotice == null)
+                {
+                    _migrationNotice = new NotifyIcon { Icon = SystemIcons.Information, Text = "Excel-Iterate 批量复制数据", Visible = true };
+                    _migrationNotice.BalloonTipShown += delegate { Log("批量复制数据的 Windows 通知已显示"); };
+                    _migrationNoticeTimer = new System.Windows.Forms.Timer { Interval = 45000 };
+                    _migrationNoticeTimer.Tick += delegate { CloseMigrationNotice(); };
+                }
+                _migrationNotice.ShowBalloonTip(10000, "批量复制数据 · " + action + state, note,
+                    cancelled || error != null || failures > 0 ? ToolTipIcon.Warning : ToolTipIcon.Info);
+                _migrationNoticeTimer.Stop(); _migrationNoticeTimer.Start();
+            }
+            catch (Exception failure) { UiDiagnostics.Record("migration-notification", failure); CloseMigrationNotice(); }
+        }
+        private static void CloseMigrationNotice()
+        {
+            if (_migrationNoticeTimer != null) { _migrationNoticeTimer.Dispose(); _migrationNoticeTimer = null; }
+            if (_migrationNotice != null) { _migrationNotice.Dispose(); _migrationNotice = null; }
         }
         internal static void CloseDataMigrationForm()
         {
+            CancelMigration();
+            _migrationCancellation = null;
             var form = _migrationForm; _migrationForm = null;
             if (form != null) { form.Dispose(); } ResetMigration();
+            CloseMigrationNotice();
         }
         public IPictureDisp GetImage_btnDataMigration(object control) { return GetButtonImageCore("btnDataMigration"); }
     }

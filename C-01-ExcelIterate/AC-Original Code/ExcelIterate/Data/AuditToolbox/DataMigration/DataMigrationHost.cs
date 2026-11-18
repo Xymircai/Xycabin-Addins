@@ -17,7 +17,7 @@ namespace Excel_Iterate
     {
         internal string Path = "", Sheet = "", Start = "", Status = "待预检", Error = "", Output = "", Fingerprint = "";
         internal int Overwritten;
-        internal string FailureDetails = "", Backup = "";
+        internal string FailureDetails = "", Backup = "", CommittedHash = "", ExpectedFingerprint = "";
         internal bool Ready;
         internal MigrationArea Area;
         internal MigrationFormulaContext Context;
@@ -48,7 +48,7 @@ namespace Excel_Iterate
     }
     internal sealed class MigrationRequest
     {
-        internal string SourcePath = "", SourceSheet = "", SourceRange = "";
+        internal string SourcePath = "", SourceSheet = "", SourceRange = "", SourceFingerprint = "";
         internal bool AllowEmptySource;
         internal bool ReplaceTargets;
         // 只写数值: formulas in the source are read as their calculated values
@@ -82,17 +82,18 @@ namespace Excel_Iterate
     }
     internal sealed class MigrationProgress
     {
-        internal string Message;
+        internal readonly string Message;
         // The next step is a long host call; show this message right away.
-        internal bool Pause;
+        internal readonly bool Pause;
         internal MigrationProgress(string message) { Message = message; }
         internal MigrationProgress(string message, bool pause) { Message = message; Pause = pause; }
     }
-    // Only this adapter touches COM. The enumerators are pumped on the original
-    // host thread, yielding between cells/targets without DoEvents or Task.Run.
+    // Each adapter and all references it acquires stay on its automation STA.
     internal sealed class DataMigrationHost : IDisposable
     {
         private readonly object app;
+        private readonly CancellationToken cancellation;
+        private readonly bool interactiveWindows;
         internal static string DiagnosticRootOverride;
         private readonly int thread = Thread.CurrentThread.ManagedThreadId;
         private readonly MergeWorkbookGateway gateway;
@@ -124,14 +125,16 @@ namespace Excel_Iterate
         internal string EventTrace { get { return string.Join(Environment.NewLine,eventTrace.ToArray()); } }
         private SourceChangeWatch Watch(object book,string role)
         { var monitor=new SourceChangeWatch(app,true){Role=role,Trace=delegate(string value){if(eventTrace.Count<2048)eventTrace.Enqueue(DateTime.UtcNow.ToString("o")+" "+value);}};monitor.WatchBook(book);eventTrace.Enqueue(role+" subscribed="+monitor.Available);return monitor; }
-        internal bool Cancelled;
+        private bool cancelled;
+        internal bool Cancelled { get { return cancelled || cancellation.IsCancellationRequested; } set { cancelled = value; } }
         internal string DiagnosticDirectory { get; private set; }
         private static readonly string[] RangeStyle = { "NumberFormat", "HorizontalAlignment", "VerticalAlignment", "WrapText", "Orientation", "IndentLevel", "ShrinkToFit", "Locked", "FormulaHidden" };
         private static readonly string[] FontStyle = { "Name", "Size", "Bold", "Italic", "Underline", "Strikethrough", "Color" };
         private static readonly string[] FillStyle = { "Pattern", "Color", "PatternColor" };
 
-        internal DataMigrationHost(object application)
+        internal DataMigrationHost(object application, CancellationToken cancellation = default(CancellationToken), bool interactiveWindows = true)
         {
+            this.cancellation = cancellation; this.interactiveWindows = interactiveWindows;
             app = application; gateway = new MergeWorkbookGateway(app);
             using (var bag = new ComBag())
             { activeBook = gateway.Hold(bag.Detach(bag.Own(((dynamic)app).ActiveWorkbook))); activeSheet = gateway.Hold(bag.Detach(bag.Own(((dynamic)app).ActiveSheet))); }
@@ -450,7 +453,13 @@ namespace Excel_Iterate
             // A bounded snapshot makes accidental whole-sheet selection actionable.
             if ((long)area.Rows * area.Columns > 100000) throw new InvalidOperationException("单批最多复制 100000 个单元格，请缩小源区域分批处理。");
             sourceHash = Digest(input.SourcePath);
+            if (input.SourceFingerprint.Length != 0 && input.SourceFingerprint != sourceHash)
+                throw new IOException("源工作簿在预检后已变化，请重新预检：" + input.SourcePath);
+            input.SourceFingerprint = sourceHash;
             source = ResolveOriginal(input.SourcePath, input.SourceSheet, null, false, input.TriggerCell.Length > 0); Saved(source); ValidateOriginal(source, sourceHash);
+            string copiedSource;
+            if (readDigests.TryGetValue(Path.GetFullPath(input.SourcePath), out copiedSource) && copiedSource != sourceHash)
+                throw new IOException("源工作簿在创建读取副本期间已变化，请重新预检：" + input.SourcePath);
             if (input.TriggerCell.Length > 0)
             {
                 // Kept passes of this source must not see the trigger edit as a change.
@@ -555,7 +564,8 @@ namespace Excel_Iterate
             var start = MigrationArea.Parse(target.Start); if (start.Rows != 1 || start.Columns != 1) throw new InvalidOperationException("目标起始位置必须是单个单元格。");
             target.Area = new MigrationArea { Row = start.Row, Column = start.Column, Rows = area.Rows, Columns = area.Columns };
             string fingerprint = Digest(target.Path);
-            if (target.Fingerprint.Length != 0 && target.Fingerprint != fingerprint) throw new InvalidOperationException("目标在预检后已变化，请重新预检：" + target.Path);
+            string expected = target.Fingerprint.Length != 0 ? target.Fingerprint : target.ExpectedFingerprint;
+            if (expected.Length != 0 && expected != fingerprint) throw new InvalidOperationException("目标在预检后已变化，请重新预检：" + target.Path);
             target.Fingerprint = fingerprint;
             target.Gateway = new MergeWorkbookGateway(app);
             target.Handle = ResolveOriginal(target.Path, target.Sheet, target.Gateway); Saved(target.Handle); ValidateOriginal(target.Handle, target.Fingerprint);
@@ -630,7 +640,7 @@ namespace Excel_Iterate
         // user interaction never inherit a disabled event loop or alert state.
         private T Quiet<T>(Func<T> action)
         {
-            using (var window = new MigrationWindowScope(app))
+            using (var window = interactiveWindows ? new MigrationWindowScope(app) : null)
             {
                 dynamic a = app; bool alerts = ComFormulaHost.Boolean(a.DisplayAlerts, "DisplayAlerts"), ask = ComFormulaHost.Boolean(a.AskToUpdateLinks, "AskToUpdateLinks");
                 object security = null;
@@ -791,7 +801,7 @@ namespace Excel_Iterate
                         if (request.ReplaceTargets)
                         {
                             target.Status = "更新目标原文件";
-                            target.Backup = MigrationOutputTransaction.Commit(stage, target.Path, target.Fingerprint, Path.GetFileName(DiagnosticDirectory));
+                            target.Backup = MigrationOutputTransaction.Commit(stage, target.Path, target.Fingerprint, Path.GetFileName(DiagnosticDirectory), out target.CommittedHash);
                             target.Output = target.Path;
                         }
                         else
@@ -1132,11 +1142,11 @@ namespace Excel_Iterate
                     if (first.MacroParts.Count != macros.Count || first.MacroParts.Any(p => !macros.ContainsKey(p.Key) || macros[p.Key] != p.Value)) throw new IOException("保存后 VBA 宏载荷发生变化，副本未交付。");
                     File.SetAttributes(stage, File.GetAttributes(stage) & ~FileAttributes.Hidden);
                     ValidateTarget(first);
-                    string backup = "", output;
+                    string backup = "", committedHash = "", output;
                     if (group[0].Slice.Request.ReplaceTargets)
                     {
                         first.Status = "更新目标原文件";
-                        backup = MigrationOutputTransaction.Commit(stage, first.Path, first.Fingerprint, Path.GetFileName(DiagnosticDirectory));
+                        backup = MigrationOutputTransaction.Commit(stage, first.Path, first.Fingerprint, Path.GetFileName(DiagnosticDirectory), out committedHash);
                         output = first.Path;
                     }
                     else
@@ -1145,7 +1155,7 @@ namespace Excel_Iterate
                         File.Move(stage, output);
                     }
                     diagnosticPaths.Remove(stage);
-                    foreach (var entry in group) { var t = entry.Target; t.Backup = backup; t.Output = output; t.Ready = false; t.Status = "成功"; t.Formulas = null; t.Finished = DateTime.Now; }
+                    foreach (var entry in group) { var t = entry.Target; t.Backup = backup; t.CommittedHash = committedHash; t.Output = output; t.Ready = false; t.Status = "成功"; t.Formulas = null; t.Finished = DateTime.Now; }
                     mark("提交");
                 }
                 catch (Exception error) { failure = error; culprit = null; }
@@ -1686,7 +1696,7 @@ namespace Excel_Iterate
         }
         private void RestoreActive()
         {
-            using (var window = new MigrationWindowScope(app))
+            using (var window = interactiveWindows ? new MigrationWindowScope(app) : null)
             try
             {
                 using (var references = new ComBag())

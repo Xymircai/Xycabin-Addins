@@ -188,6 +188,8 @@
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/DataMigrationEngine.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/DataMigrationForm.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/DataMigrationHost.cs",
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationBackgroundSession.cs",
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationComBridge.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationPackageCompatibility.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationPackagePreservation.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationTargetPicker.cs",
@@ -504,7 +506,9 @@
       "references": [
         "@addin",
         "System.Windows.Forms.dll",
-        "Microsoft.CSharp.dll"
+        "System.Drawing.dll",
+        "Microsoft.CSharp.dll",
+        "lib/Interop.Microsoft.Office.Core.dll"
       ],
       "additional_sources": [
         "@shared/src/tools/LiveProbeSafety.cs"
@@ -1428,6 +1432,8 @@
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/DataMigrationEngine.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/DataMigrationForm.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/DataMigrationHost.cs",
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationBackgroundSession.cs",
+        "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationComBridge.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationPackageCompatibility.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationPackagePreservation.cs",
         "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationTargetPicker.cs",

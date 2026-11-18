@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Office.Tools;
 using Microsoft.Office.Tools.Excel;
@@ -25,6 +26,7 @@ namespace Excel_Iterate
     public class ThisAddIn : AddInBase
     {
         private Connect _ribbon;
+        private MigrationComBridge.HostedBinding _migrationBinding;
 
         [ComImport, Guid("000208D5-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
         private interface HostExcelApplication { }
@@ -48,6 +50,14 @@ namespace Excel_Iterate
         protected override void FinishInitialization()
         {
             base.FinishInitialization();
+            string desktop = MigrationComBridge.PrivateAutomationDesktop();
+            if (desktop != null)
+            {
+                using (var host = Process.GetCurrentProcess())
+                    Connect.Log("后台 WPS 加载项已初始化，PID=" + host.Id + "，桌面=" + desktop);
+                _migrationBinding = new MigrationComBridge.HostedBinding(desktop, () => ReadHostApplication(ItemProvider));
+                return;
+            }
             HostDialogService.Register();
             Connect.Log("VSTO FinishInitialization");
             // Bind the application supplied to this VSTO add-in, never a global automation instance.
@@ -58,6 +68,14 @@ namespace Excel_Iterate
 
         protected override void OnShutdown()
         {
+            if (_migrationBinding != null)
+            {
+                _migrationBinding.Dispose();
+                _migrationBinding = null;
+                base.OnShutdown();
+                return;
+            }
+            if (MigrationComBridge.PrivateAutomationDesktop() != null) { base.OnShutdown(); return; }
             Connect.CloseAgentExtension();
             Connect.Log("VSTO OnShutdown");
             Connect.StopHostConnection();
@@ -73,6 +91,7 @@ namespace Excel_Iterate
 
         protected override Microsoft.Office.Core.IRibbonExtensibility CreateRibbonExtensibilityObject()
         {
+            if (MigrationComBridge.PrivateAutomationDesktop() != null) return null;
             Connect.Log("CreateRibbonExtensibilityObject 被调用");
             if (_ribbon == null)
             {

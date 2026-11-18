@@ -824,11 +824,8 @@ namespace Excel_Iterate
         // still holds exactly the bytes the migration wrote.
         private readonly MigrationRecovery recovery = new MigrationRecovery();
         private readonly ToolTip restoreTip = new ToolTip();
-        // Keeps the dialog on screen while a run is in progress (see MigrationWindowScope).
-        private MigrationWindowScope.HostState hostAtRun;
-        private bool topMostBeforeRun;
-        private readonly Timer guardTail = new Timer { Interval = 100 };
-        private int guardTailTicks;
+        private readonly RoundedButton foregroundRun = Ui.Button("改用前台预检", 138);
+        private Action foregroundAction;
         private MigrationBookPopup bookPopup;
         private bool sidebarAvailable = true;
         internal bool SidebarAvailable { get { return sidebarAvailable; } }
@@ -929,9 +926,12 @@ namespace Excel_Iterate
             clearBackups.Name = "migrationClearBackups"; clearBackups.Click += delegate { ClearBackups(); };
             restoreTip.SetToolTip(clearBackups, "永久删除本窗口复制时生成的备份文件；删除后无法再还原。");
             restoreTip.SetToolTip(edge, "打开或收起右侧区域选择"); restoreTip.SetToolTip(gear, "预设与设置");
-            guardTail.Tick += delegate { GuardWindow(); if (--guardTailTicks <= 0) guardTail.Stop(); };
+            foregroundRun.Name = "migrationForegroundRun";
+            foregroundRun.Visible = false;
+            Ui.StyleSecondary(foregroundRun);
+            foregroundRun.Click += delegate { if (!Running && foregroundAction != null) foregroundAction(); };
             open.Click += delegate { OpenResult(); }; close.Click += delegate { Close(); };
-            actions.Controls.Add(preview); actions.Controls.Add(execute); actions.Controls.Add(restore); actions.Controls.Add(clearBackups); actions.Controls.Add(open); actions.Controls.Add(close);
+            actions.Controls.Add(preview); actions.Controls.Add(execute); actions.Controls.Add(foregroundRun); actions.Controls.Add(restore); actions.Controls.Add(clearBackups); actions.Controls.Add(open); actions.Controls.Add(close);
             replaceTargets.Margin = new Padding(16, 0, 8, 0); allowEmpty.Margin = new Padding(8, 0, 8, 0);
             actions.Controls.Add(replaceTargets); actions.Controls.Add(allowEmpty); CenterSourceRow(actions);
             root.Controls.Add(actions, 0, 3); Controls.Add(root);
@@ -940,7 +940,7 @@ namespace Excel_Iterate
             replaceTargets.CheckedChanged += delegate { Changed(); Message(replaceTargets.Checked ? "校验通过后更新目标原文件；原版本保存在目标目录的“复制备份”子文件夹。请先保存并关闭目标。" : "另存“复制结果”副本，目标原文件不修改；请重新预检。"); };
             pump.Tick += delegate { Tick(); }; execute.Enabled = false; restore.Enabled = false; clearBackups.Enabled = false; open.Enabled = false;
             FormClosing += delegate(object sender, FormClosingEventArgs e) { if (Running && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; closeWhenDone = true; if (CancelRequested != null) CancelRequested(); } };
-            Disposed += delegate { ClosePopups(); restoreTip.Dispose(); guardTail.Dispose(); pump.Stop(); if (steps != null) { steps.Dispose(); steps = null; } pump.Dispose(); };
+            Disposed += delegate { ClosePopups(); restoreTip.Dispose(); pump.Stop(); if (steps != null) { steps.Dispose(); steps = null; } pump.Dispose(); };
             split.Panel2Collapsed = true; edge.Open = false; ShowPage(0); UpdateTabTitles();
         }
         private static Panel Page(Control content, string addText, Action add, string booksText, Action books)
@@ -2592,13 +2592,29 @@ namespace Excel_Iterate
         }
         internal MigrationPlan BuildPlan()
         {
+            MigrationConfiguration snapshot;
+            var plan = BuildPlan(out snapshot);
+            ApplyPreview(plan, snapshot);
+            return plan;
+        }
+        internal MigrationPlan BuildPlan(out MigrationConfiguration snapshot)
+        {
             EndEdits();
             foreach (var side in DistinctSides(false)) RefreshTrigger(side);
-            var snapshot = new MigrationConfiguration(pairs, SourceBooks, TargetBooks, replaceTargets.Checked, allowEmpty.Checked);
+            snapshot = new MigrationConfiguration(pairs, SourceBooks, TargetBooks, replaceTargets.Checked, allowEmpty.Checked);
             var plan = new MigrationPlanner(snapshot).Build();
-            snapshot.Attach(plan); lastPlan = plan; RefreshRows(); ShowPairDetails();
-            if (plan.Passes.Count == 0) throw new InvalidOperationException(plan.Mappings.Count == 0 ? "没有可预检的映射：请在“映射”页查看各行“状态”提示的问题。" : "所有写入均未通过检查，请在“映射”页查看各行“状态”。");
+            if (plan.Passes.Count == 0)
+            {
+                ApplyPreview(plan, snapshot);
+                throw new InvalidOperationException(plan.Mappings.Count == 0 ? "没有可预检的映射：请在“映射”页查看各行“状态”提示的问题。" : "所有写入均未通过检查，请在“映射”页查看各行“状态”。");
+            }
             return plan;
+        }
+        internal void ApplyPreview(MigrationPlan plan, MigrationConfiguration snapshot)
+        {
+            snapshot.Attach(plan);
+            lastPlan = plan;
+            RefreshResults();
         }
         private string RowProblem(MigrationPair pair) { return MigrationPlanner.RowProblem(pair, TargetBooks.Count); }
         private List<string> UnusedTargets(MigrationSide side)
@@ -2744,21 +2760,42 @@ namespace Excel_Iterate
         { return a != null && b != null && a.Row < b.Row + b.Rows && b.Row < a.Row + a.Rows && a.Column < b.Column + b.Columns && b.Column < a.Column + a.Columns; }
         // The mappings that passed preview, regrouped with fresh state so
         // each pass re-checks its targets right before writing.
-        internal MigrationPlan ExecutionPlan(MigrationPlan previewed)
+        internal MigrationPlan ExecutionPlan(MigrationPlan previewed, out Action apply)
         {
             var plan = new MigrationPlan { ReplaceTargets = previewed.ReplaceTargets, AllowEmptySource = previewed.AllowEmptySource, OutputCopies = !previewed.ReplaceTargets };
             var ready = previewed.Mappings.Where(m => m.Result != null && m.Result.Ready && m.Result.Status == "可执行").ToList();
-            foreach (var m in ready) { m.Result = new MigrationTarget { Path = m.TargetPath, Sheet = m.TargetSheet, Start = m.Start, Status = "待执行" }; plan.Mappings.Add(m); }
+            var replacements = new Dictionary<MigrationMapping, MigrationMapping>();
+            foreach (var m in ready)
+            {
+                var result = new MigrationTarget { Path = m.TargetPath, Sheet = m.TargetSheet, Start = m.Start, ExpectedFingerprint = m.Result.Fingerprint, Status = "待执行" };
+                var copy = new MigrationMapping { Source = m.Source, TargetPath = m.TargetPath, TargetSheet = m.TargetSheet, Start = m.Start, TargetRange = m.TargetRange, Area = m.Area, Result = result };
+                plan.Mappings.Add(copy);
+                replacements.Add(m, copy);
+            }
             // Every pass updates its target in place. For result copies the
             // orchestrator first points each target at one "_复制结果" copy,
             // so all source ranges land in the same copy.
-            MigrationPlanner.Group(plan, ready, true);
-            lastPlan = plan; RefreshRows();
+            MigrationPlanner.Group(plan, plan.Mappings, true);
+            var sourceHashes = previewed.Passes.GroupBy(p => p.Source).ToDictionary(g => g.Key, g => g.First().Request.SourceFingerprint);
+            foreach (var pass in plan.Passes) pass.Request.SourceFingerprint = sourceHashes[pass.Source];
+            apply = delegate
+            {
+                foreach (var pair in ready.Select(m => m.Pair).Distinct())
+                    for (int i = 0; i < pair.Instances.Count; i++)
+                    {
+                        MigrationMapping copy;
+                        if (!replacements.TryGetValue(pair.Instances[i], out copy)) continue;
+                        copy.Pair = pair;
+                        pair.Instances[i] = copy;
+                    }
+                lastPlan = plan;
+                RefreshResults();
+            };
             return plan;
         }
-        internal void RecordRestorePoint(string path, string backup)
+        internal void RecordRestorePoint(string path, string backup, string committedHash)
         {
-            try { recovery.Record(path, backup); }
+            try { recovery.Record(path, backup, committedHash); }
             catch (Exception error) { UiDiagnostics.Record("migration-restore-point", error); }
         }
         internal static string Summary(MigrationRequest request)
@@ -2772,9 +2809,9 @@ namespace Excel_Iterate
         {
             if (Running) throw new InvalidOperationException("当前任务尚未结束。");
             ClosePopups();
+            ClearForegroundRun();
             finished = complete; failed = error; steps = sequence.GetEnumerator();
             foreach (Control input in inputs) input.Enabled = false; SetGridsReadOnly(true); preview.Enabled = execute.Enabled = open.Enabled = restore.Enabled = clearBackups.Enabled = false;
-            guardTail.Stop(); hostAtRun = MigrationWindowScope.Capture(IsHandleCreated ? Handle : IntPtr.Zero); topMostBeforeRun = TopMost;
             // Freeze the status line's size while running so changing progress
             // text never re-lays out the grid and details above it.
             status.AutoSize = false; status.AutoEllipsis = true; statusClock.Reset();
@@ -2797,33 +2834,38 @@ namespace Excel_Iterate
                 // next step blocks this thread, so the window does not look hung.
                 if (message != null && (pause || !statusClock.IsRunning || statusClock.ElapsedMilliseconds >= StatusIntervalMilliseconds) && status.Text != message)
                 { status.Text = message; statusClock.Restart(); if (pause) status.Refresh(); }
-                GuardWindow();
             }
-            catch (Exception error) { Finish(error); }
+            catch (Exception error) { if (steps != null) Finish(error); else UiDiagnostics.Record("migration-finish", error); }
             finally { ticking = false; if (!IsDisposed && !Disposing && steps != null) pump.Start(); }
         }
         private void Finish(Exception error)
         {
             pump.Stop(); var current = steps; steps = null; statusClock.Reset();
+            var onFinished = finished; finished = null;
+            var onFailed = failed; failed = null;
             status.AutoEllipsis = false; status.AutoSize = true;
             try { if (current != null) current.Dispose(); } catch (Exception cleanup) { error = error ?? cleanup; }
             foreach (Control input in inputs) input.Enabled = true; SetGridsReadOnly(false); preview.Enabled = true;
-            if (error == null) { status.Text = lastPlan == null ? "请查看各行结果。" : PlanSummary(lastPlan); if (finished != null) finished(); }
-            else { status.Text = error.Message; if (failed != null) failed(error); }
-            RefreshResults(); UpdateRestore(); if (error != null) status.Text = error.Message;
-            // WPS may still minimize/cover its frame shortly after the last
-            // Close; keep watching for about a second, then release TopMost.
-            GuardWindow(); TopMost = topMostBeforeRun; guardTailTicks = 10; guardTail.Start();
-            if (closeWhenDone) Close();
+            try
+            {
+                RefreshResults();
+                if (error == null) { if (onFinished != null) onFinished(); }
+                else { Message(error.Message); if (onFailed != null) onFailed(error); }
+                UpdateRestore();
+            }
+            finally { if (closeWhenDone) Close(); }
         }
-        private void GuardWindow()
+        internal void OfferForegroundRun(bool executeCopy, Action action)
         {
-            if (IsDisposed || !IsHandleCreated || !Visible || closeWhenDone) return;
-            MigrationWindowScope.KeepShown(Handle, hostAtRun);
-            // While running and the user is in WPS, stay above a maximized
-            // frame that WPS re-activated; never cover other programs.
-            bool top = topMostBeforeRun || (Running && MigrationWindowScope.HostInForeground());
-            if (TopMost != top) TopMost = top;
+            if (closeWhenDone) return;
+            foregroundRun.Text = executeCopy ? "改用前台复制" : "改用前台预检";
+            foregroundAction = action;
+            foregroundRun.Visible = true;
+        }
+        internal void ClearForegroundRun()
+        {
+            foregroundAction = null;
+            foregroundRun.Visible = false;
         }
         private void UpdateRestore()
         {

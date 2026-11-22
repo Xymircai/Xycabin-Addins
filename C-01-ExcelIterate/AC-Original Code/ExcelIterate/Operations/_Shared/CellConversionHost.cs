@@ -106,6 +106,7 @@ namespace Excel_Iterate
         private bool disposed;
         public string Address { get; private set; }
         public string Description { get; private set; }
+        internal WorksheetChangeSet CaptureUndoTarget(WorksheetEditBatch batch) { return batch.AddSheet(worksheet); }
         internal ComConversionHost(object app)
         {
             application = app;
@@ -130,12 +131,21 @@ namespace Excel_Iterate
         { if (value != null && Marshal.IsComObject(value)) Marshal.ReleaseComObject(value); }
         internal string RangeAddress(object range)
         {
-            object sheet = null, areas = null;
+            object sheet = null;
             try
             {
                 if (range == null || range is bool) throw new InvalidOperationException("请选择工作表单元格区域。");
                 sheet = ((dynamic)range).Worksheet;
                 if (!identity.Matches(sheet)) throw new InvalidOperationException("请选择窗口所示工作簿和工作表中的区域。");
+                return LocalRangeAddress(range);
+            }
+            finally { Release(sheet); }
+        }
+        internal static string LocalRangeAddress(object range)
+        {
+            object areas = null;
+            try
+            {
                 areas = ((dynamic)range).Areas; int count = System.Convert.ToInt32(((dynamic)areas).Count); var addresses = new List<string>();
                 for (int i = 1; i <= count; i++)
                 {
@@ -152,7 +162,7 @@ namespace Excel_Iterate
                 }
                 return ConversionRangeAddress.Normalize(string.Join(",", addresses));
             }
-            finally { Release(areas); Release(sheet); }
+            finally { Release(areas); }
         }
         public void SetAddress(string address)
         {
@@ -247,7 +257,7 @@ namespace Excel_Iterate
             }
             cells = result; return cells;
         }
-        private void ClearCells()
+        internal void ClearCells()
         {
             cells = null;
             var errors = new List<string>();
@@ -260,16 +270,21 @@ namespace Excel_Iterate
             try { ClearCells(); }
             finally { try { if (identity != null) identity.Dispose(); } finally { identity = null; Release(worksheet); worksheet = null; } }
         }
-        private sealed class ComCell : IConversionCell
+        internal sealed class ComCell : IConversionCell, IBatchTextPosition
         {
             private readonly object cell, worksheet;
             private bool formula2 = true;
             public string Address { get; private set; }
             internal readonly string LocalAddress;
+            string IBatchTextPosition.LocalAddress { get { return LocalAddress; } }
             public ConversionCellState Original { get; private set; }
-            internal ComCell(object range, object sheet, string address, string localAddress = null)
-            { cell = range; worksheet = sheet; Address = address; LocalAddress = localAddress; Original = Read(); }
-            public ConversionCellState Read()
+            internal ComCell(object range, object sheet, string address, string localAddress = null, bool capture = true)
+            {
+                cell = range; worksheet = sheet; Address = address; LocalAddress = localAddress;
+                if (capture) Original = Read();
+            }
+            public ConversionCellState Read() { return Read(true); }
+            internal ConversionCellState Read(bool display)
             {
                 var state = new ConversionCellState(); dynamic range = cell;
                 state.IsFormula = ComConversionHost.Boolean((object)range.HasFormula, "HasFormula");
@@ -280,8 +295,9 @@ namespace Excel_Iterate
                     catch (Exception ex) { if (!formula2 || !Missing(ex)) throw; formula2 = false; formula = range.Formula; }
                     state.Formula = formula as string; if (state.Formula == null) throw new InvalidOperationException(Address + " 无法读取公式。");
                 }
-                state.Value = range.Value2; state.NumberFormat = range.NumberFormat as string; state.Display = range.Text as string;
-                if (state.NumberFormat == null || state.Display == null) throw new InvalidOperationException(Address + " 无法读取数字格式或显示文字。");
+                state.Value = range.Value2; state.NumberFormat = range.NumberFormat as string;
+                if (display) state.Display = range.Text as string;
+                if (state.NumberFormat == null || (display && state.Display == null)) throw new InvalidOperationException(Address + " 无法读取数字格式或显示文字。");
                 return state;
             }
             public void CheckWritable()

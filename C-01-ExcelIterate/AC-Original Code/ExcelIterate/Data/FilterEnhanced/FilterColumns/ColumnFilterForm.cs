@@ -9,10 +9,11 @@ namespace Excel_Iterate
     {
         internal readonly DataGridView Grid;
         internal readonly RoundedButton Apply, Cancel, SelectAll, Reset;
+        internal readonly WorksheetUndoButton Undo = new WorksheetUndoButton();
         internal readonly Label Hint;
         internal readonly TextBox Search;
         internal readonly Label SearchCount;
-        private readonly IList<ColumnChoice> original;
+        private IList<ColumnChoice> original;
         private bool clearNext;
         internal event Action<IList<ColumnChoice>> ApplyRequested;
         internal ColumnFilterForm(IList<ColumnChoice> choices) : this(choices, null) { }
@@ -51,7 +52,7 @@ namespace Excel_Iterate
             searchRow.Controls.Add(searchLabel, 0, 0); searchRow.Controls.Add(Ui.Grip(Search, (Control)null), 1, 0); searchRow.Controls.Add(clear, 2, 0); searchRow.Controls.Add(SearchCount, 3, 0);
             FlowLayoutPanel actions = Ui.ActionBar(); actions.Dock = DockStyle.Fill; actions.Margin = new Padding(0, 12, 0, 0); actions.Padding = Padding.Empty;
             SelectAll = Ui.Button("全选", 88); Reset = Ui.Button("恢复原勾选", 128); Apply = Ui.Button("应用", 96); Ui.StylePrimary(Apply); Cancel = Ui.Button("关闭", 96);
-            actions.Controls.AddRange(new Control[] { SelectAll, Reset, Apply, Cancel });
+            actions.Controls.AddRange(new Control[] { SelectAll, Reset, Apply, Undo, Cancel });
             SelectAll.Click += delegate { Grid.EndEdit(); foreach (DataGridViewRow row in Grid.Rows) if (row.Visible) row.Cells[0].Value = !clearNext; clearNext = !clearNext; UpdateSelectLabel(); };
             Reset.Click += delegate { Grid.EndEdit(); foreach (DataGridViewRow row in Grid.Rows) row.Cells[0].Value = !((ColumnChoice)row.Tag).OriginalHidden; clearNext = false; UpdateSelectLabel(); };
             Cancel.Click += delegate { Close(); };
@@ -64,8 +65,22 @@ namespace Excel_Iterate
             Search.TextChanged += delegate { FilterRows(); };
             layout.Controls.Add(Hint, 0, 0); layout.Controls.Add(searchRow, 0, 1); layout.Controls.Add(card, 0, 2); layout.Controls.Add(actions, 0, 3); Controls.Add(layout);
             FilterRows();
+            Apply.Enabled = original.Count > 0;
             Cancel.DialogResult = DialogResult.Cancel; CancelButton = Cancel; AcceptButton = null;
             Resize += delegate { Hint.MaximumSize = new Size(Math.Max(240, ClientSize.Width - Ui.Px(this, 32)), 0); };
+        }
+        internal void RefreshVisibility(IList<ColumnChoice> choices)
+        {
+            original = choices;
+            var byNumber = new Dictionary<int, ColumnChoice>();
+            foreach (var choice in choices) byNumber.Add(choice.Number, choice);
+            foreach (DataGridViewRow row in Grid.Rows)
+            {
+                var choice = byNumber[((ColumnChoice)row.Tag).Number];
+                row.Tag = choice;
+                row.Cells[0].Value = choice.Visible;
+            }
+            FilterRows();
         }
         private void FilterRows()
         {

@@ -13,6 +13,7 @@ namespace Excel_Iterate
         private sealed class Session
         {
             internal long Id;
+            internal FormulaOperation Operation;
             internal IFormulaHost Host;
             internal IntPtr Owner;
             internal FormulaWindowThread Window;
@@ -38,7 +39,11 @@ namespace Excel_Iterate
             // COM hosts need not supply a WinForms SynchronizationContext. Do not
             // leave the automatically installed context behind in the host.
             SynchronizationContext previous = SynchronizationContext.Current;
-            try { dispatcher = new Control(); var handle = dispatcher.Handle; hostThread = Thread.CurrentThread.ManagedThreadId; }
+            try
+            {
+                dispatcher = new Control(); var handle = dispatcher.Handle; hostThread = Thread.CurrentThread.ManagedThreadId;
+                Connect.WorksheetUndoChanged += RefreshUndo;
+            }
             finally { SynchronizationContext.SetSynchronizationContext(previous); }
         }
         private static void AssertHostThread()
@@ -46,9 +51,18 @@ namespace Excel_Iterate
             if (hostThread != Thread.CurrentThread.ManagedThreadId)
                 throw new InvalidOperationException("公式目标只能在原宿主线程访问。");
         }
-        internal static bool ActivatePending()
+        private static string UndoSource(FormulaOperation operation)
+        { return "formula/" + (operation >= FormulaOperation.Add ? "arithmetic" : operation.ToString()); }
+
+        private static void RefreshUndo()
         {
-            if (current == null) return false;
+            var session = current;
+            if (session != null) session.Window.SetUndo(Connect.UndoState(UndoSource(session.Operation)));
+        }
+
+        internal static bool ActivatePending(FormulaOperation? operation = null)
+        {
+            if (current == null || (operation.HasValue && UndoSource(current.Operation) != UndoSource(operation.Value))) return false;
             AssertHostThread(); current.Window.Activate(); return true;
         }
         // Takes ownership even if capture or editor startup fails.
@@ -58,13 +72,28 @@ namespace Excel_Iterate
             try
             {
                 EnsureDispatcher();
-                if (ActivatePending()) return current.Id;
-                // The custom flow picks its range after the template is accepted, so
-                // nothing is captured up front and the sheet stays untouched meanwhile.
-                if (operation != FormulaOperation.Custom) host.Collect();
-                var session = new Session { Id = ++sequence, Host = host, Owner = owner, Application = application };
-                session.Window = new FormulaWindowThread(session.Id, operation, owner);
+                if (ActivatePending(operation)) return current.Id;
+                CloseSession();
+                string target = null;
+                if (operation != FormulaOperation.Custom)
+                {
+                    try
+                    {
+                        host.Collect();
+                        var com = host as ComFormulaHost;
+                        if (com != null) target = "目标选区：" + com.SelectionDescription;
+                    }
+                    catch (Exception error)
+                    {
+                        if (Connect.UndoState(UndoSource(operation)) == null) throw;
+                        host.Dispose(); host = null;
+                        target = "当前没有可用的选区。\r\n" + error.Message;
+                    }
+                }
+                var session = new Session { Id = ++sequence, Operation = operation, Host = host, Owner = owner, Application = application };
+                session.Window = new FormulaWindowThread(session.Id, operation, owner, target, host != null || operation == FormulaOperation.Custom);
                 current = session; transferred = true;
+                RefreshUndo();
                 FormulaWindowState.Record("formula-editor-open", owner);
                 session.Window.Start();
                 return session.Id;
@@ -74,7 +103,7 @@ namespace Excel_Iterate
                 if (transferred) { current = null; transferred = false; }
                 throw;
             }
-            finally { if (!transferred) host.Dispose(); }
+            finally { if (!transferred && host != null) host.Dispose(); }
         }
         // Called by an editor STA. No host object or host-capturing delegate crosses
         // that boundary; the ticket is resolved only after reaching the host STA.
@@ -90,47 +119,76 @@ namespace Excel_Iterate
             AssertHostThread();
             Session session = current;
             if (session == null || session.Id != ticket) return;
-            // Remove before processing, so duplicate/late notifications cannot write.
-            current = null;
             FormulaWindowState.Record(request == null ? "formula-cancel" : "formula-submit", session.Owner);
-            if (request == null) { Release(session); return; }
-            // The custom editor hides itself before this point, so the sheet is visible
-            // while the user picks the range to write into. A cancelled pick must return
-            // before the try below: the session goes back and the window comes back.
-            if (request.Operation == FormulaOperation.Custom)
-            {
-                object range = PickRange(session.Application);
-                if (range == null)
-                {
-                    current = session;
-                    FormulaWindowState.Record("formula-pick-cancel", session.Owner);
-                    session.Window.Show();
-                    return;
-                }
-                IFormulaHost stale = session.Host; session.Host = null;
-                if (stale != null) try { stale.Dispose(); } catch (Exception error) { UiDiagnostics.Record("formula-release", error); }
-                session.Host = new ComFormulaHost(session.Application, FormulaCapture.Values, range);
-            }
+            if (request == null) { CloseSession(); return; }
+            if (UndoSource(request.Operation) != UndoSource(session.Operation)) return;
             if (!Connect.TryBeginFormulaExecution())
             {
-                Release(session); session.Window.Close();
-                FormulaWindowThread.Notice("其他操作正在执行，本次没有修改单元格。请稍后重新打开自定义参数。", session.Owner, true);
+                const string busy = "其他操作正在执行，本次没有修改单元格。请稍后重试。";
+                session.Window.Resume(busy);
+                if (ResultForProbe != null) ResultForProbe(new FormulaCommandResult { Failed = true, Details = busy });
                 return;
             }
             try
             {
-                // Engine owns disposal once it starts, including failures and rollback.
-                IFormulaHost host = session.Host; session.Host = null;
-                FormulaCommandResult result = FormulaCommandEngine.Run(host, request, Connect.Log,
-                    RecoveryForProbe ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Excel_Iterate", "FormulaRecovery"));
-                if (ResultForProbe != null) ResultForProbe(result); else Connect.PresentFormulaResult(result, session.Owner);
+                if (request.Operation == FormulaOperation.Custom)
+                {
+                    object range = PickRange(session.Application);
+                    if (current != session) { ReleaseCom(range); return; }
+                    if (range == null)
+                    {
+                        FormulaWindowState.Record("formula-pick-cancel", session.Owner);
+                        session.Window.Resume(null);
+                        return;
+                    }
+                    Release(session);
+                    session.Host = new ComFormulaHost(session.Application, FormulaCapture.Values, range);
+                }
+                if (session.Host == null) { session.Window.Resume("当前没有可用的选区。"); return; }
+                FormulaCommandResult result = FormulaCommandEngine.Run(session.Host, request, Connect.Log, RecoveryDirectory,
+                    recordUndo: ResultForProbe == null, ownsHost: false);
+                if (ResultForProbe != null) ResultForProbe(result);
+                else Connect.RememberWorksheetEdit(UndoSource(session.Operation), result.Undo);
+                var com = session.Host as ComFormulaHost;
+                if (com != null) com.ClearSnapshot();
+                session.Window.Resume(result.Details, com == null || com.SelectionDescription == null ? null :
+                    "目标选区：" + com.SelectionDescription);
             }
             catch (Exception error)
             {
                 UiDiagnostics.Record("formula-apply", error);
-                FormulaWindowThread.Notice("一键公式发生错误：" + error.Message, session.Owner, true);
+                session.Window.Resume(error.Message);
+                if (ResultForProbe != null) ResultForProbe(new FormulaCommandResult { Failed = true, Details = error.Message });
             }
-            finally { Connect.EndFormulaExecution(); Release(session); session.Window.Close(); FormulaWindowState.Record("formula-finished", session.Owner); }
+            finally { Connect.EndFormulaExecution(); FormulaWindowState.Record("formula-finished", session.Owner); }
+        }
+        private static string RecoveryDirectory
+        {
+            get { return RecoveryForProbe ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Excel_Iterate", "FormulaRecovery"); }
+        }
+
+        internal static void ReceiveUndo(long ticket, long id)
+        {
+            var target = dispatcher; if (target == null || target.IsDisposed) return;
+            try
+            {
+                target.BeginInvoke((MethodInvoker)delegate
+                {
+                    AssertHostThread();
+                    var session = current;
+                    if (session == null || session.Id != ticket) return;
+                    string message;
+                    try
+                    {
+                        message = Connect.UndoWorksheetEdit(UndoSource(session.Operation), id, session.Application, RecoveryDirectory);
+                        var com = session.Host as ComFormulaHost;
+                        if (com != null) com.ClearSnapshot();
+                    }
+                    catch (Exception error) { message = error.Message; }
+                    session.Window.Resume(message);
+                });
+            }
+            catch (InvalidOperationException) { }
         }
         // Runs the native range picker on the host STA. Returns a Range for the caller to
         // own, or null when the user cancels or picks something that is not a range.
@@ -171,13 +229,20 @@ namespace Excel_Iterate
             IFormulaHost host = session.Host; session.Host = null;
             if (host != null) try { host.Dispose(); } catch (Exception error) { UiDiagnostics.Record("formula-release", error); }
         }
+        private static void CloseSession()
+        {
+            var session = current; current = null;
+            if (session == null) return;
+            try { Release(session); }
+            finally { session.Window.Close(); }
+        }
         internal static void Shutdown()
         {
             if (dispatcher == null) { FormulaWindowThread.CloseAll(); return; }
             AssertHostThread();
-            Session session = current; current = null;
+            Connect.WorksheetUndoChanged -= RefreshUndo;
+            CloseSession();
             FormulaWindowThread.CloseAll();
-            if (session != null) Release(session);
             Control old = dispatcher; dispatcher = null; old.Dispose(); hostThread = 0;
         }
     }

@@ -274,32 +274,23 @@ namespace WpsShared.Tools
                 Assert(wrapping.LastChild == customFunction, "Custom function sits after ABS");
                 string[] functionIds = { "menuIFErrorWrap", "menuRoundWrap" };
                 string[] labels = { "IFERROR封装", "ROUND封装" };
-                string[] defaults = { "OnWrapIFError", "OnWrapRound" }, custom = { "OnCustomIFError", "OnCustomRound" };
+                string[] actions = { "OnIFErrorWrap", "OnRoundWrap" };
                 for (int i = 0; i < labels.Length; i++)
                 {
-                    // Sibling order belongs to 配置器脚本; validate identity and wiring independently.
-                    XmlElement function = (XmlElement)wrapping.SelectSingleNode("r:menu[@id='" + functionIds[i] + "']", ns);
-                    Assert(function != null && function.GetAttribute("label") == labels[i] && function.ChildNodes.Count == 2, "Function submenu " + labels[i]);
-                    XmlElement standard = (XmlElement)function.ChildNodes[0], editor = (XmlElement)function.ChildNodes[1];
-                    Assert(standard.GetAttribute("label") == (i == 0 ? "默认返回空" : "默认保留2位") && standard.GetAttribute("onAction") == defaults[i], "Default execution " + labels[i]);
-                    Assert(editor.GetAttribute("label") == "自定义封装" && editor.GetAttribute("onAction") == custom[i], "Custom wrapping " + labels[i]);
+                    XmlElement function = (XmlElement)wrapping.SelectSingleNode("r:button[@id='" + functionIds[i] + "']", ns);
+                    Assert(function != null && function.GetAttribute("label") == labels[i] && function.ChildNodes.Count == 0 &&
+                        function.GetAttribute("onAction") == actions[i], "Function opens its parameter window " + labels[i]);
                 }
                 Assert(((XmlElement)root.ChildNodes[1]).GetAttribute("onAction") == "OnUnwrapFormula", "Unwrap callback");
                 XmlElement arithmetic = (XmlElement)root.ChildNodes[2];
-                Assert(arithmetic.GetAttribute("id") == "menuArithmetic" && arithmetic.ChildNodes.Count == 4, "Arithmetic tree");
-                string[] operators = { "Add", "Subtract", "Multiply", "Divide" };
-                for (int i = 0; i < 4; i++)
-                {
-                    XmlElement branch = (XmlElement)arithmetic.ChildNodes[i];
-                    Assert(branch.GetAttribute("id") == "menuCalculate" + operators[i] && branch.ChildNodes.Count == 2, "Arithmetic branch");
-                    Assert(((XmlElement)branch.FirstChild).GetAttribute("onAction") == "OnCalculate" + operators[i] && ((XmlElement)branch.LastChild).GetAttribute("onAction") == "OnCustomCalculate" + operators[i], "Arithmetic leaf wiring");
-                    Assert(((XmlElement)branch.LastChild).GetAttribute("label") == "自定义计算", "Custom arithmetic label");
-                }
+                Assert(arithmetic.LocalName == "button" && arithmetic.GetAttribute("id") == "menuArithmetic" &&
+                    arithmetic.GetAttribute("onAction") == "OnArithmetic" && arithmetic.ChildNodes.Count == 0, "Single arithmetic window");
                 XmlElement conversion = (XmlElement)document.SelectSingleNode("//r:menu[@id='menuOneClickConversion']", ns);
                 Assert(conversion != null && conversion.GetAttribute("label") == "一键转换" && conversion.GetAttribute("size") == "large", "Conversion root menu");
                 Assert(conversion.ParentNode == root.ParentNode && conversion.NextSibling == root, "Conversion sits immediately before formula");
-                Assert(conversion.ChildNodes.Count == 2 && ((XmlElement)conversion.FirstChild).GetAttribute("onAction") == "OnTextExtractFilter", "Text extraction action");
-                Assert(((XmlElement)conversion.LastChild).GetAttribute("id") == "btnBatchInsertTrimDelete" && ((XmlElement)conversion.LastChild).GetAttribute("label") == "批量插入与删截" && ((XmlElement)conversion.LastChild).GetAttribute("onAction") == "OnBatchInsertTrimDelete", "Batch insert trim delete action");
+                Assert(conversion.ChildNodes.Count == 3 && ((XmlElement)conversion.FirstChild).GetAttribute("onAction") == "OnTextExtractFilter", "Text extraction action and window-only undo");
+                Assert(((XmlElement)conversion.ChildNodes[1]).GetAttribute("id") == "btnBatchInsertTrimDelete" && ((XmlElement)conversion.ChildNodes[1]).GetAttribute("label") == "批量插入与删截" && ((XmlElement)conversion.ChildNodes[1]).GetAttribute("onAction") == "OnBatchInsertTrimDelete", "Batch insert trim delete action");
+                Assert(((XmlElement)conversion.ChildNodes[2]).GetAttribute("onAction") == "OnWorksheetBatch", "Worksheet batch action");
                 Assert(((XmlElement)root.ChildNodes[3]).GetAttribute("label") == "相对-绝对转换" && ((XmlElement)root.ChildNodes[3]).GetAttribute("onAction") == "OnReferenceStyleConversion", "Reference conversion action");
                 XmlElement valueConversion = (XmlElement)root.ChildNodes[4];
                 Assert(valueConversion.GetAttribute("id") == "menuFormulaValueConversion" && valueConversion.ChildNodes.Count == 3 && !valueConversion.HasAttribute("onAction"), "Formula/value submenu");

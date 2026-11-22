@@ -14,5 +14,6 @@ namespace Excel_Iterate
     public partial class Connect
     {
         public IPictureDisp GetImage_menuRoundWrap(object control) { return GetButtonImageCore("menuRoundWrap"); }
+        public void OnRoundWrap(object control) { RunFormula(FormulaOperation.Round); }
     }
 }

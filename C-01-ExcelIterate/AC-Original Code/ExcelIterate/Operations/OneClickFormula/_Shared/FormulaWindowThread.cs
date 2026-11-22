@@ -5,6 +5,14 @@ using System.Windows.Forms;
 
 namespace Excel_Iterate
 {
+    internal interface IFormulaOperationDialog
+    {
+        WorksheetUndoButton Undo { get; }
+        event Action<FormulaRequest> Submitted;
+        void SetTarget(string target, bool ready);
+        void Resume(string message);
+    }
+
     // Deliberately contains no Application, Workbook, Worksheet, Range or host
     // callback closure. Completion carries only a ticket and a pure request.
     internal sealed class FormulaWindowThread
@@ -20,12 +28,15 @@ namespace Excel_Iterate
         private Form form;
         private Thread thread;
         private bool closing;
+        private WorksheetUndoState undoState;
+        private readonly string target;
+        private readonly bool canApply;
         internal static bool HiddenForProbe;
         internal static Action<FormulaOptionsForm> CreatedForProbe;
         internal static Action NoticeForProbe;
         internal static int Count { get { lock (registryLock) return windows.Count; } }
-        internal FormulaWindowThread(long id, FormulaOperation selected, IntPtr ownerHandle)
-        { ticket = id; operation = selected; owner = ownerHandle; }
+        internal FormulaWindowThread(long id, FormulaOperation selected, IntPtr ownerHandle, string description, bool ready)
+        { ticket = id; operation = selected; owner = ownerHandle; target = description; canApply = ready; }
         private FormulaWindowThread(string text, IntPtr ownerHandle, bool isWarning)
         { notice = text; owner = ownerHandle; warning = isWarning; }
         private sealed class Owner : IWin32Window
@@ -60,24 +71,29 @@ namespace Excel_Iterate
                     // DialogResult alone closes only modal forms.
                     message.Positive.Click += delegate { message.Close(); }; window = message;
                 }
-                lock (sync) { form = window; }
-                // The custom editor keeps running after Apply: it hides itself, the host
-                // STA picks a range, and it comes back if that picker is cancelled.
-                // Do not set sent here, so a cancelled pick can be submitted again.
-                var customWindow = window as CustomFunctionForm;
-                if (customWindow != null)
-                    customWindow.Submitted += delegate(FormulaRequest request)
-                    { if (sent) return; FormulaInteraction.Receive(ticket, request); };
-                window.Load += delegate { lock (sync) { if (closing) QueueClose(); } };
+                var dialog = window as IFormulaOperationDialog;
+                if (dialog != null)
+                {
+                    dialog.SetTarget(target, canApply);
+                    dialog.Submitted += delegate(FormulaRequest request) { FormulaInteraction.Receive(ticket, request); };
+                    dialog.Undo.Click += delegate
+                    {
+                        var state = dialog.Undo.State;
+                        if (state == null || !window.Enabled) return;
+                        window.Enabled = false;
+                        FormulaInteraction.ReceiveUndo(ticket, state.Id);
+                    };
+                }
+                lock (sync) { form = window; if (dialog != null) dialog.Undo.SetState(undoState); }
+                window.Load += delegate
+                {
+                    lock (sync) { if (dialog != null) dialog.Undo.SetState(undoState); if (closing) QueueClose(); }
+                };
                 window.FormClosed += delegate
                 {
                     if (ticket == 0 || sent) return;
                     sent = true;
-                    FormulaRequest result = null;
-                    var options = window as FormulaOptionsForm;
-                    if (options != null) result = options.Request;
-                    else { var custom = window as CustomFunctionForm; if (custom != null) result = custom.Request; }
-                    FormulaInteraction.Receive(ticket, window.DialogResult == DialogResult.OK ? result : null);
+                    FormulaInteraction.Receive(ticket, null);
                 };
                 // A hidden, non-top-level fixture exercises the real loop without
                 // showing, disabling or focusing a desktop window.
@@ -120,15 +136,32 @@ namespace Excel_Iterate
                 catch (InvalidOperationException) { }
             }
         }
-        // Restores a window that Submit() hid while the host ran the range picker.
-        // Activate() alone cannot do this: a hidden window needs Visible set back.
-        internal void Show()
+        internal void Resume(string message, string description = null)
+        {
+            Queue(delegate(Form active)
+            {
+                var dialog = (IFormulaOperationDialog)active;
+                if (description != null) dialog.SetTarget(description, true);
+                dialog.Resume(message);
+                active.Visible = true;
+                if (!HiddenForProbe)
+                {
+                    if (active.WindowState == FormWindowState.Minimized) active.WindowState = FormWindowState.Normal;
+                    active.Activate();
+                }
+            });
+        }
+        internal void SetUndo(WorksheetUndoState state)
+        {
+            lock (sync) { undoState = state; Queue(active => ((IFormulaOperationDialog)active).Undo.SetState(state)); }
+        }
+        private void Queue(Action<Form> action)
         {
             lock (sync)
             {
                 var active = form;
                 if (closing || active == null || !active.IsHandleCreated || active.IsDisposed) return;
-                try { active.BeginInvoke((MethodInvoker)delegate { if (!active.IsDisposed) { active.Visible = true; if (active.WindowState == FormWindowState.Minimized) active.WindowState = FormWindowState.Normal; active.Activate(); } }); }
+                try { active.BeginInvoke((MethodInvoker)delegate { if (!active.IsDisposed) action(active); }); }
                 catch (InvalidOperationException) { }
             }
         }

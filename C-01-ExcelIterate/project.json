@@ -56,27 +56,11 @@
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Connect.OneClickFormula.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/Connect.WrapFormula.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap/Connect.IFErrorWrap.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap/WrapIFError/Connect.WrapIFError.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap/CustomIFError/Connect.CustomIFError.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/RoundWrap/Connect.RoundWrap.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/RoundWrap/WrapRound/Connect.WrapRound.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/RoundWrap/CustomRound/Connect.CustomRound.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/WrapAbs/Connect.WrapAbs.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/CustomFunction/Connect.CustomFunction.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/UnwrapFormula/Connect.UnwrapFormula.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Connect.Arithmetic.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Add/Connect.CalculateAdd.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Add/Default/Connect.CalculateAdd.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Add/Custom/Connect.CustomCalculateAdd.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Subtract/Connect.CalculateSubtract.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Subtract/Default/Connect.CalculateSubtract.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Subtract/Custom/Connect.CustomCalculateSubtract.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Multiply/Connect.CalculateMultiply.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Multiply/Default/Connect.CalculateMultiply.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Multiply/Custom/Connect.CustomCalculateMultiply.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Divide/Connect.CalculateDivide.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Divide/Default/Connect.CalculateDivide.Entry.cs",
-    "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Divide/Custom/Connect.CustomCalculateDivide.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/FileOperations/Connect.FileOperations.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/FileOperations/BatchProcessing/Connect.BatchProcessing.Entry.cs",
     "AC-Original Code/ExcelIterate/Operations/FileOperations/BatchProcessing/OrganizeFiles/Connect.OrganizeFiles.Entry.cs",
@@ -234,7 +218,15 @@
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationNameIndex.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationPresets.cs",
     "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationSheetSnapshot.cs",
-    "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationRecovery.cs"
+    "AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/MigrationRecovery.cs",
+    "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+    "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs",
+    "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionUi.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickConversion/WorksheetBatch/Connect.WorksheetBatch.Entry.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickConversion/WorksheetBatch/WorksheetBatchForm.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickConversion/WorksheetBatch/WorksheetBatchRequest.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickConversion/WorksheetBatch/WorksheetBatchHost.cs",
+    "AC-Original Code/ExcelIterate/Operations/OneClickConversion/WorksheetBatch/WorksheetBatchFormat.cs"
   ],
   "tools": [
     {
@@ -544,7 +536,8 @@
       "additional_sources": [
         "src/testharness/BatchTextEditChecks.cs",
         "src/testharness/BatchTextFixture.cs",
-        "src/testharness/BatchTextEditAdapterChecks.cs"
+        "src/testharness/BatchTextEditAdapterChecks.cs",
+        "src/testharness/WorksheetBatchChecks.cs"
       ],
       "background": []
     },
@@ -570,7 +563,8 @@
         "lib/Interop.Microsoft.Office.Core.dll"
       ],
       "additional_sources": [
-        "@shared/src/tools/LiveProbeSafety.cs"
+        "@shared/src/tools/LiveProbeSafety.cs",
+        "src/tools/WorksheetBatchLiveChecks.cs"
       ],
       "offline": false
     }
@@ -627,7 +621,8 @@
       "implementation": [
         "AC-Original Code/ExcelIterate/Data/FilterEnhanced/FilterColumns/ColumnFilterForm.cs",
         "AC-Original Code/ExcelIterate/Data/FilterEnhanced/FilterColumns/ColumnVisibilityEngine.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs"
       ],
       "tests": [
         "src/testharness/WorkbookToolsProbe.cs"
@@ -741,9 +736,9 @@
         "src/testharness/SingleSummaryProbe.cs"
       ]
     },
-    "btnWrapIFError": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap/WrapIFError",
-      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap/WrapIFError/Connect.WrapIFError.Entry.cs",
+    "menuIFErrorWrap": {
+      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap",
+      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap/Connect.IFErrorWrap.Entry.cs",
       "implementation": [
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaCommandEngine.cs",
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaInteraction.cs",
@@ -753,16 +748,18 @@
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
         "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs"
       ],
       "tests": [
         "src/testharness/FormulaProbe.cs",
         "src/testharness/FormulaInteractionProbe.cs"
       ]
     },
-    "btnCustomIFError": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap/CustomIFError",
-      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap/CustomIFError/Connect.CustomIFError.Entry.cs",
+    "menuRoundWrap": {
+      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/RoundWrap",
+      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/RoundWrap/Connect.RoundWrap.Entry.cs",
       "implementation": [
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaCommandEngine.cs",
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaInteraction.cs",
@@ -772,45 +769,9 @@
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
         "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
-      ],
-      "tests": [
-        "src/testharness/FormulaProbe.cs",
-        "src/testharness/FormulaInteractionProbe.cs"
-      ]
-    },
-    "btnWrapRound": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/RoundWrap/WrapRound",
-      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/RoundWrap/WrapRound/Connect.WrapRound.Entry.cs",
-      "implementation": [
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaCommandEngine.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaInteraction.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWindowThread.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaOptionsForm.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaRequest.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
-        "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
-      ],
-      "tests": [
-        "src/testharness/FormulaProbe.cs",
-        "src/testharness/FormulaInteractionProbe.cs"
-      ]
-    },
-    "btnCustomRound": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/RoundWrap/CustomRound",
-      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/RoundWrap/CustomRound/Connect.CustomRound.Entry.cs",
-      "implementation": [
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaCommandEngine.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaInteraction.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWindowThread.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaOptionsForm.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaRequest.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
-        "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs"
       ],
       "tests": [
         "src/testharness/FormulaProbe.cs",
@@ -829,7 +790,9 @@
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
         "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs"
       ],
       "tests": [
         "src/testharness/FormulaProbe.cs",
@@ -849,7 +812,9 @@
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
         "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs"
       ],
       "tests": [
         "src/testharness/FormulaProbe.cs",
@@ -868,16 +833,18 @@
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
         "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs"
       ],
       "tests": [
         "src/testharness/FormulaProbe.cs",
         "src/testharness/FormulaInteractionProbe.cs"
       ]
     },
-    "btnCalculateAdd": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Add/Default",
-      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Add/Default/Connect.CalculateAdd.Entry.cs",
+    "menuArithmetic": {
+      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic",
+      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Connect.Arithmetic.Entry.cs",
       "implementation": [
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaCommandEngine.cs",
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaInteraction.cs",
@@ -887,140 +854,9 @@
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
         "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
         "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
-      ],
-      "tests": [
-        "src/testharness/FormulaProbe.cs",
-        "src/testharness/FormulaInteractionProbe.cs"
-      ]
-    },
-    "btnCustomCalculateAdd": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Add/Custom",
-      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Add/Custom/Connect.CustomCalculateAdd.Entry.cs",
-      "implementation": [
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaCommandEngine.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaInteraction.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWindowThread.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaOptionsForm.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaRequest.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
-        "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
-      ],
-      "tests": [
-        "src/testharness/FormulaProbe.cs",
-        "src/testharness/FormulaInteractionProbe.cs"
-      ]
-    },
-    "btnCalculateSubtract": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Subtract/Default",
-      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Subtract/Default/Connect.CalculateSubtract.Entry.cs",
-      "implementation": [
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaCommandEngine.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaInteraction.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWindowThread.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaOptionsForm.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaRequest.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
-        "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
-      ],
-      "tests": [
-        "src/testharness/FormulaProbe.cs",
-        "src/testharness/FormulaInteractionProbe.cs"
-      ]
-    },
-    "btnCustomCalculateSubtract": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Subtract/Custom",
-      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Subtract/Custom/Connect.CustomCalculateSubtract.Entry.cs",
-      "implementation": [
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaCommandEngine.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaInteraction.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWindowThread.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaOptionsForm.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaRequest.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
-        "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
-      ],
-      "tests": [
-        "src/testharness/FormulaProbe.cs",
-        "src/testharness/FormulaInteractionProbe.cs"
-      ]
-    },
-    "btnCalculateMultiply": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Multiply/Default",
-      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Multiply/Default/Connect.CalculateMultiply.Entry.cs",
-      "implementation": [
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaCommandEngine.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaInteraction.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWindowThread.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaOptionsForm.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaRequest.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
-        "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
-      ],
-      "tests": [
-        "src/testharness/FormulaProbe.cs",
-        "src/testharness/FormulaInteractionProbe.cs"
-      ]
-    },
-    "btnCustomCalculateMultiply": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Multiply/Custom",
-      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Multiply/Custom/Connect.CustomCalculateMultiply.Entry.cs",
-      "implementation": [
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaCommandEngine.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaInteraction.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWindowThread.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaOptionsForm.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaRequest.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
-        "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
-      ],
-      "tests": [
-        "src/testharness/FormulaProbe.cs",
-        "src/testharness/FormulaInteractionProbe.cs"
-      ]
-    },
-    "btnCalculateDivide": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Divide/Default",
-      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Divide/Default/Connect.CalculateDivide.Entry.cs",
-      "implementation": [
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaCommandEngine.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaInteraction.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWindowThread.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaOptionsForm.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaRequest.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
-        "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
-      ],
-      "tests": [
-        "src/testharness/FormulaProbe.cs",
-        "src/testharness/FormulaInteractionProbe.cs"
-      ]
-    },
-    "btnCustomCalculateDivide": {
-      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Divide/Custom",
-      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Divide/Custom/Connect.CustomCalculateDivide.Entry.cs",
-      "implementation": [
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaCommandEngine.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaInteraction.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWindowThread.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaOptionsForm.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaRequest.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/FormulaWrapper.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/_Shared/Connect.FormulaExecution.cs",
-        "AC-Original Code/ExcelIterate/_Shared/FormulaRefParser.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs"
       ],
       "tests": [
         "src/testharness/FormulaProbe.cs",
@@ -1489,7 +1325,10 @@
         "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
         "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionForm.cs",
         "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionInteraction.cs",
-        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionWindowThread.cs"
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionWindowThread.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionUi.cs"
       ],
       "tests": [
         "src/testharness/CellConversionProbe.cs",
@@ -1508,7 +1347,10 @@
         "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionForm.cs",
         "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionInteraction.cs",
         "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionWindowThread.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/ReferenceStyleConversion/ReferenceStyleConverter.cs"
+        "AC-Original Code/ExcelIterate/Operations/OneClickFormula/ReferenceStyleConversion/ReferenceStyleConverter.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionUi.cs"
       ],
       "tests": [
         "src/testharness/CellConversionProbe.cs",
@@ -1523,7 +1365,13 @@
         "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionHost.cs",
         "AC-Original Code/ExcelIterate/Operations/_Shared/CellCharacterClassifier.cs",
         "AC-Original Code/ExcelIterate/Operations/_Shared/Connect.CellConversion.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionForm.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionInteraction.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionWindowThread.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionUi.cs"
       ],
       "tests": [
         "src/testharness/CellConversionProbe.cs",
@@ -1538,7 +1386,13 @@
         "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionHost.cs",
         "AC-Original Code/ExcelIterate/Operations/_Shared/CellCharacterClassifier.cs",
         "AC-Original Code/ExcelIterate/Operations/_Shared/Connect.CellConversion.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionForm.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionInteraction.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionWindowThread.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionUi.cs"
       ],
       "tests": [
         "src/testharness/CellConversionProbe.cs",
@@ -1553,7 +1407,13 @@
         "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionHost.cs",
         "AC-Original Code/ExcelIterate/Operations/_Shared/CellCharacterClassifier.cs",
         "AC-Original Code/ExcelIterate/Operations/_Shared/Connect.CellConversion.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionForm.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionInteraction.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionWindowThread.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionUi.cs"
       ],
       "tests": [
         "src/testharness/CellConversionProbe.cs",
@@ -1568,7 +1428,13 @@
         "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionHost.cs",
         "AC-Original Code/ExcelIterate/Operations/_Shared/CellCharacterClassifier.cs",
         "AC-Original Code/ExcelIterate/Operations/_Shared/Connect.CellConversion.cs",
-        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs"
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetIdentity.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionForm.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionInteraction.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionWindowThread.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionUi.cs"
       ],
       "tests": [
         "src/testharness/CellConversionProbe.cs",
@@ -1590,12 +1456,35 @@
         "AC-Original Code/ExcelIterate/Operations/OneClickConversion/BatchInsertTrimDelete/BatchInsertTrimDeletePanel.cs",
         "AC-Original Code/ExcelIterate/Operations/OneClickConversion/BatchInsertTrimDelete/BatchTextEditEngine.cs",
         "AC-Original Code/ExcelIterate/Operations/OneClickConversion/BatchInsertTrimDelete/ComConversionHost.BatchTextEdit.cs",
-        "AC-Original Code/ExcelIterate/Operations/OneClickConversion/BatchInsertTrimDelete/BatchTextEditConfirmation.cs"
+        "AC-Original Code/ExcelIterate/Operations/OneClickConversion/BatchInsertTrimDelete/BatchTextEditConfirmation.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionUi.cs"
       ],
       "tests": [
         "src/testharness/CellConversionProbe.cs",
         "src/testharness/ConversionInteractionProbe.cs",
         "src/tools/BatchTextEditLiveProbe.cs"
+      ]
+    },
+    "btnWorksheetBatch": {
+      "directory": "AC-Original Code/ExcelIterate/Operations/OneClickConversion/WorksheetBatch",
+      "entry": "AC-Original Code/ExcelIterate/Operations/OneClickConversion/WorksheetBatch/Connect.WorksheetBatch.Entry.cs",
+      "implementation": [
+        "AC-Original Code/ExcelIterate/Operations/OneClickConversion/WorksheetBatch/WorksheetBatchForm.cs",
+        "AC-Original Code/ExcelIterate/Operations/OneClickConversion/WorksheetBatch/WorksheetBatchRequest.cs",
+        "AC-Original Code/ExcelIterate/Operations/OneClickConversion/WorksheetBatch/WorksheetBatchHost.cs",
+        "AC-Original Code/ExcelIterate/Operations/OneClickConversion/WorksheetBatch/WorksheetBatchFormat.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/Connect.CellConversion.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionHost.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellConversionEngine.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/CellContentChange.cs",
+        "AC-Original Code/ExcelIterate/Operations/_Shared/ConversionUi.cs",
+        "AC-Original Code/ExcelIterate/_Shared/WorksheetEditHistory.cs"
+      ],
+      "tests": [
+        "src/testharness/CellConversionProbe.cs",
+        "src/testharness/ConversionInteractionProbe.cs"
       ]
     }
   },
@@ -1610,27 +1499,11 @@
       "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Connect.OneClickFormula.Entry.cs",
       "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/Connect.WrapFormula.Entry.cs",
       "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap/Connect.IFErrorWrap.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap/WrapIFError/Connect.WrapIFError.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/IFErrorWrap/CustomIFError/Connect.CustomIFError.Entry.cs",
       "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/RoundWrap/Connect.RoundWrap.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/RoundWrap/WrapRound/Connect.WrapRound.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/RoundWrap/CustomRound/Connect.CustomRound.Entry.cs",
       "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/WrapAbs/Connect.WrapAbs.Entry.cs",
       "AC-Original Code/ExcelIterate/Operations/OneClickFormula/WrapFormula/CustomFunction/Connect.CustomFunction.Entry.cs",
       "AC-Original Code/ExcelIterate/Operations/OneClickFormula/UnwrapFormula/Connect.UnwrapFormula.Entry.cs",
       "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Connect.Arithmetic.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Add/Connect.CalculateAdd.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Add/Default/Connect.CalculateAdd.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Add/Custom/Connect.CustomCalculateAdd.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Subtract/Connect.CalculateSubtract.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Subtract/Default/Connect.CalculateSubtract.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Subtract/Custom/Connect.CustomCalculateSubtract.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Multiply/Connect.CalculateMultiply.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Multiply/Default/Connect.CalculateMultiply.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Multiply/Custom/Connect.CustomCalculateMultiply.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Divide/Connect.CalculateDivide.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Divide/Default/Connect.CalculateDivide.Entry.cs",
-      "AC-Original Code/ExcelIterate/Operations/OneClickFormula/Arithmetic/Divide/Custom/Connect.CustomCalculateDivide.Entry.cs",
       "AC-Original Code/ExcelIterate/Operations/FileOperations/Connect.FileOperations.Entry.cs",
       "AC-Original Code/ExcelIterate/Operations/FileOperations/BatchProcessing/OrganizeFiles/Connect.OrganizeFiles.Entry.cs",
       "AC-Original Code/ExcelIterate/Operations/FileOperations/BatchProcessing/RenameFiles/Connect.RenameFiles.Entry.cs",
@@ -1824,27 +1697,11 @@
     "menuOneClickFormula": "OneClickFormula",
     "menuWrapFormula": "WrapFormula",
     "menuIFErrorWrap": "IFErrorWrap",
-    "btnWrapIFError": "WrapIFError",
-    "btnCustomIFError": "CustomIFError",
     "menuRoundWrap": "RoundWrap",
-    "btnWrapRound": "WrapRound",
-    "btnCustomRound": "CustomRound",
     "btnWrapAbs": "WrapAbs",
     "btnCustomFunction": "CustomFunction",
     "btnUnwrapFormula": "UnwrapFormula",
     "menuArithmetic": "Arithmetic",
-    "menuCalculateAdd": "Add",
-    "btnCalculateAdd": "Default",
-    "btnCustomCalculateAdd": "Custom",
-    "menuCalculateSubtract": "Subtract",
-    "btnCalculateSubtract": "Default",
-    "btnCustomCalculateSubtract": "Custom",
-    "menuCalculateMultiply": "Multiply",
-    "btnCalculateMultiply": "Default",
-    "btnCustomCalculateMultiply": "Custom",
-    "menuCalculateDivide": "Divide",
-    "btnCalculateDivide": "Default",
-    "btnCustomCalculateDivide": "Custom",
     "menuFileOperations": "FileOperations",
     "menuBatchProcessing": "BatchProcessing",
     "btnOrganizeFiles": "OrganizeFiles",
@@ -1904,6 +1761,7 @@
     "menuFormulaValueConversion": "FormulaValueConversion",
     "menuFormulaFormat": "FormulaFormat",
     "btnRestoreTextFormula": "RestoreTextFormula",
-    "btnBatchInsertTrimDelete": "BatchInsertTrimDelete"
+    "btnBatchInsertTrimDelete": "BatchInsertTrimDelete",
+    "btnWorksheetBatch": "WorksheetBatch"
   }
 }

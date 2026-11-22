@@ -58,13 +58,17 @@ namespace Excel_Iterate
                     case "formula.iferror":form=new FormulaOptionsForm(FormulaOperation.IFError);break;
                     case "formula.round":form=new FormulaOptionsForm(FormulaOperation.Round);break;
                     case "formula.add":form=new FormulaOptionsForm(FormulaOperation.Add);break;
-                    case "formula.subtract":form=new FormulaOptionsForm(FormulaOperation.Subtract);break;
-                    case "formula.multiply":form=new FormulaOptionsForm(FormulaOperation.Multiply);break;
-                    case "formula.divide":form=new FormulaOptionsForm(FormulaOperation.Divide);break;
+                    case "formula.abs":form=new FormulaOptionsForm(FormulaOperation.Abs);break;
+                    case "formula.unwrap":form=new FormulaOptionsForm(FormulaOperation.Unwrap);break;
                     case "formula.custom":form=new CustomFunctionForm();break;
                     case "conversion.text":form=new CellConversionForm(CellConversionKind.TextFilter,"工作簿：示例.xlsx\r\n工作表：数据","J1:J5",new ConversionPreview("J1:J5",new ConversionCellState { Value="MIRCAI文化旅游公司2025!!",Display="MIRCAI文化旅游公司2025!!",NumberFormat="General" }));break;
                     case "conversion.batchInsertTrimDelete":form=new CellConversionForm(CellConversionKind.BatchInsertTrimDelete,"工作簿：示例.xlsx\r\n工作表：数据","A1:A5",new ConversionPreview("A1:A5",new ConversionCellState { Value="甲乙丙丁戊123",Display="甲乙丙丁戊123",NumberFormat="General" }));((TextBox)form.Controls.Find("batchInsertText",true)[0]).Text="示例";break;
+                    case "conversion.worksheetBatch":form=new WorksheetBatchForm("Notes","B3:F20",true);break;
                     case "formula.references":form=new CellConversionForm(CellConversionKind.ReferenceStyle,"工作簿：示例.xlsx\r\n工作表：数据","G11:G14,G16:G18",new ConversionPreview("G11:G14,G16:G18",new ConversionCellState { IsFormula=true,Formula="=H23+H24+H26",Value=100.0,Display="100",NumberFormat="General" }));break;
+                    case "formula.formulaAsText":form=PreviewValueConversion(CellConversionKind.FormulaAsText);break;
+                    case "formula.restoreTextFormula":form=PreviewValueConversion(CellConversionKind.RestoreTextFormula);break;
+                    case "formula.resultAsText":form=PreviewValueConversion(CellConversionKind.ResultAsText);break;
+                    case "formula.valuesOnly":form=PreviewValueConversion(CellConversionKind.ValuesOnly);break;
                     case "links.assistant":form=new LinkAssistantForm(null);break;
                     case "file.organize":form=new OrganizeFilesForm();break;
                     case "file.names":form=new FileNamesForm(null);break;
@@ -111,6 +115,17 @@ namespace Excel_Iterate
             }
             catch{form.Dispose();throw;}
         }
+#if WPS_EXCEL
+        private static Form PreviewValueConversion(CellConversionKind kind)
+        {
+            return new CellConversionForm(kind, "工作簿：示例.xlsx\r\n工作表：数据", "A1:A5",
+                new ConversionPreview("A1:A5", new ConversionCellState
+                {
+                    IsFormula = true, Formula = "=A2+1", Value = 100.0, Display = "100", NumberFormat = "General"
+                }));
+        }
+#endif
+
         private static IEnumerable<Control> Descendants(Control root)
         {foreach(Control c in root.Controls){yield return c;foreach(Control child in Descendants(c))yield return child;}}
         private static void Populate(Form form)

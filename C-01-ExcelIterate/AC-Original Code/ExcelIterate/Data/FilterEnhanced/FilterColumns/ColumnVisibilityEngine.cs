@@ -23,11 +23,12 @@ namespace Excel_Iterate
     }
     internal static class ColumnVisibilityEngine
     {
-        internal static FormulaCommandResult Apply(IColumnVisibilityHost host, IList<ColumnChoice> choices, string recoveryDirectory)
+        internal static FormulaCommandResult Apply(IColumnVisibilityHost host, IList<ColumnChoice> choices, string recoveryDirectory, bool recordUndo = false)
         {
             FormulaCommandResult result = new FormulaCommandResult();
             List<ColumnChoice> attempted = new List<ColumnChoice>();
             bool captured = false, events = false, screen = false;
+            WorksheetEditBatch undo = null;
             try
             {
                 IList<ColumnChoice> original = host.Collect();
@@ -41,6 +42,8 @@ namespace Excel_Iterate
                 }
                 if (!anyVisible) throw new InvalidOperationException("请至少保留一列勾选。");
                 host.Recheck(); // Includes all headers, original visibility, bounds and protection.
+                var com = host as ComColumnVisibilityHost;
+                if (recordUndo && com != null) undo = com.CaptureUndo(choices);
                 events = host.EnableEvents; screen = host.ScreenUpdating; captured = true;
                 host.EnableEvents = false; host.ScreenUpdating = false;
                 if (host.EnableEvents || host.ScreenUpdating) throw new InvalidOperationException("无法关闭事件或屏幕刷新，未修改列。");
@@ -55,6 +58,7 @@ namespace Excel_Iterate
                     if (host.ReadHidden(choice.Number) != target) throw new InvalidOperationException(choice.Letter + " 列写入核对失败。");
                 }
                 result.Changed = attempted.Count;
+                result.Undo = undo; undo = null;
                 result.Details = result.Changed == 0 ? "列显示状态无需修改。" : "已修改 " + result.Changed + " 列的显示状态。";
             }
             catch (Exception ex)
@@ -86,6 +90,7 @@ namespace Excel_Iterate
             }
             finally
             {
+                if (undo != null) undo.Dispose();
                 if (captured)
                 {
                     try { host.ScreenUpdating = screen; if (host.ScreenUpdating != screen) throw new Exception("恢复核对失败"); }
@@ -121,6 +126,8 @@ namespace Excel_Iterate
             finally { Release(sheets); Release(window); }
         }
         private void CheckProtection()
+        { CheckProtection(sheet); }
+        private static void CheckProtection(object sheet)
         {
             if (!ComFormulaHost.Boolean(((dynamic)sheet).ProtectContents, "ProtectContents")) return;
             object protection = ((dynamic)sheet).Protection;
@@ -233,6 +240,18 @@ namespace Excel_Iterate
             }
             finally { Release(anchor); Release(merge); Release(cell); }
         }
+        internal IList<ColumnChoice> RefreshVisibility()
+        {
+            var current = new List<ColumnChoice>(collected.Count);
+            foreach (ColumnChoice choice in collected)
+            {
+                bool hidden = ReadHidden(choice.Number);
+                current.Add(new ColumnChoice { Number = choice.Number, Letter = choice.Letter, Header = choice.Header,
+                    OriginalHidden = hidden, Visible = !hidden });
+            }
+            collected = current;
+            return current;
+        }
         public void Recheck()
         {
             if (disposed || collected == null) throw new InvalidOperationException("窗口快照不可用。");
@@ -248,16 +267,66 @@ namespace Excel_Iterate
             }
         }
         public bool ReadHidden(int column)
+        { return ReadHidden(sheet, column); }
+        private static bool ReadHidden(object sheet, int column)
         {
             object cell = ((dynamic)sheet).Range[CellAddress.Name(1, column)], entire = null;
             try { entire = ((dynamic)cell).EntireColumn; return ComFormulaHost.Boolean(((dynamic)entire).Hidden, "整列 Hidden"); }
             finally { Release(entire); Release(cell); }
         }
         public void WriteHidden(int column, bool hidden)
+        { WriteHidden(sheet, column, hidden); }
+        private static void WriteHidden(object sheet, int column, bool hidden)
         {
             object cell = ((dynamic)sheet).Range[CellAddress.Name(1, column)], entire = null;
             try { entire = ((dynamic)cell).EntireColumn; ((dynamic)entire).Hidden = hidden; }
             finally { Release(entire); Release(cell); }
+        }
+        internal WorksheetEditBatch CaptureUndo(IList<ColumnChoice> choices)
+        {
+            var batch = new WorksheetEditBatch("按列筛选");
+            try
+            {
+                WorksheetChangeSet target = null;
+                foreach (var choice in choices)
+                {
+                    if (choice.OriginalHidden == !choice.Visible) continue;
+                    if (target == null) target = batch.AddSheet(sheet);
+                    target.Changes.Add(new ColumnHiddenChange(sheet, row, choice));
+                }
+                if (target != null) return batch;
+            }
+            catch { batch.Dispose(); throw; }
+            batch.Dispose();
+            return null;
+        }
+        private sealed class ColumnHiddenChange : IWorksheetChange
+        {
+            private readonly int number;
+            private readonly bool original;
+            private readonly string headerFormula;
+            public string Address { get; private set; }
+
+            internal ColumnHiddenChange(object sheet, int row, ColumnChoice choice)
+            {
+                number = choice.Number; original = choice.OriginalHidden;
+                Address = CellAddress.Name(row, number);
+                headerFormula = ReadHeader(sheet);
+            }
+            private string ReadHeader(object sheet)
+            {
+                object cell = ((dynamic)sheet).Range[Address];
+                try { return Convert.ToString((object)((dynamic)cell).Formula, CultureInfo.InvariantCulture); }
+                finally { Release(cell); }
+            }
+            public void Check(object sheet, bool after)
+            {
+                CheckProtection(sheet);
+                if (ReadHeader(sheet) != headerFormula || ReadHidden(sheet, number) != (after ? !original : original))
+                    throw new InvalidOperationException("列标题或显示状态已变化。");
+            }
+            public void Write(object sheet, bool after) { WriteHidden(sheet, number, after ? !original : original); }
+            public string DescribeBefore() { return "原隐藏状态：" + original; }
         }
         public void Dispose()
         {

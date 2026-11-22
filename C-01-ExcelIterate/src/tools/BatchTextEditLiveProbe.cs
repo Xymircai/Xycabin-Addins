@@ -65,6 +65,8 @@ internal static class BatchTextEditLiveProbe
     }
     [STAThread] private static int Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--worksheet-batch") return WorksheetBatchLiveChecks.Run();
+        if (args.Length == 1 && args[0] == "--worksheet-batch-private") return WorksheetBatchLiveChecks.RunPrivate();
         using (var session = new ProbeSession("batch-text-edit-live"))
         {
             try

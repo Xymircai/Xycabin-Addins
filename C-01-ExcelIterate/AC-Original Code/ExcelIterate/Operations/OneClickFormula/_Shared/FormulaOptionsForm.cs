@@ -4,14 +4,20 @@ using System.Windows.Forms;
 
 namespace Excel_Iterate
 {
-    internal sealed class FormulaOptionsForm : Form, IDialogDefaultLayout
+    internal sealed class FormulaOptionsForm : Form, IDialogDefaultLayout, IFormulaOperationDialog
     {
-        private readonly FormulaOperation operation;
+        private FormulaOperation operation;
+        private readonly bool simple;
+        private bool canApply = true;
+        private string targetDescription;
+        internal readonly ComboBox OperatorChoice;
         internal readonly ComboBox ValueType;
         internal readonly TextBox ValueInput, Preview;
         internal readonly Label Hint, Validation;
         internal readonly RoundedButton Apply, Cancel;
-        private readonly Label title, intro, typeLabel, inputLabel, previewLabel;
+        public WorksheetUndoButton Undo { get; private set; }
+        public event Action<FormulaRequest> Submitted;
+        private readonly Label title, intro, typeLabel, inputLabel, previewLabel, operatorLabel;
         private readonly UiCard card;
         private readonly FlowLayoutPanel actions;
         private bool arranging;
@@ -21,16 +27,25 @@ namespace Excel_Iterate
 
         internal FormulaOptionsForm(FormulaOperation selectedOperation)
         {
-            if (selectedOperation != FormulaOperation.IFError && selectedOperation != FormulaOperation.Round && selectedOperation < FormulaOperation.Add)
-                throw new ArgumentException("此窗口只编辑 IFERROR 或 ROUND 的参数。");
             operation = selectedOperation;
-            Text = operation >= FormulaOperation.Add ? (operation == FormulaOperation.Add ? "加" : operation == FormulaOperation.Subtract ? "减" : operation == FormulaOperation.Multiply ? "乘" : "除") + " · 自定义计算" : (operation == FormulaOperation.IFError ? "IFERROR" : "ROUND") + " · 自定义封装";
-            DialogSizing.Prepare(this, "formula." + operation.ToString().ToLowerInvariant(), "table", Ui.Blue);
+            simple = operation == FormulaOperation.Abs || operation == FormulaOperation.Unwrap;
+            Text = operation >= FormulaOperation.Add ? "数值计算" : operation == FormulaOperation.Abs ? "ABS封装" :
+                operation == FormulaOperation.Unwrap ? "移除公式封装" : operation == FormulaOperation.Round ? "ROUND封装" : "IFERROR封装";
+            string id = operation >= FormulaOperation.Add ? "formula.add" : "formula." + operation.ToString().ToLowerInvariant();
+            DialogSizing.Prepare(this, id, "table", Ui.Blue);
             ShowInTaskbar = false; MinimizeBox = false; MaximizeBox = false; KeyPreview = true;
             AutoScroll = true;
             title = TextLabel(Text, 16, true);
             intro = TextLabel("可继续操作表格；确认只处理打开窗口时的选区。原内容变化时停止，取消不修改。", 9, false);
             card = new UiCard();
+            if (operation >= FormulaOperation.Add)
+            {
+                operatorLabel = TextLabel("运算方式", 10, true);
+                OperatorChoice = new ComboBox { Name = "formulaOperator", DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat };
+                OperatorChoice.Items.AddRange(new object[] { "加", "减", "乘", "除" });
+                OperatorChoice.SelectedIndex = (int)operation - (int)FormulaOperation.Add;
+                card.Controls.AddRange(new Control[] { operatorLabel, OperatorChoice });
+            }
             typeLabel = TextLabel(operation >= FormulaOperation.Add ? "参数类型" : "替代值类型", 10, true);
             inputLabel = TextLabel(operation >= FormulaOperation.Add ? "计算参数" : operation == FormulaOperation.IFError ? "出错时返回" : "保留位数", 10, true);
             ValueType = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, BackColor = Color.White, TabIndex = 0 };
@@ -43,21 +58,52 @@ namespace Excel_Iterate
             Preview = new TextBox { Multiline = true, ReadOnly = true, WordWrap = false, ScrollBars = ScrollBars.Both,
                 BorderStyle = BorderStyle.None, BackColor = Ui.GridHead, Font = Ui.MonoFont(10, Font), TabIndex = 2 };
             card.Controls.AddRange(new Control[] { typeLabel, ValueType, inputLabel, ValueInput, Hint, previewLabel, Preview });
+            if (simple) { inputLabel.Visible = ValueInput.Visible = typeLabel.Visible = ValueType.Visible = false; }
             valueTypeGrip=new WidthGrip(ValueType);
             valueInputGrip=new WidthGrip(ValueInput);
             Validation = TextLabel("", 9, false); Validation.ForeColor = Ui.Danger;
             actions = Ui.ActionBar(); actions.Dock = DockStyle.None; actions.AutoSize = false; actions.Padding = Padding.Empty;
             Apply = Ui.Button("应用到选区", 140); Ui.StylePrimary(Apply); Apply.TabIndex = 3;
-            Cancel = Ui.Button("取消", 96); Cancel.TabIndex = 4; Cancel.DialogResult = DialogResult.Cancel;
-            actions.Controls.AddRange(new Control[] { Apply, Cancel });
+            Undo = new WorksheetUndoButton();
+            Cancel = Ui.Button("关闭", 96); Cancel.TabIndex = 5; Cancel.DialogResult = DialogResult.Cancel;
+            actions.Controls.AddRange(new Control[] { Apply, Undo, Cancel });
             Controls.AddRange(new Control[] { title, intro, card, Validation, actions });
             AcceptButton = null; CancelButton = Cancel;
-            Apply.Click += delegate { FormulaRequest request; if (TryRequest(out request)) { Request = request; DialogResult = DialogResult.OK; Close(); } };
+            Apply.Click += delegate
+            {
+                FormulaRequest request;
+                if (!canApply || Submitted == null || !TryRequest(out request)) return;
+                Request = request; Enabled = false;
+                Submitted(request);
+            };
             Cancel.Click += delegate { Request = null; DialogResult = DialogResult.Cancel; Close(); };
             ValueInput.TextChanged += delegate { UpdatePreview(); };
             ValueType.SelectedIndexChanged += delegate { UpdatePreview(); };
+            if (OperatorChoice != null)
+                OperatorChoice.SelectedIndexChanged += delegate
+                {
+                    operation = (FormulaOperation)((int)FormulaOperation.Add + OperatorChoice.SelectedIndex);
+                    ValueType.SelectedIndex = 0;
+                    ValueInput.Text = FormulaRequest.DefaultNumber(operation);
+                    UpdatePreview();
+                };
             Shown += delegate { Arrange(false); if(!SuppressActivation&&!DialogPreviewFactory.IsFormatRendering(this)){ValueInput.Focus();ValueInput.SelectAll();} };
             UpdatePreview();
+        }
+
+        public void SetTarget(string target, bool ready)
+        {
+            canApply = ready;
+            targetDescription = target;
+            if (!string.IsNullOrEmpty(targetDescription)) intro.Text = targetDescription;
+            UpdatePreview();
+        }
+
+        public void Resume(string message)
+        {
+            Enabled = true;
+            UpdatePreview();
+            if (!string.IsNullOrEmpty(message)) { Validation.Text = message; Arrange(true); }
         }
 
         private static Label TextLabel(string text, float size, bool bold)
@@ -92,18 +138,28 @@ namespace Excel_Iterate
                 Place(intro,pad, y, width, TextHeight(intro, width)); y = intro.Bottom + section;
                 int inner = width - inset * 2, editorLeft = inset + labelWidth + gap;
                 int editorWidth = inner - labelWidth - gap, rowY = inset;
-                if (operation != FormulaOperation.Round)
+                if (OperatorChoice != null)
+                {
+                    Place(OperatorChoice, editorLeft, rowY, editorWidth, OperatorChoice.PreferredHeight);
+                    Place(operatorLabel, inset, rowY, labelWidth, OperatorChoice.Height);
+                    rowY = Math.Max(OperatorChoice.Bottom, operatorLabel.Bottom) + gap;
+                }
+                if (!simple && operation != FormulaOperation.Round)
                 {
                     int typeHeight = ValueType.PreferredHeight;
                     Place(ValueType,editorLeft, rowY, editorWidth, typeHeight);
                     Place(typeLabel,inset, rowY, labelWidth, typeHeight);
                     rowY = Math.Max(ValueType.Bottom,typeLabel.Bottom) + gap;
                 }
-                int inputHeight = ValueInput.GetPreferredSize(new Size(editorWidth, 0)).Height;
-                Place(ValueInput,editorLeft, rowY, editorWidth, inputHeight);
-                Place(inputLabel,inset, rowY, labelWidth, inputHeight);
-                rowY = Math.Max(ValueInput.Bottom,inputLabel.Bottom) + gap;
-                Place(Hint,editorLeft, rowY, editorWidth, TextHeight(Hint, editorWidth));
+                if (!simple)
+                {
+                    int inputHeight = ValueInput.GetPreferredSize(new Size(editorWidth, 0)).Height;
+                    Place(ValueInput,editorLeft, rowY, editorWidth, inputHeight);
+                    Place(inputLabel,inset, rowY, labelWidth, inputHeight);
+                    rowY = Math.Max(ValueInput.Bottom,inputLabel.Bottom) + gap;
+                }
+                int hintLeft = simple ? inset : editorLeft, hintWidth = simple ? inner : editorWidth;
+                Place(Hint,hintLeft, rowY, hintWidth, TextHeight(Hint, hintWidth));
                 rowY = Hint.Bottom + section;
                 Place(previewLabel,inset, rowY, inner, TextHeight(previewLabel, inner));
                 rowY = previewLabel.Bottom + gap;
@@ -113,8 +169,9 @@ namespace Excel_Iterate
                 Place(Validation,pad, y, width, Validation.Visible ? TextHeight(Validation, width) : 0);
                 if (Validation.Visible) y = Validation.Bottom + section;
                 Apply.Size = DialogControlSizing.Resolve(Apply,new Size(Logical(140), Logical(38))); Cancel.Size = DialogControlSizing.Resolve(Cancel,new Size(Logical(96), Logical(38)));
+                Undo.Size = DialogControlSizing.Resolve(Undo, new Size(Logical(112), Logical(38)));
                 Apply.Margin = new Padding(0, 0, section, 0); Cancel.Margin = Padding.Empty;
-                actions.SetBounds(pad, y, width, Math.Max(Apply.Height,Cancel.Height)); actions.PerformLayout();actions.Height=Math.Max(actions.Height,Math.Max(Apply.Bottom,Cancel.Bottom));
+                actions.SetBounds(pad, y, width, Math.Max(Apply.Height,Cancel.Height)); actions.PerformLayout();actions.Height=Math.Max(actions.Height,Math.Max(Undo.Bottom,Math.Max(Apply.Bottom,Cancel.Bottom)));
                 int contentHeight = actions.Bottom + pad;
                 AutoScrollMinSize = new Size(Math.Max(width+pad*2,Math.Max(title.Right,intro.Right)+pad), contentHeight);
             }
@@ -129,7 +186,7 @@ namespace Excel_Iterate
             request = null;
             try
             {
-                request = operation >= FormulaOperation.Add ? FormulaRequest.Arithmetic(operation, ValueInput.Text, ValueType.SelectedIndex == 1) : operation == FormulaOperation.Round ? FormulaRequest.Round(ValueInput.Text) :
+                request = simple ? FormulaRequest.Default(operation) : operation >= FormulaOperation.Add ? FormulaRequest.Arithmetic(operation, ValueInput.Text, ValueType.SelectedIndex == 1) : operation == FormulaOperation.Round ? FormulaRequest.Round(ValueInput.Text) :
                     ValueType.SelectedIndex == 0 ? FormulaRequest.IFErrorText(ValueInput.Text) :
                     ValueType.SelectedIndex == 1 ? FormulaRequest.IFErrorNumber(ValueInput.Text) : FormulaRequest.IFErrorFormula(ValueInput.Text);
                 Validation.Text = ""; return true;
@@ -138,13 +195,16 @@ namespace Excel_Iterate
         }
         private void UpdatePreview()
         {
-            Hint.Text = operation >= FormulaOperation.Add ? (ValueType.SelectedIndex == 0 ? "例如 100、-2 或 1.5；除数不能为零。自定义值只用于本次操作。" : "例如 A1 或 SUM(B1:B3)；引用保持原样，由 WPS 计算，不在窗口内求值。") : operation == FormulaOperation.Round ? "正数：保留小数；0：取整；负数：向小数点左侧舍入。" :
+            Hint.Text = simple ? (operation == FormulaOperation.Abs ? "为所选公式加一层 ABS。" : "移除包住整条公式的最外层函数，保留第一个参数。") :
+                operation >= FormulaOperation.Add ? (ValueType.SelectedIndex == 0 ? "例如 100、-2 或 1.5；除数不能为零。自定义值只用于本次操作。" : "例如 A1 或 SUM(B1:B3)；引用保持原样，由 WPS 计算，不在窗口内求值。") : operation == FormulaOperation.Round ? "正数：保留小数；0：取整；负数：向小数点左侧舍入。" :
                 ValueType.SelectedIndex == 0 ? "直接输入文字，不用加引号；留空返回空文字，双引号会自动转义。" :
                 ValueType.SelectedIndex == 1 ? "例如 0、-1 或 1.5；使用英文小数点。" :
                 "例如 A1 或 SUM(B1:B3)；函数名使用英文，语义由 WPS 检查。";
             FormulaRequest request;
-            Apply.Enabled = TryRequest(out request);
-            Preview.Text = request == null ? "参数尚未通过检查" : request.IsArithmetic ? "数值：=20" + request.Operator + request.Argument + "\r\n公式：" + FormulaWrapper.Transform("=A1+V2+3", request) : FormulaWrapper.Transform("=A1+V2+3", request);
+            Apply.Enabled = TryRequest(out request) && canApply;
+            string sample = operation == FormulaOperation.Unwrap ? "=IFERROR(A1+V2+3,0)" : "=A1+V2+3";
+            previewLabel.Text = request != null && request.IsArithmetic ? "示例预览（数值 20 与公式 =A1+V2+3）" : "示例预览（原公式：" + sample + "）";
+            Preview.Text = request == null ? "参数尚未通过检查" : request.IsArithmetic ? "数值：=20" + request.Operator + request.Argument + "\r\n公式：" + FormulaWrapper.Transform(sample, request) : FormulaWrapper.Transform(sample, request);
             Arrange(true);
         }
         protected override void OnKeyDown(KeyEventArgs e)

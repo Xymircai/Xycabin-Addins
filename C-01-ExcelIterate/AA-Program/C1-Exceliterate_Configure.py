@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 C1-Exceliterate_Configure.py —— 「Excel-iterate」按钮集中配置生成器
 
@@ -26,8 +26,9 @@ C1-Exceliterate_Configure.py —— 「Excel-iterate」按钮集中配置生成�
           时可能不再询问。取消或失败会明确提示，不能当作安装成功
        5) 安装器报告成功后重开 WPS 表格，顶部出现「Excel-Iterate」选项卡即成功
 
-  签名身份只由下方 SIGNING_CERT_THUMBPRINT 决定；常规重建不创建新证书。
-  指定证书、有效期或私钥不可用时停止签名；build 缓存不参与证书选择。
+  签名身份由项目统一共享 PFX 决定：CN=Xymircai WPS Addins Dev，两产品同指纹。
+  证书缺失时由 C-00-Shared/resign.py 从 C-00-Shared/signing/ 自动导入当前用户\个人；
+  仍不按主题猜选、不自动创建证书、不更换发布者；build 缓存不参与证书选择。
 
 二、会改动哪些文件
 ==============================================================================
@@ -290,38 +291,31 @@ BUTTONS = [
     {
         "type": "menu", "id": "menuOneClickConversion", "group": ("grpAction", "操作"),
         "label": "一键转换", "size": "large", "builtin_icon": "update",
-        "screentip": "提取、过滤、插入、截取或删除选区文字及公式原文",
+        "screentip": "转换选区及批量处理同名工作表，各窗口可撤销最近的对应操作",
         "children": [{"id": "btnTextExtractFilter", "label": "文本提取与过滤", "builtin_icon": "filter",
                       "action": "feature", "callback": "OnTextExtractFilter",
                       "supertip": "选择区域，自由组合空格、英文、中文、数字和其他；提取保留所选类型，过滤删除所选类型。结果按文本原位写回。"},
                      {"id": "btnBatchInsertTrimDelete", "label": "批量插入与删截", "builtin_icon": "update",
                       "action": "feature", "callback": "OnBatchInsertTrimDelete",
-                      "supertip": "批量插入、截取和删除字符，支持首格示例。移除原开头等号后保留原格式，不加单引号；剩余公式语法无效时先整批确认，再转为文本。"}],
+                      "supertip": "批量插入、截取和删除字符，支持首格示例。移除原开头等号后保留原格式，不加单引号；剩余公式语法无效时先整批确认，再转为文本。"},
+                     {"id": "btnWorksheetBatch", "label": "工作表批量操作", "builtin_icon": "table",
+                      "action": "feature", "callback": "OnWorksheetBatch",
+                      "supertip": "预览并批量替换同名工作表的文字或数值，或设置单元格格式。支持已打开的工作簿、指定文件夹和多选文件。"}],
     },
     {
         "type": "menu", "id": "menuOneClickFormula", "group": ("grpAction", "操作"),
         "label": "一键公式", "size": "large", "builtin_icon": "formula",
         "screentip": "封装、计算、引用方式及公式与数值转换",
-        "supertip": "仅点击最终选项才修改公式；支持连续选区和 Ctrl 多选。",
+        "supertip": "在窗口内确认应用或撤销。支持连续选区和 Ctrl 多选。",
         "children": [
             {
                 "type": "menu", "id": "menuWrapFormula", "label": "进行公式封装",
                 "builtin_icon": "formula",
                 "children": [
-                    {"type": "menu", "id": "menuIFErrorWrap", "label": "IFERROR封装", "builtin_icon": "formula",
-                     "children": [
-                         {"id": "btnWrapIFError", "label": "默认返回空", "builtin_icon": "formula",
-                          "action": "feature", "callback": "OnWrapIFError", "supertip": '增加 IFERROR(原公式,"") 一层。'},
-                         {"id": "btnCustomIFError", "label": "自定义封装", "builtin_icon": "formula",
-                          "action": "feature", "callback": "OnCustomIFError", "supertip": "设置错误时返回的文字、数值或公式/引用，确认后处理选区；取消不修改。"},
-                     ]},
-                    {"type": "menu", "id": "menuRoundWrap", "label": "ROUND封装", "builtin_icon": "formula",
-                     "children": [
-                         {"id": "btnWrapRound", "label": "默认保留2位", "builtin_icon": "formula",
-                          "action": "feature", "callback": "OnWrapRound", "supertip": "增加 ROUND(原公式,2) 一层，固定保留两位小数。"},
-                         {"id": "btnCustomRound", "label": "自定义封装", "builtin_icon": "formula",
-                          "action": "feature", "callback": "OnCustomRound", "supertip": "自定义整数位数，例如 10、0 或 -2，确认后处理选区；取消不修改。"},
-                     ]},
+                    {"id": "menuIFErrorWrap", "label": "IFERROR封装", "builtin_icon": "formula",
+                     "action": "feature", "callback": "OnIFErrorWrap", "supertip": "默认出错时返回空文本。可修改返回值后应用。"},
+                    {"id": "menuRoundWrap", "label": "ROUND封装", "builtin_icon": "formula",
+                     "action": "feature", "callback": "OnRoundWrap", "supertip": "默认保留两位小数，可修改后应用。"},
                     {"id": "btnWrapAbs", "label": "ABS封装", "builtin_icon": "formula",
                      "action": "feature", "callback": "OnWrapAbs", "supertip": "增加 ABS(原公式) 一层，使用标准单参数语法。"},
                     {"id": "btnCustomFunction", "label": "自定义函数", "builtin_icon": "formula",
@@ -331,70 +325,8 @@ BUTTONS = [
             {"id": "btnUnwrapFormula", "label": "移除公式封装", "builtin_icon": "formula",
              "action": "feature", "callback": "OnUnwrapFormula",
              "supertip": "只拆一层完整包住整条公式的函数，保留第一个参数，丢弃其他参数。"},
-    {'type': 'menu',
-     'id': 'menuArithmetic',
-     'label': '数值计算',
-     'builtin_icon': 'formula',
-     'children': [{'type': 'menu',
-                   'id': 'menuCalculateAdd',
-                   'label': '加',
-                   'builtin_icon': 'formula',
-                   'children': [{'id': 'btnCalculateAdd',
-                                 'label': '默认加',
-                                 'default_parameter': 'add',
-                                 'builtin_icon': 'formula',
-                                 'action': 'feature',
-                                 'callback': 'OnCalculateAdd'},
-                                {'id': 'btnCustomCalculateAdd',
-                                 'label': '自定义计算',
-                                 'builtin_icon': 'formula',
-                                 'action': 'feature',
-                                 'callback': 'OnCustomCalculateAdd'}]},
-                  {'type': 'menu',
-                   'id': 'menuCalculateSubtract',
-                   'label': '减',
-                   'builtin_icon': 'formula',
-                   'children': [{'id': 'btnCalculateSubtract',
-                                 'label': '默认减',
-                                 'default_parameter': 'subtract',
-                                 'builtin_icon': 'formula',
-                                 'action': 'feature',
-                                 'callback': 'OnCalculateSubtract'},
-                                {'id': 'btnCustomCalculateSubtract',
-                                 'label': '自定义计算',
-                                 'builtin_icon': 'formula',
-                                 'action': 'feature',
-                                 'callback': 'OnCustomCalculateSubtract'}]},
-                  {'type': 'menu',
-                   'id': 'menuCalculateMultiply',
-                   'label': '乘',
-                   'builtin_icon': 'formula',
-                   'children': [{'id': 'btnCalculateMultiply',
-                                 'label': '默认乘',
-                                 'default_parameter': 'multiply',
-                                 'builtin_icon': 'formula',
-                                 'action': 'feature',
-                                 'callback': 'OnCalculateMultiply'},
-                                {'id': 'btnCustomCalculateMultiply',
-                                 'label': '自定义计算',
-                                 'builtin_icon': 'formula',
-                                 'action': 'feature',
-                                 'callback': 'OnCustomCalculateMultiply'}]},
-                  {'type': 'menu',
-                   'id': 'menuCalculateDivide',
-                   'label': '除',
-                   'builtin_icon': 'formula',
-                   'children': [{'id': 'btnCalculateDivide',
-                                 'label': '默认除',
-                                 'default_parameter': 'divide',
-                                 'builtin_icon': 'formula',
-                                 'action': 'feature',
-                                 'callback': 'OnCalculateDivide'},
-                                {'id': 'btnCustomCalculateDivide',
-                                 'label': '自定义计算',
-                                 'builtin_icon': 'formula',
-                                 'action': 'feature',
-                                 'callback': 'OnCustomCalculateDivide'}]}]},
+            {"id": "menuArithmetic", "label": "数值计算", "builtin_icon": "formula",
+             "action": "feature", "callback": "OnArithmetic", "supertip": "在同一窗口选择加、减、乘、除及参数，再应用到原选区。"},
             {"id": "btnReferenceStyleConversion", "label": "相对-绝对转换", "builtin_icon": "formula",
              "action": "feature", "callback": "OnReferenceStyleConversion",
              "supertip": "选择区域，将公式中的真实单元格引用统一设为行列绝对、行绝对、列绝对或行列相对。"},
@@ -556,9 +488,11 @@ API_PLATFORMS = [
 ]
 INSTALLER_VERSION = "0.9.9.3"
 
-# --- 固定签名证书（证书指纹，不含私钥）---
-# 常规重建复用此证书；证书或私钥不可用就停止，不按主题猜选，也不自动创建。
-# 仅在明确更换发布者证书时修改此值；清空 build 不会改变签名身份。
+# --- 项目统一签名证书（指纹，不含私钥）---
+# 两产品共用 C-00-Shared/signing/ 内的共享 PFX，主题 CN=Xymircai WPS Addins Dev。
+# 常规重建复用此证书；缺失时由共享 PFX 自动导入当前用户\个人，再复检指纹、主题、有效期和私钥。
+# 仍不按主题猜选、不自动创建证书、不静默更换发布者；清空 build 不会改变签名身份。
+# 仅在明确轮换发布者证书时，同步更新此值、signing.json 与共享 PFX。
 SIGNING_CERT_THUMBPRINT = "FED1CCCA99A0F4F4133216182723B2D3B3EC7814"  # 项目统一共享证书指纹
 INSTALLER_COPYRIGHT = "Xymircai Initial Development"
 INSTALLER_VERSION_LINE_PREFIX = "Exceliterate"

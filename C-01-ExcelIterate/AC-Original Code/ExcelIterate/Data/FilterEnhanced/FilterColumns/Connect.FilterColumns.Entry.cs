@@ -13,6 +13,8 @@ namespace Excel_Iterate
 {
     public partial class Connect
     {
+        private const string ColumnUndoSource = "column-filter";
+
         public void OnFilterColumns(object control)
         {
             if (_busy) return;
@@ -23,27 +25,55 @@ namespace Excel_Iterate
             {
                 if (!EnsureApplication()) throw new InvalidOperationException("请先打开 WPS 表格并选中一行。");
                 host = new ComColumnVisibilityHost(_app);
-                var columns = host.Collect();
-                ColumnFilterForm form = new ColumnFilterForm(columns, host.RangeDescription);
+                System.Collections.Generic.IList<ColumnChoice> columns;
+                string description;
+                try { columns = host.Collect(); description = host.RangeDescription; }
+                catch (Exception error)
+                {
+                    if (UndoState(ColumnUndoSource) == null) throw;
+                    host.Dispose(); host = null;
+                    columns = new ColumnChoice[0]; description = error.Message;
+                }
+                ColumnFilterForm form = new ColumnFilterForm(columns, description);
                 ComColumnVisibilityHost bound = host;
+                object application = _app;
+                string context = form.Hint.Text;
+                string recovery = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Excel_Iterate", "ColumnRecovery");
+                Action refreshUndo = delegate { form.Undo.SetState(UndoState(ColumnUndoSource)); };
+                WorksheetUndoChanged += refreshUndo;
+                refreshUndo();
+                form.Undo.Click += delegate
+                {
+                    var undo = form.Undo.State;
+                    if (undo == null) return;
+                    try
+                    {
+                        form.Hint.Text = context + "\r\n" + UndoWorksheetEdit(ColumnUndoSource, undo.Id, application, recovery);
+                        if (bound != null) form.RefreshVisibility(bound.RefreshVisibility());
+                    }
+                    catch (Exception error) { form.Hint.Text = context + "\r\n" + error.Message; }
+                };
                 form.ApplyRequested += delegate(System.Collections.Generic.IList<ColumnChoice> choices)
                 {
-                    if (_busy) return;
+                    if (_busy || bound == null) return;
                     _busy = true;
                     try
                     {
-                        FormulaCommandResult result = ColumnVisibilityEngine.Apply(bound, choices,
-                            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Excel_Iterate", "ColumnRecovery"));
-                        if (!result.Failed)
-                        {
-                            if (result.Changed > 0) ShowStatus("按列筛选：已修改 " + result.Changed + " 列的显示状态");
-                            form.Close();
-                        }
-                        else { Log(result.Details); UiDialog.Show(form, result.Details, "按列筛选", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+                        FormulaCommandResult result = ColumnVisibilityEngine.Apply(bound, choices, recovery, recordUndo: true);
+                        RememberWorksheetEdit(ColumnUndoSource, result.Undo);
+                        if (result.Changed > 0) form.RefreshVisibility(bound.RefreshVisibility());
+                        form.Hint.Text = context + "\r\n" + result.Details;
                     }
+                    catch (Exception error) { form.Hint.Text = context + "\r\n" + error.Message; Log(error.Message); }
                     finally { _busy = false; }
                 };
-                form.FormClosed += delegate { _columnForm = null; try { bound.Dispose(); } catch (Exception ex) { Log("列筛选引用释放：" + ex.Message); } form.Dispose(); };
+                form.FormClosed += delegate
+                {
+                    WorksheetUndoChanged -= refreshUndo;
+                    _columnForm = null;
+                    try { if (bound != null) bound.Dispose(); } catch (Exception ex) { Log("列筛选引用释放：" + ex.Message); }
+                    form.Dispose();
+                };
                 _columnForm = form;
                 IntPtr owner = GetHostWindowHandle();
                 if (owner == IntPtr.Zero) form.Show(); else form.Show(new WindowWrapper(owner));

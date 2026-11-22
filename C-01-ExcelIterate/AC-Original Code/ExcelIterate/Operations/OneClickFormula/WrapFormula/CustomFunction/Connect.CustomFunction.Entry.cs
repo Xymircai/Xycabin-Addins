@@ -13,7 +13,7 @@ namespace Excel_Iterate
 {
     public partial class Connect
     {
-        public void OnCustomFunction(object control) { RunFormula(FormulaOperation.Custom, true); }
+        public void OnCustomFunction(object control) { RunFormula(FormulaOperation.Custom); }
 
         public IPictureDisp GetImage_btnCustomFunction(object control) { return GetButtonImageCore("btnCustomFunction"); }
     }

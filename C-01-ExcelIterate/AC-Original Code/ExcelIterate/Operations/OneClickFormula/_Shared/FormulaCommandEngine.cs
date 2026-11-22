@@ -35,6 +35,7 @@ namespace Excel_Iterate
         internal bool Failed;
         internal bool RollbackIncomplete;
         internal string RecoveryLog;
+        internal WorksheetEditBatch Undo;
     }
 
     internal static class FormulaCommandEngine
@@ -45,14 +46,16 @@ namespace Excel_Iterate
         {
             internal IFormulaCell Cell;
             internal string Original, Updated;
+            internal ConversionCellState UndoBefore;
         }
         internal static FormulaCommandResult Run(IFormulaHost host, FormulaOperation operation, Action<string> log, string recoveryDirectory)
         { return Run(host, FormulaRequest.Default(operation), log, recoveryDirectory); }
 
-        internal static FormulaCommandResult Run(IFormulaHost host, FormulaRequest request, Action<string> log, string recoveryDirectory)
+        internal static FormulaCommandResult Run(IFormulaHost host, FormulaRequest request, Action<string> log, string recoveryDirectory, bool recordUndo = false, bool ownsHost = true)
         {
             FormulaCommandResult result = new FormulaCommandResult();
             List<Change> changes = new List<Change>(), attempted = new List<Change>();
+            WorksheetEditBatch undo = null;
             bool events = false, screen = false, captured = false, disabling = false;
             try
             {
@@ -94,6 +97,15 @@ namespace Excel_Iterate
                 // Full second check before the first write, plus a check at each write.
                 foreach (Change change in changes)
                     if (!MatchesOriginal(change)) throw new InvalidOperationException(change.Cell.Address + " 的公式已变化，请重新执行。");
+                WorksheetChangeSet undoTarget = null;
+                var com = host as ComFormulaHost;
+                if (recordUndo && com != null)
+                {
+                    undo = new WorksheetEditBatch("一键公式");
+                    undoTarget = com.CaptureUndoTarget(undo);
+                    foreach (Change change in changes)
+                        change.UndoBefore = ((ComFormulaHost.ComCell)change.Cell).CaptureOriginal();
+                }
                 foreach (Change change in changes)
                 {
                     if (!MatchesOriginal(change)) throw new InvalidOperationException(change.Cell.Address + " 的公式已变化。");
@@ -102,10 +114,19 @@ namespace Excel_Iterate
                     // WPS stores recognized built-in names in upper case, so a lower-case
                     // template comes back upper-cased. Function names are case-insensitive
                     // in formula semantics, so only a real content difference should fail.
-                    if (!string.Equals(change.Cell.Read(), change.Updated, StringComparison.OrdinalIgnoreCase))
+                    string written = change.Cell.Read();
+                    if (!ConversionCellState.SameFormula(change.Updated, written))
                         throw new InvalidOperationException(change.Cell.Address + " 写入后的公式与目标不一致。");
+                    if (undoTarget != null)
+                    {
+                        var cell = (ComFormulaHost.ComCell)change.Cell;
+                        var after = new ConversionCellState { IsFormula = true, Formula = written, NumberFormat = cell.NumberFormat };
+                        undoTarget.Changes.Add(new CellContentChange(cell.LocalAddress, change.UndoBefore, after,
+                            change.UndoBefore.NumberFormat != after.NumberFormat));
+                    }
                 }
                 result.Changed = changes.Count;
+                result.Undo = undo; undo = null;
             }
             catch (Exception error)
             {
@@ -146,6 +167,7 @@ namespace Excel_Iterate
             }
             finally
             {
+                if (undo != null) undo.Dispose();
                 List<string> cleanup = new List<string>();
                 if (captured && disabling)
                 {
@@ -154,7 +176,8 @@ namespace Excel_Iterate
                     try { host.EnableEvents = events; if (host.EnableEvents != events) throw new Exception("恢复核对失败"); }
                     catch (Exception ex) { cleanup.Add("事件状态恢复失败：" + ex.Message); }
                 }
-                try { host.Dispose(); } catch (Exception ex) { cleanup.Add("临时引用释放失败：" + ex.Message); }
+                if (ownsHost)
+                    try { host.Dispose(); } catch (Exception ex) { cleanup.Add("临时引用释放失败：" + ex.Message); }
                 if (cleanup.Count > 0)
                 {
                     result.Failed = true;
@@ -177,6 +200,10 @@ namespace Excel_Iterate
         // Replaces Application.Selection when set, so the custom function can act on
         // the range the user picked after the editor hid itself.
         private readonly object picked;
+        private object boundSelection;
+        private string boundAddress;
+        private int selectionReferences;
+        private object targetSheet;
         private WorksheetIdentity identity;
         private string context;
         private IList<IFormulaCell> collected;
@@ -186,7 +213,9 @@ namespace Excel_Iterate
         internal ComFormulaHost(object application, bool numbers) : this(application, numbers ? FormulaCapture.Numbers : FormulaCapture.Formulas) { }
         internal ComFormulaHost(object application, FormulaCapture mode) : this(application, mode, null) { }
         internal ComFormulaHost(object application, FormulaCapture mode, object range)
-        { app = application; capture = mode; picked = range; }
+        { app = application; capture = mode; picked = Own(range); }
+        internal string SelectionDescription { get; private set; }
+        internal WorksheetChangeSet CaptureUndoTarget(WorksheetEditBatch batch) { return batch.AddSheet(targetSheet); }
         private bool KeepValue(object number)
         {
             if (capture == FormulaCapture.Numbers) return FormulaRequest.IsNumeric(number);
@@ -211,19 +240,10 @@ namespace Excel_Iterate
         {
             if (disposed) throw new ObjectDisposedException("ComFormulaHost");
             if (collected != null) return collected;
-            List<IFormulaCell> result = new List<IFormulaCell>();
-            dynamic window = Own(((dynamic)app).ActiveWindow);
-            if (window == null) throw new InvalidOperationException("请先打开工作簿并选中单元格。");
-            dynamic selectedSheets = Own(window.SelectedSheets);
-            if (Convert.ToInt32(selectedSheets.Count) != 1) throw new InvalidOperationException("工作表正在成组选择，请先取消工作表组合。");
-            dynamic sheet = Own(((dynamic)app).ActiveSheet);
-            dynamic selection = picked != null ? Own(picked) : Own(((dynamic)app).Selection);
-            if (sheet == null || selection == null) throw new InvalidOperationException("请先选中工作表单元格。");
-            dynamic selectionSheet = Own(selection.Worksheet);
-            identity = WorksheetIdentity.Capture((object)sheet);
-            if (!identity.Matches((object)selectionSheet))
-                throw new InvalidOperationException("只能处理当前工作表的选区。");
-            context = "工作簿：" + identity.Path + "；工作表：" + identity.Name + "；单元格：";
+            if (boundSelection == null) BindSelection();
+            else RecheckScope();
+            var result = new List<IFormulaCell>();
+            dynamic sheet = targetSheet, selection = boundSelection;
             dynamic used = Own(sheet.UsedRange);
             dynamic areas = Own(selection.Areas);
             HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -254,6 +274,38 @@ namespace Excel_Iterate
             collected = result;
             return result;
         }
+
+        private void BindSelection()
+        {
+            dynamic window = Own(((dynamic)app).ActiveWindow);
+            if (window == null) throw new InvalidOperationException("请先打开工作簿并选中单元格。");
+            dynamic selectedSheets = Own(window.SelectedSheets);
+            if (Convert.ToInt32(selectedSheets.Count) != 1) throw new InvalidOperationException("工作表正在成组选择，请先取消工作表组合。");
+            targetSheet = Own(((dynamic)app).ActiveSheet);
+            dynamic selection = picked ?? Own(((dynamic)app).Selection);
+            if (targetSheet == null || selection == null) throw new InvalidOperationException("请先选中工作表单元格。");
+            dynamic selectionSheet = Own(selection.Worksheet);
+            identity = WorksheetIdentity.Capture(targetSheet);
+            if (!identity.Matches((object)selectionSheet))
+                throw new InvalidOperationException("只能处理当前工作表的选区。");
+            context = "工作簿：" + identity.Path + "；工作表：" + identity.Name + "；单元格：";
+            boundAddress = (string)selection.Address;
+            SelectionDescription = identity.Path + " / " + identity.Name + " · " + boundAddress;
+            boundSelection = (object)selection;
+            selectionReferences = owned.Count;
+        }
+
+        internal void ClearSnapshot()
+        {
+            if (boundSelection == null) return;
+            collected = null;
+            for (int i = owned.Count - 1; i >= selectionReferences; i--)
+            {
+                object reference = owned[i];
+                owned.RemoveAt(i);
+                Release(reference);
+            }
+        }
         public void RecheckScope()
         {
             dynamic window = Own(((dynamic)app).ActiveWindow), selected = null, sheet = null;
@@ -265,6 +317,8 @@ namespace Excel_Iterate
                 sheet = Own(((dynamic)app).ActiveSheet);
                 if (identity == null || !identity.Matches((object)sheet))
                     throw new InvalidOperationException("当前工作表与原目标不同，请返回打开参数窗时的工作表；目标已关闭、替换或改名时请重新执行。");
+                if (boundSelection != null && !string.Equals((string)((dynamic)boundSelection).Address, boundAddress, StringComparison.Ordinal))
+                    throw new InvalidOperationException("原选区的地址已变化，请重新打开窗口。");
             }
             finally { Drop(sheet); Drop(selected); Drop(window); }
         }
@@ -306,7 +360,7 @@ namespace Excel_Iterate
                         string formula = value as string;
                         if (!isFormula) formula = "=" + FormulaRequest.SerializeValue(number);
                         if (formula == null) throw new InvalidOperationException(address + " 公式读取失败。");
-                        result.Add(new ComCell(cell, sheet, context + address, formula, formula2, isFormula, number)); keep = true;
+                        result.Add(new ComCell(cell, sheet, context + address, address, formula, formula2, isFormula, number)); keep = true;
                     }
                     finally { if (!keep) Drop(cell); }
                 }
@@ -331,7 +385,7 @@ namespace Excel_Iterate
             owned.Clear();
             if (errors.Count > 0) throw new InvalidOperationException(string.Join("；", errors));
         }
-        private sealed class ComCell : IFormulaCell, IFormulaValueCell
+        internal sealed class ComCell : IFormulaCell, IFormulaValueCell
         {
             private readonly object cell;
             private readonly bool formula2;
@@ -340,6 +394,10 @@ namespace Excel_Iterate
             public string Snapshot { get; private set; }
             public bool OriginalIsFormula { get; private set; }
             public object OriginalValue { get; private set; }
+            internal readonly string LocalAddress;
+            internal string NumberFormat { get { return (string)((dynamic)cell).NumberFormat; } }
+            internal ConversionCellState CaptureOriginal()
+            { return new ConversionCellState { IsFormula = OriginalIsFormula, Formula = OriginalIsFormula ? Snapshot : null, Value = OriginalValue, NumberFormat = NumberFormat }; }
             public bool MatchesOriginal()
             {
                 if (ComFormulaHost.Boolean((object)((dynamic)cell).HasFormula, "HasFormula") != OriginalIsFormula) return false;
@@ -349,8 +407,8 @@ namespace Excel_Iterate
             }
             public void RestoreOriginal()
             { if (OriginalIsFormula) Write(Snapshot); else ((dynamic)cell).Value2 = OriginalValue; }
-            internal ComCell(object range, object sheet, string address, string snapshot, bool useFormula2, bool isFormula, object value)
-            { cell = range; worksheet = sheet; Address = address; Snapshot = snapshot; formula2 = useFormula2; OriginalIsFormula = isFormula; OriginalValue = value; }
+            internal ComCell(object range, object sheet, string address, string localAddress, string snapshot, bool useFormula2, bool isFormula, object value)
+            { cell = range; worksheet = sheet; Address = address; LocalAddress = localAddress; Snapshot = snapshot; formula2 = useFormula2; OriginalIsFormula = isFormula; OriginalValue = value; }
             public void CheckWritable()
             {
                 try

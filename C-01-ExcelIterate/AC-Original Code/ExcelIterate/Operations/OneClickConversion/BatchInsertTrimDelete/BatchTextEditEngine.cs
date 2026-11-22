@@ -127,9 +127,10 @@ namespace Excel_Iterate
             if (access != null) access.WriteTextBlock(block);
             else foreach (var change in block.Changes) change.Cell.Write(block.State(change));
         }
-        internal static CellConversionResult Run(IConversionHost host, ConversionRequest request, string recoveryDirectory, Func<BatchSyntaxReport, bool> confirm)
+        internal static CellConversionResult Run(IConversionHost host, ConversionRequest request, string recoveryDirectory, Func<BatchSyntaxReport, bool> confirm, bool recordUndo = false, bool ownsHost = true)
         {
             var result = new CellConversionResult(); var changes = new List<BatchEditChange>(); var attempted = new List<BatchEditChange>(); ApplicationState scope = null;
+            WorksheetEditBatch undo = null;
             var clock = Stopwatch.StartNew(); long read = 0, syntax = 0, write = 0, verify = 0, restore = 0;
             try
             {
@@ -161,6 +162,15 @@ namespace Excel_Iterate
                         scope = new ApplicationState(host); Check(host, originals, true);
                     }
                 }
+                var com = host as ComConversionHost;
+                if (recordUndo && com != null)
+                {
+                    undo = new WorksheetEditBatch("批量插入与删截");
+                    var target = com.CaptureUndoTarget(undo);
+                    foreach (var change in changes)
+                        target.Changes.Add(new CellContentChange(change.LocalAddress, change.Before, change.After,
+                            change.Before.NumberFormat != change.After.NumberFormat));
+                }
                 var blocks = BatchEditBlock.Create(changes, false);
                 foreach (var block in blocks)
                 {
@@ -172,6 +182,7 @@ namespace Excel_Iterate
                 if (formulas.Count > 0) { host.RecheckScope(); host.Calculate(formulas); Check(host, blocks, false); }
                 result.Changed = changes.Count; result.FormulasKept = formulas.Count; result.FormulasAsText = changes.Count(c => c.ConfirmedText); result.PlainResults = changes.Count - result.FormulasKept - result.FormulasAsText;
                 result.Details = "已处理 " + result.Changed + " 个单元格；普通结果 " + result.PlainResults + " 个，保留公式 " + result.FormulasKept + " 个，确认转文本 " + result.FormulasAsText + " 个。";
+                result.Undo = undo; undo = null;
             }
             catch (Exception error)
             {
@@ -196,8 +207,10 @@ namespace Excel_Iterate
             }
             finally
             {
+                if (undo != null) undo.Dispose();
                 try { if (scope != null) { long at = clock.ElapsedMilliseconds; scope.Dispose(); restore += clock.ElapsedMilliseconds - at; } } catch (Exception error) { result.Failed = true; result.Details += "\r\n" + error.Message; }
-                try { host.Dispose(); } catch (Exception error) { result.Failed = true; result.Details += "\r\n临时引用释放失败：" + error.Message; }
+                if (ownsHost)
+                    try { host.Dispose(); } catch (Exception error) { result.Failed = true; result.Details += "\r\n临时引用释放失败：" + error.Message; }
                 result.Timings = string.Format(CultureInfo.InvariantCulture, "read={0}ms; syntax={1}ms; write={2}ms; verify={3}ms; restore_calculation={4}ms; total={5}ms", read, syntax, write, verify, restore, clock.ElapsedMilliseconds);
             }
             return result;

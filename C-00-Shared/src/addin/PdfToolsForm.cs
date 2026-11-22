@@ -161,7 +161,7 @@ namespace Excel_Iterate
                 options.Controls.Add(Ui.Grip(size, "字号"));
                 options.Controls.Add(Ui.Grip(angle, "角度 °"));
                 options.Controls.Add(layoutChoice); options.Controls.Add(colorButton);
-                colorButton.Click += delegate { int? selected = HostDialogService.PdfColor(this, watermarkColor); if (selected.HasValue) { watermarkColor = selected.Value; colorButton.Text = "颜色 #" + watermarkColor.ToString("X6"); } };
+                colorButton.Click += delegate { int? selected = HostDialogService.PickColor(this, watermarkColor); if (selected.HasValue) { watermarkColor = selected.Value; colorButton.Text = "颜色 #" + watermarkColor.ToString("X6"); } };
             }
             if (mode == "split") { options.Controls.Add(Ui.Grip(ranges, "拆分范围")); }
             if (mode == "current")

@@ -48,10 +48,23 @@ internal static class FormulaInteractionProbe
     private static void CloseEditor(string action)
     {
         FormulaOptionsForm window = editor;
+        if (action == "apply")
+        {
+            window.BeginInvoke((MethodInvoker)delegate { window.Apply.PerformClick(); });
+            PumpUntil(() => result != null);
+            int inspected = 0;
+            window.BeginInvoke((MethodInvoker)delegate
+            {
+                Check(window.Enabled && !window.IsDisposed, "apply returns control to the same formula window");
+                Interlocked.Exchange(ref inspected, 1);
+            });
+            PumpUntil(() => Volatile.Read(ref inspected) == 1);
+            Check(FormulaInteraction.HasPending && FormulaWindowThread.Count == 1, "the formula session stays open after apply");
+            action = "close";
+        }
         window.BeginInvoke((MethodInvoker)delegate
         {
-            if (action == "apply") window.Apply.PerformClick();
-            else if (action == "cancel") window.Cancel.PerformClick();
+            if (action == "cancel") window.Cancel.PerformClick();
             else if (action == "escape") typeof(FormulaOptionsForm).GetMethod("OnKeyDown", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
                 .Invoke(window, new object[] { new KeyEventArgs(Keys.Escape) });
             else window.Close();
@@ -60,7 +73,8 @@ internal static class FormulaInteractionProbe
     }
     private static void Cases()
     {
-        foreach (var operation in new[] { FormulaOperation.IFError, FormulaOperation.Round, FormulaOperation.Add, FormulaOperation.Subtract, FormulaOperation.Multiply, FormulaOperation.Divide })
+        CheckArithmeticSelector();
+        foreach (var operation in new[] { FormulaOperation.IFError, FormulaOperation.Round, FormulaOperation.Abs, FormulaOperation.Add, FormulaOperation.Subtract, FormulaOperation.Multiply, FormulaOperation.Divide })
         foreach (string action in new[] { "apply", "cancel", "escape", "close" })
         {
             IntPtr focus = GetFocus(); Host host = Open(operation);
@@ -117,6 +131,36 @@ internal static class FormulaInteractionProbe
         Check(noticeThread != 0 && noticeThread != hostThread, "formula result notice also uses an independent loop");
         Check(UiDiagnostics.Text.Contains("native-thread=") && UiDiagnostics.Text.Contains("assembly=") && !UiDiagnostics.Text.Contains("private-input") && !UiDiagnostics.Text.Contains("private_changed"),
             "diagnostics contain state without input or formulas");
+    }
+
+    private static void CheckArithmeticSelector()
+    {
+        var host = Open(FormulaOperation.Add);
+        var window = editor;
+        int inspected = 0;
+        window.BeginInvoke((MethodInvoker)delegate
+        {
+            var picker = window.OperatorChoice;
+            Check(picker != null && picker.Items.Count == 4 && picker.SelectedIndex == 0, "numeric dialog starts at addition and lists four operators");
+            for (int index = 0; index < picker.Items.Count; index++)
+            {
+                picker.SelectedIndex = index;
+                FormulaRequest request;
+                var expected = (FormulaOperation)((int)FormulaOperation.Add + index);
+                Check(window.TryRequest(out request) && request.Operation == expected &&
+                      request.Argument == (index == 3 ? "10000" : "100"), "operator switch loads the corresponding default " + expected);
+            }
+            window.ValueInput.Text = "0";
+            Check(!window.Apply.Enabled, "division validation blocks a zero divisor");
+            window.ValueInput.Text = "2.5";
+            FormulaRequest custom;
+            Check(window.TryRequest(out custom) && custom.Operation == FormulaOperation.Divide && custom.Argument == "2.5", "selected operator accepts a custom value");
+            Check(!window.Undo.Enabled, "no formula undo enables without an owned batch");
+            Interlocked.Exchange(ref inspected, 1);
+        });
+        PumpUntil(() => Volatile.Read(ref inspected) == 1);
+        CloseEditor("cancel");
+        Check(host.Cell.Writes == 0 && host.Disposals == 1, "editing arithmetic settings does not write to the workbook");
     }
     private sealed class Host : IFormulaHost, IFormulaScopeHost
     {

@@ -14,5 +14,6 @@ namespace Excel_Iterate
     public partial class Connect
     {
         public IPictureDisp GetImage_menuArithmetic(object control) { return GetButtonImageCore("menuArithmetic"); }
+        public void OnArithmetic(object control) { RunFormula(FormulaOperation.Add); }
     }
 }

@@ -178,8 +178,14 @@ internal static class FormulaProbe
         // Exercise the actual click handler with an isolated form; no host is present.
         using (FormulaOptionsForm form = new FormulaOptionsForm(FormulaOperation.Round))
         {
+            FormulaRequest submitted = null;
+            form.Submitted += request => submitted = request;
             form.ValueInput.Text = "10"; form.Show(); form.Apply.PerformClick();
-            Check("explicit Apply creates validated request", form.Request != null && form.Request.Argument == "10" && form.DialogResult == System.Windows.Forms.DialogResult.OK);
+            Check("explicit Apply submits a validated request and keeps the window", form.Request == submitted &&
+                submitted != null && submitted.Argument == "10" && !form.Enabled && !form.IsDisposed &&
+                form.DialogResult == System.Windows.Forms.DialogResult.None);
+            form.Resume("已完成");
+            Check("completion reenables the same editor", form.Enabled && form.Apply.Enabled && form.Validation.Text == "已完成");
         }
     }
 

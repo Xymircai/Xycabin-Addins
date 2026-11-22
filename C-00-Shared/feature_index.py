@@ -261,7 +261,10 @@ def render(repository, project_root=None):
               '按钮入口负责接线；专属算法和弹窗位于对应末级目录，产品内部共用业务代码位于就近的 _Shared，跨产品实现只在 C-00-Shared 维护。'
               '加载框架、生成文件、测试、安装器、依赖及构建产物分别保留在 src、lib、build 等工程位置。复现需同时携带表列依赖及工程底座，不将末级目录视为独立项目。', '',
               '内容由配置器菜单、各产品 project.json 的 code_layout 英文节点名及 features 功能映射生成。更新命令：' + literal('python C-00-Shared/feature_index.py --write') + '；'
-              '只读检查：' + literal('python C-00-Shared/feature_index.py') + '；验证入口另记录于各功能的 tests。', '']
+              '只读检查：' + literal('python C-00-Shared/feature_index.py') + '；验证入口另记录于各功能的 tests。', '',
+              '构建与签名入口不在本功能索引内：项目统一发布者与共享 PFX 见 ' + literal('C-00-Shared/signing/signing.json') + '，'
+              '配置校验见 ' + literal('C-00-Shared/signing_config.py') + '、自动导入见 ' + literal('C-00-Shared/resign.py') + '；'
+              '两产品配置器的 ' + literal('SIGNING_CERT_THUMBPRINT') + ' 固定同一指纹。', '']
     for number, (directory, _, title) in enumerate(PRODUCTS, 1):
         root = Path(repository) / directory
         if project_root is not None and root.resolve() != Path(project_root).resolve():

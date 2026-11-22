@@ -266,7 +266,7 @@ internal static partial class CellConversionProbe
     [STAThread] private static int Main()
     {
         recovery = Path.Combine(Path.GetTempPath(), "CellConversionProbe-" + Guid.NewGuid().ToString("N"));
-        try { TextChecks(); ReferenceChecks(); ConversionChecks(); TransactionChecks(); RestoreChecks(); BoundApplicationChecks(); HostChecks(); BatchTextEditChecks(); Console.WriteLine("PASS CellConversionProbe: " + checks + " assertions; pure algorithms, transactions and production adapter; no host connection"); if (Directory.Exists(recovery)) { foreach (string file in Directory.GetFiles(recovery, "ConversionRecovery-*.txt")) File.Delete(file); Directory.Delete(recovery); } return 0; }
+        try { TextChecks(); ReferenceChecks(); ConversionChecks(); TransactionChecks(); RestoreChecks(); BoundApplicationChecks(); HostChecks(); BatchTextEditChecks(); WorksheetBatchChecks(); Console.WriteLine("PASS CellConversionProbe: " + checks + " assertions; pure algorithms, transactions and production adapter; no host connection"); if (Directory.Exists(recovery)) { foreach (string file in Directory.GetFiles(recovery, "ConversionRecovery-*.txt")) File.Delete(file); Directory.Delete(recovery); } return 0; }
         catch (Exception error) { Console.WriteLine("FAIL CellConversionProbe: " + error); Console.WriteLine("Retained recovery fixtures: " + recovery); return 1; }
     }
 }

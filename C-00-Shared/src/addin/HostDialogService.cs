@@ -251,7 +251,7 @@ namespace Excel_Iterate
                     return picker.ShowDialog(uiOwner) == DialogResult.OK ? picker.FileName : null;
             }, (string)null);
         }
-        internal static int? PdfColor(IWin32Window owner, int color)
+        internal static int? PickColor(IWin32Window owner, int color)
         {
             return Run<int?>(owner, delegate(IWin32Window uiOwner)
             {

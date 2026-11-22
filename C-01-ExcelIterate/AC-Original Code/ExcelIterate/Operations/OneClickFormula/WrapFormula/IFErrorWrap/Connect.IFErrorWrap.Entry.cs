@@ -14,5 +14,6 @@ namespace Excel_Iterate
     public partial class Connect
     {
         public IPictureDisp GetImage_menuIFErrorWrap(object control) { return GetButtonImageCore("menuIFErrorWrap"); }
+        public void OnIFErrorWrap(object control) { RunFormula(FormulaOperation.IFError); }
     }
 }

@@ -14,11 +14,8 @@ namespace Excel_Iterate
         private static FormulaCapture CaptureFor(FormulaOperation operation)
         { return operation == FormulaOperation.Custom ? FormulaCapture.Values : operation >= FormulaOperation.Add ? FormulaCapture.Numbers : FormulaCapture.Formulas; }
 
-        private static void RunFormula(FormulaOperation operation) { RunFormula(operation, false); }
-
-        private static void RunFormula(FormulaOperation operation, bool custom)
+        private static void RunFormula(FormulaOperation operation)
         {
-            if (custom && FormulaInteraction.ActivatePending()) return;
             if (!TryBeginFormulaExecution()) return;
             IntPtr owner = IntPtr.Zero;
             try
@@ -29,18 +26,8 @@ namespace Excel_Iterate
                     return;
                 }
                 owner = FormulaWindowState.ResolveOwner(_app);
-                if (custom)
-                {
-                    // Open takes ownership. Waiting for parameters never holds _busy
-                    // and never starts a modal message loop on the Ribbon thread.
-                    FormulaInteraction.Open(new ComFormulaHost(_app, CaptureFor(operation)), operation, owner, _app);
-                    return;
-                }
-                using (ComFormulaHost host = new ComFormulaHost(_app, CaptureFor(operation)))
-                {
-                    PresentFormulaResult(FormulaCommandEngine.Run(host, FormulaRequest.Default(operation), Log,
-                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Excel_Iterate", "FormulaRecovery")), owner);
-                }
+                if (FormulaInteraction.ActivatePending(operation)) return;
+                FormulaInteraction.Open(new ComFormulaHost(_app, CaptureFor(operation)), operation, owner, _app);
             }
             catch (Exception ex)
             {
@@ -54,13 +41,5 @@ namespace Excel_Iterate
 
         internal static void EndFormulaExecution() { _busy = false; }
 
-        internal static void PresentFormulaResult(FormulaCommandResult result, IntPtr owner)
-        {
-            if (!result.Failed && result.Changed > 0) ShowFormulaStatus(result.Changed);
-            else FormulaWindowThread.Notice(result.Details, owner, result.Failed);
-        }
-
-        private static void ShowFormulaStatus(int count)
-        { ShowStatus("一键公式：已修改 " + count + " 个单元格"); }
     }
 }

@@ -24,7 +24,7 @@ namespace Excel_Iterate
     }
     internal static class BatchTextEdit
     {
-        internal const int MaximumTextLength = 32767;
+        internal const int MaximumTextLength = CellConversionEngine.MaximumCellTextLength;
         internal static string Transform(string text, BatchTextEditOptions options)
         {
             options.Validate(); text = text ?? "";

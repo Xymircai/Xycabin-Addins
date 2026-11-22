@@ -156,7 +156,8 @@ def run(repository):
                     passed('one-product checkout validates only its B4 chapter')
                 finally:
                     hidden.rename(word)
-            # Real process boundaries prove all entry points reject before compiling.
+            # Only the rebuild and product validation entry points run R-30.
+            # The website's closing validator verifies published artifacts (G-23).
             for directory, _, _ in index.PRODUCTS:
                 config = fixture / directory / 'project.json'
                 data = json.loads(config.read_text(encoding='utf-8-sig'))
@@ -165,7 +166,7 @@ def run(repository):
                 config.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
             environment = dict(os.environ, PYTHONUTF8='1', PYTHONIOENCODING='utf-8', PYTHONDONTWRITEBYTECODE='1')
             for directory in ('C-01-ExcelIterate', 'C-02-WordUpdater', 'C-03-Website·Xycabin'):
-                entries = ('rebuild.py', 'build.py', 'validate.py') if directory != 'C-03-Website·Xycabin' else ('rebuild.py', 'validate.py')
+                entries = ('rebuild.py', 'build.py', 'validate.py') if directory != 'C-03-Website·Xycabin' else ('rebuild.py',)
                 for entry in entries:
                     for mode in ('full', 'incremental'):
                         args = [sys.executable, '-B', str(fixture / directory / entry), '--mode', mode]

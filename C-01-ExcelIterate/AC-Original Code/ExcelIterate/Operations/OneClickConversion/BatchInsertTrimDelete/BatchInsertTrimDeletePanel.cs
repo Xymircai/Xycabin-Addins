@@ -23,12 +23,14 @@ namespace Excel_Iterate
         internal BatchInsertTrimDeletePanel()
         {
             Name = "batchEditPanel"; Dock = DockStyle.Top; Height = 244; Margin = new Padding(0, 8, 0, 8); BackColor = Ui.Canvas;
-            Tabs = new TabControl { Name = "batchEditTabs", Dock = DockStyle.Fill, Padding = new Point(18, 6) }; Controls.Add(Tabs);
+            Tabs = new TabControl { Name = "batchEditTabs", Dock = DockStyle.Fill, Padding = new Point(21, 7), DrawMode = TabDrawMode.OwnerDrawFixed };
+            Tabs.DrawItem += delegate(object sender, DrawItemEventArgs e) { ConversionUi.DrawTab(Tabs, e); };
+            Controls.Add(Tabs);
             string[] titles = { "插入", "截取", "删除" };
             for (int i = 0; i < pages.Length; i++)
             {
                 int index = i; var page = new Page(); pages[i] = page;
-                var tab = new TabPage(titles[i]) { BackColor = Ui.Canvas, Padding = new Padding(10) }; Tabs.TabPages.Add(tab);
+                var tab = new TabPage(titles[i]) { BackColor = Color.White, Padding = new Padding(12, 8, 12, 8) }; Tabs.TabPages.Add(tab);
                 var content = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false };
                 page.Content = content; page.Tab = tab;
                 tab.Controls.Add(content);
@@ -37,14 +39,15 @@ namespace Excel_Iterate
                 if (i != 0) { page.Middle = Radio("中间计数", "batch" + i + "Middle", false); modes.Controls.Add(page.Middle); }
                 content.Controls.Add(modes);
                 page.CountRow = Row(); page.CountRow.Controls.Add(Caption(i == 0 ? "插入位置" : "字符数量"));
-                page.Count = Number("batch" + i + "Count", i == 0 ? 0 : 1); page.CountRow.Controls.Add(page.Count); page.CountRow.Controls.Add(Caption(i == 0 ? "（0 为所选一端）" : "个字符")); content.Controls.Add(page.CountRow);
-                page.MiddleRow = Row(); page.MiddleRow.Controls.Add(Caption("开头位置")); page.First = Number("batch" + i + "First", 1); page.MiddleRow.Controls.Add(page.First);
-                page.MiddleRow.Controls.Add(Caption("末尾位置")); page.Last = Number("batch" + i + "Last", 1); page.MiddleRow.Controls.Add(page.Last); page.MiddleRow.Visible = false; content.Controls.Add(page.MiddleRow);
+                page.Count = Number("batch" + i + "Count", i == 0 ? 0 : 1); page.CountRow.Controls.Add(new RoundedEditor(page.Count, 31)); page.CountRow.Controls.Add(Caption(i == 0 ? "（0 为所选一端）" : "个字符")); content.Controls.Add(page.CountRow);
+                page.MiddleRow = Row(); page.MiddleRow.Controls.Add(Caption("开头位置")); page.First = Number("batch" + i + "First", 1); page.MiddleRow.Controls.Add(new RoundedEditor(page.First, 31));
+                page.MiddleRow.Controls.Add(Caption("末尾位置")); page.Last = Number("batch" + i + "Last", 1); page.MiddleRow.Controls.Add(new RoundedEditor(page.Last, 31)); page.MiddleRow.Visible = false; content.Controls.Add(page.MiddleRow);
                 if (i == 0)
                 {
                     content.Controls.Add(Caption("插入文本"));
-                    page.Text = new TextBox { Name = "batchInsertText", Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical, Width = 540, Height = 60, MaxLength = BatchTextEdit.MaximumTextLength, Margin = new Padding(0, 3, 0, 0) };
-                    content.Controls.Add(page.Text); content.SizeChanged += delegate { page.Text.Width = Math.Max(120, content.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 4); };
+                    page.Text = new TextBox { Name = "batchInsertText", AccessibleName = "插入文本", Multiline = true, AcceptsReturn = true, ScrollBars = ScrollBars.Vertical, Width = 540, MaxLength = BatchTextEdit.MaximumTextLength, Margin = new Padding(0, 3, 0, 0) };
+                    var editor = new RoundedEditor(page.Text, 62);
+                    content.Controls.Add(editor); content.SizeChanged += delegate { editor.Width = Math.Max(120, content.ClientSize.Width - 3); };
                     page.Text.TextChanged += delegate { Changed(); };
                 }
                 else content.Controls.Add(Caption("中间区间从第 1 个字符起算，包含首尾。"));

@@ -23,22 +23,19 @@ namespace Excel_Iterate
             try
             {
                 if (!EnsureApplication()) { UiDialog.Show("请先打开工作簿并选择单元格。", "一键转换", MessageBoxButtons.OK, MessageBoxIcon.Information); return; }
-                if (kind == CellConversionKind.TextFilter || kind == CellConversionKind.ReferenceStyle || kind == CellConversionKind.BatchInsertTrimDelete)
+                if (ConversionInteraction.ActivatePending(kind)) return;
+                ComConversionHost host;
+                try { host = new ComConversionHost(_app); }
+                catch (Exception error)
                 {
-                    if (ConversionInteraction.ActivatePending()) return;
-                    ConversionInteraction.Open(new ComConversionHost(_app), kind, ConversionOwner());
+                    if (UndoState(ConversionInteraction.UndoSource(kind)) == null) throw;
+                    ConversionInteraction.Open(null, kind, ConversionOwner(), _app, error.Message);
+                    return;
                 }
-                else PresentConversionResult(CellConversionEngine.Run(new ComConversionHost(_app), new ConversionRequest { Kind = kind }, ConversionRecoveryDirectory));
+                ConversionInteraction.Open(host, kind, ConversionOwner(), _app);
             }
             catch (Exception error) { UiDiagnostics.Record("conversion-command", error); UiDialog.Show("转换未执行：" + error.Message, "一键转换", MessageBoxButtons.OK, MessageBoxIcon.Warning); }
             finally { EndConversion(); }
-        }
-        internal static void PresentConversionResult(CellConversionResult result)
-        {
-            if (result.Cancelled) return;
-            if (result.PlainResults + result.FormulasKept + result.FormulasAsText > 0 && !result.Failed) { ShowStatus(result.Details); return; }
-            if (!result.Failed && result.Changed > 0) ShowStatus("转换：已处理 " + result.Changed + " 个单元格" + (result.FormulasKept + result.FormulasAsText > 0 ? "；保留公式 " + result.FormulasKept + " 个，公式转文本 " + result.FormulasAsText + " 个" : ""));
-            else UiDialog.Show(result.Details, "转换结果", MessageBoxButtons.OK, result.Failed ? MessageBoxIcon.Warning : MessageBoxIcon.Information);
         }
     }
 }

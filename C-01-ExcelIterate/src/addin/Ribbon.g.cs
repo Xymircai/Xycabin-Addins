@@ -15,7 +15,7 @@
 //   网络盘文档的回调代理读不出 control.Id，靠名字才能认对按钮。
 //   新增按钮时记得在 Connect.cs 加对应的一行包装方法（本脚本会校验）。
 //
-// 生成时间：2026-11-18 18:14:37
+// 生成时间：2026-11-23 02:52:56
 // =====================================================================
 using System;
 using System.Collections.Generic;
@@ -79,42 +79,20 @@ namespace Excel_Iterate
           </menu>
         </group>
         <group id=""grpAction"" label=""操作"">
-          <menu id=""menuOneClickConversion"" label=""一键转换"" size=""large"" getImage=""GetImage_menuOneClickConversion"" screentip=""提取、过滤、插入、截取或删除选区文字及公式原文"" itemSize=""normal"">
+          <menu id=""menuOneClickConversion"" label=""一键转换"" size=""large"" getImage=""GetImage_menuOneClickConversion"" screentip=""转换选区及批量处理同名工作表，各窗口可撤销最近的对应操作"" itemSize=""normal"">
             <button id=""btnTextExtractFilter"" label=""文本提取与过滤"" getImage=""GetImage_btnTextExtractFilter"" supertip=""选择区域，自由组合空格、英文、中文、数字和其他；提取保留所选类型，过滤删除所选类型。结果按文本原位写回。"" onAction=""OnTextExtractFilter"" />
             <button id=""btnBatchInsertTrimDelete"" label=""批量插入与删截"" getImage=""GetImage_btnBatchInsertTrimDelete"" supertip=""批量插入、截取和删除字符，支持首格示例。移除原开头等号后保留原格式，不加单引号；剩余公式语法无效时先整批确认，再转为文本。"" onAction=""OnBatchInsertTrimDelete"" />
+            <button id=""btnWorksheetBatch"" label=""工作表批量操作"" getImage=""GetImage_btnWorksheetBatch"" supertip=""预览并批量替换同名工作表的文字或数值，或设置单元格格式。支持已打开的工作簿、指定文件夹和多选文件。"" onAction=""OnWorksheetBatch"" />
           </menu>
-          <menu id=""menuOneClickFormula"" label=""一键公式"" size=""large"" getImage=""GetImage_menuOneClickFormula"" screentip=""封装、计算、引用方式及公式与数值转换"" supertip=""仅点击最终选项才修改公式；支持连续选区和 Ctrl 多选。"" itemSize=""normal"">
+          <menu id=""menuOneClickFormula"" label=""一键公式"" size=""large"" getImage=""GetImage_menuOneClickFormula"" screentip=""封装、计算、引用方式及公式与数值转换"" supertip=""在窗口内确认应用或撤销。支持连续选区和 Ctrl 多选。"" itemSize=""normal"">
             <menu id=""menuWrapFormula"" label=""进行公式封装"" getImage=""GetImage_menuWrapFormula"" itemSize=""normal"">
-              <menu id=""menuIFErrorWrap"" label=""IFERROR封装"" getImage=""GetImage_menuIFErrorWrap"" itemSize=""normal"">
-                <button id=""btnWrapIFError"" label=""默认返回空"" getImage=""GetImage_btnWrapIFError"" supertip=""增加 IFERROR(原公式,&quot;&quot;) 一层。"" onAction=""OnWrapIFError"" />
-                <button id=""btnCustomIFError"" label=""自定义封装"" getImage=""GetImage_btnCustomIFError"" supertip=""设置错误时返回的文字、数值或公式/引用，确认后处理选区；取消不修改。"" onAction=""OnCustomIFError"" />
-              </menu>
-              <menu id=""menuRoundWrap"" label=""ROUND封装"" getImage=""GetImage_menuRoundWrap"" itemSize=""normal"">
-                <button id=""btnWrapRound"" label=""默认保留2位"" getImage=""GetImage_btnWrapRound"" supertip=""增加 ROUND(原公式,2) 一层，固定保留两位小数。"" onAction=""OnWrapRound"" />
-                <button id=""btnCustomRound"" label=""自定义封装"" getImage=""GetImage_btnCustomRound"" supertip=""自定义整数位数，例如 10、0 或 -2，确认后处理选区；取消不修改。"" onAction=""OnCustomRound"" />
-              </menu>
+              <button id=""menuIFErrorWrap"" label=""IFERROR封装"" getImage=""GetImage_menuIFErrorWrap"" supertip=""默认出错时返回空文本。可修改返回值后应用。"" onAction=""OnIFErrorWrap"" />
+              <button id=""menuRoundWrap"" label=""ROUND封装"" getImage=""GetImage_menuRoundWrap"" supertip=""默认保留两位小数，可修改后应用。"" onAction=""OnRoundWrap"" />
               <button id=""btnWrapAbs"" label=""ABS封装"" getImage=""GetImage_btnWrapAbs"" supertip=""增加 ABS(原公式) 一层，使用标准单参数语法。"" onAction=""OnWrapAbs"" />
               <button id=""btnCustomFunction"" label=""自定义函数"" getImage=""GetImage_btnCustomFunction"" supertip=""输入任意函数模板，留一个空参数位表示每个单元格内容，如 =TEXTSPLIT(,&quot;-&quot;,1) 或 =ISBLANK()。"" onAction=""OnCustomFunction"" />
             </menu>
             <button id=""btnUnwrapFormula"" label=""移除公式封装"" getImage=""GetImage_btnUnwrapFormula"" supertip=""只拆一层完整包住整条公式的函数，保留第一个参数，丢弃其他参数。"" onAction=""OnUnwrapFormula"" />
-            <menu id=""menuArithmetic"" label=""数值计算"" getImage=""GetImage_menuArithmetic"" itemSize=""normal"">
-              <menu id=""menuCalculateAdd"" label=""加"" getImage=""GetImage_menuCalculateAdd"" itemSize=""normal"">
-                <button id=""btnCalculateAdd"" label=""默认加100"" getImage=""GetImage_btnCalculateAdd"" onAction=""OnCalculateAdd"" />
-                <button id=""btnCustomCalculateAdd"" label=""自定义计算"" getImage=""GetImage_btnCustomCalculateAdd"" onAction=""OnCustomCalculateAdd"" />
-              </menu>
-              <menu id=""menuCalculateSubtract"" label=""减"" getImage=""GetImage_menuCalculateSubtract"" itemSize=""normal"">
-                <button id=""btnCalculateSubtract"" label=""默认减100"" getImage=""GetImage_btnCalculateSubtract"" onAction=""OnCalculateSubtract"" />
-                <button id=""btnCustomCalculateSubtract"" label=""自定义计算"" getImage=""GetImage_btnCustomCalculateSubtract"" onAction=""OnCustomCalculateSubtract"" />
-              </menu>
-              <menu id=""menuCalculateMultiply"" label=""乘"" getImage=""GetImage_menuCalculateMultiply"" itemSize=""normal"">
-                <button id=""btnCalculateMultiply"" label=""默认乘100"" getImage=""GetImage_btnCalculateMultiply"" onAction=""OnCalculateMultiply"" />
-                <button id=""btnCustomCalculateMultiply"" label=""自定义计算"" getImage=""GetImage_btnCustomCalculateMultiply"" onAction=""OnCustomCalculateMultiply"" />
-              </menu>
-              <menu id=""menuCalculateDivide"" label=""除"" getImage=""GetImage_menuCalculateDivide"" itemSize=""normal"">
-                <button id=""btnCalculateDivide"" label=""默认除10000"" getImage=""GetImage_btnCalculateDivide"" onAction=""OnCalculateDivide"" />
-                <button id=""btnCustomCalculateDivide"" label=""自定义计算"" getImage=""GetImage_btnCustomCalculateDivide"" onAction=""OnCustomCalculateDivide"" />
-              </menu>
-            </menu>
+            <button id=""menuArithmetic"" label=""数值计算"" getImage=""GetImage_menuArithmetic"" supertip=""在同一窗口选择加、减、乘、除及参数，再应用到原选区。"" onAction=""OnArithmetic"" />
             <button id=""btnReferenceStyleConversion"" label=""相对-绝对转换"" getImage=""GetImage_btnReferenceStyleConversion"" supertip=""选择区域，将公式中的真实单元格引用统一设为行列绝对、行绝对、列绝对或行列相对。"" onAction=""OnReferenceStyleConversion"" />
             <menu id=""menuFormulaValueConversion"" label=""公式-数值转换"" getImage=""GetImage_menuFormulaValueConversion"" itemSize=""normal"">
               <menu id=""menuFormulaFormat"" label=""转公式格式"" getImage=""GetImage_menuFormulaFormat"" itemSize=""normal"">
@@ -299,30 +277,15 @@ namespace Excel_Iterate
             d["menuOneClickConversion"] = 32;
             d["btnTextExtractFilter"] = 16;
             d["btnBatchInsertTrimDelete"] = 16;
+            d["btnWorksheetBatch"] = 16;
             d["menuOneClickFormula"] = 32;
             d["menuWrapFormula"] = 16;
             d["menuIFErrorWrap"] = 16;
-            d["btnWrapIFError"] = 16;
-            d["btnCustomIFError"] = 16;
             d["menuRoundWrap"] = 16;
-            d["btnWrapRound"] = 16;
-            d["btnCustomRound"] = 16;
             d["btnWrapAbs"] = 16;
             d["btnCustomFunction"] = 16;
             d["btnUnwrapFormula"] = 16;
             d["menuArithmetic"] = 16;
-            d["menuCalculateAdd"] = 16;
-            d["btnCalculateAdd"] = 16;
-            d["btnCustomCalculateAdd"] = 16;
-            d["menuCalculateSubtract"] = 16;
-            d["btnCalculateSubtract"] = 16;
-            d["btnCustomCalculateSubtract"] = 16;
-            d["menuCalculateMultiply"] = 16;
-            d["btnCalculateMultiply"] = 16;
-            d["btnCustomCalculateMultiply"] = 16;
-            d["menuCalculateDivide"] = 16;
-            d["btnCalculateDivide"] = 16;
-            d["btnCustomCalculateDivide"] = 16;
             d["btnReferenceStyleConversion"] = 16;
             d["menuFormulaValueConversion"] = 16;
             d["menuFormulaFormat"] = 16;
@@ -396,30 +359,15 @@ namespace Excel_Iterate
             d["menuOneClickConversion"] = BuiltinUpdate;
             d["btnTextExtractFilter"] = BuiltinFilter;
             d["btnBatchInsertTrimDelete"] = BuiltinUpdate;
+            d["btnWorksheetBatch"] = BuiltinTable;
             d["menuOneClickFormula"] = BuiltinFormula;
             d["menuWrapFormula"] = BuiltinFormula;
             d["menuIFErrorWrap"] = BuiltinFormula;
-            d["btnWrapIFError"] = BuiltinFormula;
-            d["btnCustomIFError"] = BuiltinFormula;
             d["menuRoundWrap"] = BuiltinFormula;
-            d["btnWrapRound"] = BuiltinFormula;
-            d["btnCustomRound"] = BuiltinFormula;
             d["btnWrapAbs"] = BuiltinFormula;
             d["btnCustomFunction"] = BuiltinFormula;
             d["btnUnwrapFormula"] = BuiltinFormula;
             d["menuArithmetic"] = BuiltinFormula;
-            d["menuCalculateAdd"] = BuiltinFormula;
-            d["btnCalculateAdd"] = BuiltinFormula;
-            d["btnCustomCalculateAdd"] = BuiltinFormula;
-            d["menuCalculateSubtract"] = BuiltinFormula;
-            d["btnCalculateSubtract"] = BuiltinFormula;
-            d["btnCustomCalculateSubtract"] = BuiltinFormula;
-            d["menuCalculateMultiply"] = BuiltinFormula;
-            d["btnCalculateMultiply"] = BuiltinFormula;
-            d["btnCustomCalculateMultiply"] = BuiltinFormula;
-            d["menuCalculateDivide"] = BuiltinFormula;
-            d["btnCalculateDivide"] = BuiltinFormula;
-            d["btnCustomCalculateDivide"] = BuiltinFormula;
             d["btnReferenceStyleConversion"] = BuiltinFormula;
             d["menuFormulaValueConversion"] = BuiltinFormula;
             d["menuFormulaFormat"] = BuiltinFormula;

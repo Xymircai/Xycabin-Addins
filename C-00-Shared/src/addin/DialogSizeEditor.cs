@@ -24,13 +24,15 @@ namespace Excel_Iterate
     {
         private static readonly Dictionary<string,string> Windows=new Dictionary<string,string> {
             {"btnTracePrecedents","trace.precedents"},{"btnTraceDependents","trace.dependents"},
-            {"btnFilterColumns","columns.filter"},{"btnCustomIFError","formula.iferror"},{"btnCustomRound","formula.round"},{"btnCustomFunction","formula.custom"},
-            {"btnCustomCalculateAdd","formula.add"},{"btnCustomCalculateSubtract","formula.subtract"},
-            {"btnCustomCalculateMultiply","formula.multiply"},{"btnCustomCalculateDivide","formula.divide"},
+            {"btnFilterColumns","columns.filter"},{"menuIFErrorWrap","formula.iferror"},{"menuRoundWrap","formula.round"},{"btnCustomFunction","formula.custom"},
+            {"menuArithmetic","formula.add"},{"btnWrapAbs","formula.abs"},{"btnUnwrapFormula","formula.unwrap"},
+            {"btnFormulaAsText","formula.formulaAsText"},{"btnRestoreTextFormula","formula.restoreTextFormula"},
+            {"btnResultAsText","formula.resultAsText"},{"btnValuesOnly","formula.valuesOnly"},
             {"btnLinkAssistant","links.assistant"},{"btnOrganizeFiles","file.organize"},{"btnRenameFiles","file.rename"},{"btnMergeHeaders","merge.headers"},
             {"btnEliminationReceivable","elimination.receivable"},{"btnEliminationRevenueCost","elimination.revenuecost"},
             {"btnDataMigration","migration.data"},
             {"btnTextExtractFilter","conversion.text"},{"btnReferenceStyleConversion","formula.references"},
+            {"btnBatchInsertTrimDelete","conversion.batchInsertTrimDelete"},{"btnWorksheetBatch","conversion.worksheetBatch"},
             {"btnCompanyWorkbooks","company.workbooks"},{"btnSingleSummary","summary.single"},
             {"btnCurrentPdf","file.pdf.current"},{"btnConvertPdf","file.pdf.convert"},{"btnWatermarkPdf","file.pdf.watermark"},{"btnSplitPdf","file.pdf.split"},{"btnMergePdf","file.pdf.merge"},
             {"btnViewLinks","word.links"},{"btnAgentReadme","agent.developer"},{"btnAgentUserGuide","agent.user"},

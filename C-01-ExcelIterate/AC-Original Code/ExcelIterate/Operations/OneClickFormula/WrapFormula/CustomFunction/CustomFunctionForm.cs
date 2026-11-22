@@ -6,7 +6,7 @@ namespace Excel_Iterate
 {
     // Lightweight editor for the custom-function wrap. The user types a single
     // function template with one empty argument reserved for each cell's content.
-    internal sealed class CustomFunctionForm : Form, IDialogDefaultLayout
+    internal sealed class CustomFunctionForm : Form, IDialogDefaultLayout, IFormulaOperationDialog
     {
         internal readonly TextBox Template, Preview;
         internal readonly Label Hint, Validation;
@@ -21,7 +21,9 @@ namespace Excel_Iterate
         internal FormulaRequest Request { get; private set; }
         // Raised after the template validates and the window hides itself, so the
         // sheet is visible while the host STA runs the native range picker.
-        internal event Action<FormulaRequest> Submitted;
+        public event Action<FormulaRequest> Submitted;
+        public WorksheetUndoButton Undo { get; private set; }
+        private bool canApply = true;
 
         internal CustomFunctionForm()
         {
@@ -48,8 +50,9 @@ namespace Excel_Iterate
             Validation = TextLabel("", 9, false); Validation.ForeColor = Ui.Danger;
             actions = Ui.ActionBar(); actions.Dock = DockStyle.None; actions.AutoSize = false; actions.Padding = Padding.Empty;
             Apply = Ui.Button("应用到选区", 140); Ui.StylePrimary(Apply); Apply.TabIndex = 3;
-            Cancel = Ui.Button("取消", 96); Cancel.TabIndex = 4; Cancel.DialogResult = DialogResult.Cancel;
-            actions.Controls.AddRange(new Control[] { Apply, Cancel });
+            Undo = new WorksheetUndoButton();
+            Cancel = Ui.Button("关闭", 96); Cancel.TabIndex = 5; Cancel.DialogResult = DialogResult.Cancel;
+            actions.Controls.AddRange(new Control[] { Apply, Undo, Cancel });
             Controls.AddRange(new Control[] { title, intro, card, Validation, actions });
             AcceptButton = null; CancelButton = Cancel;
             Apply.Click += delegate { Submit(); };
@@ -60,6 +63,20 @@ namespace Excel_Iterate
             // Seed the picker so its disabled state is correct before the first keystroke.
             RefreshSlots();
             UpdatePreview();
+        }
+
+        public void SetTarget(string target, bool ready)
+        {
+            canApply = ready;
+            if (!string.IsNullOrEmpty(target)) intro.Text = target;
+            UpdatePreview();
+        }
+
+        public void Resume(string message)
+        {
+            Enabled = true;
+            UpdatePreview();
+            if (!string.IsNullOrEmpty(message)) { Validation.Text = message; Arrange(true); }
         }
 
         private static Label TextLabel(string text, float size, bool bold)
@@ -140,8 +157,9 @@ namespace Excel_Iterate
                 Place(Validation, pad, y, width, Validation.Visible ? TextHeight(Validation, width) : 0);
                 if (Validation.Visible) y = Validation.Bottom + section;
                 Apply.Size = DialogControlSizing.Resolve(Apply, new Size(Logical(140), Logical(38))); Cancel.Size = DialogControlSizing.Resolve(Cancel, new Size(Logical(96), Logical(38)));
+                Undo.Size = DialogControlSizing.Resolve(Undo, new Size(Logical(112), Logical(38)));
                 Apply.Margin = new Padding(0, 0, section, 0); Cancel.Margin = Padding.Empty;
-                actions.SetBounds(pad, y, width, Math.Max(Apply.Height, Cancel.Height)); actions.PerformLayout(); actions.Height = Math.Max(actions.Height, Math.Max(Apply.Bottom, Cancel.Bottom));
+                actions.SetBounds(pad, y, width, Math.Max(Apply.Height, Cancel.Height)); actions.PerformLayout(); actions.Height = Math.Max(actions.Height, Math.Max(Undo.Bottom, Math.Max(Apply.Bottom, Cancel.Bottom)));
                 int contentHeight = actions.Bottom + pad;
                 AutoScrollMinSize = new Size(Math.Max(width + pad * 2, Math.Max(title.Right, intro.Right) + pad), contentHeight);
             }
@@ -178,8 +196,9 @@ namespace Excel_Iterate
         private void Submit()
         {
             FormulaRequest request;
-            if (!TryRequest(out request)) return;
+            if (!canApply || Submitted == null || !TryRequest(out request)) return;
             Request = request;
+            Enabled = false;
             Hide();
             Action<FormulaRequest> submit = Submitted;
             if (submit != null) submit(request);
@@ -189,7 +208,7 @@ namespace Excel_Iterate
         {
             Hint.Text = "留空参数位表示每个单元格内容，例如 =TEXTSPLIT(,\"-\",1)。公式单元格填入公式体，文本/数值单元格填入其值。";
             FormulaRequest request;
-            Apply.Enabled = TryRequest(out request);
+            Apply.Enabled = TryRequest(out request) && canApply;
             Preview.Text = request == null ? "模板尚未通过检查" :
                 "文本：=" + request.ApplyCustom(FormulaRequest.SerializeValue("a-b-c")) + "\r\n公式：" + FormulaWrapper.Transform("=A1+V2+3", request);
             Arrange(true);

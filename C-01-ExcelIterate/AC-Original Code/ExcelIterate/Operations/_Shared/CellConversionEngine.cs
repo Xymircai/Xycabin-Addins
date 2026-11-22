@@ -50,9 +50,9 @@ namespace Excel_Iterate
             }
             return true;
         }
-        internal bool Matches(ConversionCellState actual, bool compareResult, bool allowFormulaCase = false)
+        internal bool Matches(ConversionCellState actual, bool compareResult, bool allowFormulaCase = false, bool compareFormat = true)
         {
-            return actual != null && IsFormula == actual.IsFormula && NumberFormat == actual.NumberFormat &&
+            return actual != null && IsFormula == actual.IsFormula && (!compareFormat || NumberFormat == actual.NumberFormat) &&
                 (IsFormula ? (allowFormulaCase ? SameFormula(Formula, actual.Formula) : Formula == actual.Formula) && (!compareResult || SameValue(Value, actual.Value)) : SameValue(Value, actual.Value));
         }
         internal string Describe()
@@ -82,12 +82,14 @@ namespace Excel_Iterate
         internal string Timings;
         internal bool Failed, RollbackIncomplete;
         internal string Details, RecoveryLog;
+        internal WorksheetEditBatch Undo;
     }
     // Only a rejection at the formula setter is eligible for a literal-text retry.
     internal sealed class FormulaInputRejectedException : Exception
     { internal FormulaInputRejectedException(Exception error) : base("宿主不接受修改后的公式表达式。", error) { } }
     internal static class CellConversionEngine
     {
+        internal const int MaximumCellTextLength = 32767;
         private sealed class Change { internal IConversionCell Cell; internal ConversionCellState Before, After; }
         internal static ConversionCellState Transform(ConversionCellState original, ConversionRequest request)
         {
@@ -119,10 +121,11 @@ namespace Excel_Iterate
             if (value is int && ((uint)(int)value & 0xffff0000u) == 0x800a0000u || value is uint && ((uint)value & 0xffff0000u) == 0x800a0000u) return false;
             return value is double || value is float || value is decimal || value is int || value is long || value is short || value is byte || value is uint || value is ulong || value is ushort || value is sbyte;
         }
-        internal static CellConversionResult Run(IConversionHost host, ConversionRequest request, string recoveryDirectory, Func<BatchSyntaxReport, bool> confirm = null)
+        internal static CellConversionResult Run(IConversionHost host, ConversionRequest request, string recoveryDirectory, Func<BatchSyntaxReport, bool> confirm = null, bool recordUndo = false, bool ownsHost = true)
         {
-            if (request.Kind == CellConversionKind.BatchInsertTrimDelete) return BatchTextEditEngine.Run(host, request, recoveryDirectory, confirm);
+            if (request.Kind == CellConversionKind.BatchInsertTrimDelete) return BatchTextEditEngine.Run(host, request, recoveryDirectory, confirm, recordUndo, ownsHost);
             var result = new CellConversionResult(); var changes = new List<Change>(); var attempted = new List<Change>();
+            WorksheetEditBatch undo = null;
             bool captured = false, events = false, screen = false;
             try
             {
@@ -148,6 +151,17 @@ namespace Excel_Iterate
                     change.Cell.CheckWritable();
                     if (!change.Before.Matches(change.Cell.Read(), true)) throw new InvalidOperationException(change.Cell.Address + " 的内容、结果或格式已改变，请重新执行。");
                 }
+                var com = host as ComConversionHost;
+                if (recordUndo && com != null)
+                {
+                    string label = request.Kind == CellConversionKind.TextFilter ? "文本提取与过滤" :
+                        request.Kind == CellConversionKind.ReferenceStyle ? "相对-绝对转换" : "公式-数值转换";
+                    undo = new WorksheetEditBatch(label);
+                    var target = com.CaptureUndoTarget(undo);
+                    foreach (var change in changes)
+                        target.Changes.Add(new CellContentChange(((IBatchTextPosition)change.Cell).LocalAddress,
+                            change.Before, change.After, change.Before.NumberFormat != change.After.NumberFormat));
+                }
                 foreach (var change in changes)
                 {
                     change.Cell.CheckWritable();
@@ -171,6 +185,7 @@ namespace Excel_Iterate
                     }
                 }
                 result.Changed = changes.Count; result.Details = "已转换 " + result.Changed + " 个单元格。";
+                result.Undo = undo; undo = null;
             }
             catch (Exception error)
             {
@@ -199,13 +214,15 @@ namespace Excel_Iterate
             }
             finally
             {
+                if (undo != null) undo.Dispose();
                 var cleanup = new List<string>();
                 if (captured)
                 {
                     try { host.ScreenUpdating = screen; if (host.ScreenUpdating != screen) throw new InvalidOperationException("核验失败"); } catch (Exception ex) { cleanup.Add("屏幕刷新恢复失败：" + ex.Message); }
                     try { host.EnableEvents = events; if (host.EnableEvents != events) throw new InvalidOperationException("核验失败"); } catch (Exception ex) { cleanup.Add("事件恢复失败：" + ex.Message); }
                 }
-                try { host.Dispose(); } catch (Exception ex) { cleanup.Add("临时引用释放失败：" + ex.Message); }
+                if (ownsHost)
+                    try { host.Dispose(); } catch (Exception ex) { cleanup.Add("临时引用释放失败：" + ex.Message); }
                 if (cleanup.Count > 0) { result.Failed = true; result.Details += "\r\n" + string.Join("\r\n", cleanup); }
             }
             return result;

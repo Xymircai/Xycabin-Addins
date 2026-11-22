@@ -5,12 +5,16 @@ using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 using Excel_Iterate;
 
 internal static class ConversionInteractionProbe
 {
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr keysAndDelta, IntPtr location);
+
     private static int checks, hostThread;
     private static volatile CellConversionForm editor;
     private static CellConversionResult result;
@@ -21,6 +25,14 @@ internal static class ConversionInteractionProbe
     private static void OnUi(Action<CellConversionForm> action)
     { var form = editor; form.BeginInvoke((MethodInvoker)delegate { action(form); }); }
     private static void Settled() { Pump(() => !ConversionInteraction.HasPending && ConversionWindowThread.Count == 0); }
+    private static void ApplyAndClose(Host host)
+    {
+        OnUi(f => f.Apply.PerformClick());
+        Pump(() => result != null && editor.Enabled);
+        Check(ConversionInteraction.HasPending && ConversionWindowThread.Count == 1 && host.Disposals == 0,
+            "apply keeps the conversion window and its target alive");
+        OnUi(f => f.Cancel.PerformClick()); Settled();
+    }
     private sealed class Cell : IConversionCell
     {
         internal ConversionCellState Current = new ConversionCellState { IsFormula = true, Formula = "=$A$2", Value = 7.0, Display = "7", NumberFormat = "General" };
@@ -65,19 +77,23 @@ internal static class ConversionInteractionProbe
         ConversionWindowThread.CreatedForProbe = delegate(CellConversionForm form) { Check(Thread.CurrentThread.ManagedThreadId != hostThread && Thread.CurrentThread.GetApartmentState() == ApartmentState.STA, "editor uses independent STA"); editor = form; };
         ConversionInteraction.ResultForProbe = delegate(CellConversionResult value) { result = value; };
         var host = Open(); OnUi(f => f.Cancel.PerformClick()); Settled(); Check(host.Cell.Writes == 0 && host.Disposals == 1, "cancel releases session with zero writes");
-        host = Open(); var same = new Host(); long existing = ConversionInteraction.Open(same, CellConversionKind.TextFilter, IntPtr.Zero);
+        host = Open(); var same = new Host(); long existing = ConversionInteraction.Open(same, CellConversionKind.ReferenceStyle, IntPtr.Zero);
         Check(existing == ticket && same.Disposals == 1, "repeated command keeps a single parameter session"); OnUi(f => f.Close()); Settled();
+        host = Open();
+        var switched = Open(CellConversionKind.TextFilter);
+        Check(host.Disposals == 1 && switched.Disposals == 0 && editor.Text == "文本提取与过滤", "a distinct conversion command replaces the old editor");
+        OnUi(f => f.Close()); Settled();
         host = Open(); OnUi(f => f.Pick.PerformClick()); Pump(() => host.Picks == 1 && editor.Enabled);
         Check(host.Address == "A1" && host.Cell.Writes == 0 && ConversionInteraction.HasPending, "cancelled native picker restores pending window and original address");
         host.PickFailure = true; OnUi(f => f.Pick.PerformClick()); Pump(() => host.Picks == 2 && editor.Enabled && editor.Validation.Text.Contains("picker failure"));
         Check(host.Cell.Writes == 0, "picker exception restores editor without writes");
         host.PickFailure = false; host.Picked = "B1"; OnUi(f => f.Pick.PerformClick()); Pump(() => host.Picks == 3 && editor.Enabled && editor.RangeInput.Text == "B1" && editor.Apply.Enabled);
-        OnUi(f => f.Apply.PerformClick()); Settled(); Check(result != null && !result.Failed && host.Address == "B1" && host.Cell.Current.Formula == "=A2" && host.Disposals == 1, "accepted picker fills address then explicit apply commits");
+        ApplyAndClose(host); Check(result != null && !result.Failed && host.Address == "B1" && host.Cell.Current.Formula == "=A2" && host.Disposals == 1, "accepted picker fills address then explicit apply commits");
         long completed = ticket; int writes = host.Cell.Writes; ConversionInteraction.Receive(completed, false, new ConversionRequest { Kind = CellConversionKind.ValuesOnly, Address = "A1" }); Application.DoEvents(); Check(host.Cell.Writes == writes, "duplicate ticket ignored");
         host = Open(); ConversionInteraction.Receive(completed, false, null); Application.DoEvents(); Check(ConversionInteraction.HasPending, "old ticket cannot cancel a new session");
         Check(Connect.TryBeginConversion(), "fixture holds unrelated busy operation"); OnUi(f => f.Pick.PerformClick()); Pump(() => editor.Enabled && editor.Validation.Text.Contains("其他操作"));
         Check(host.Picks == 0 && !Connect.TryBeginConversion(), "busy rejection retains another operation guard"); Connect.EndConversion(); OnUi(f => f.Cancel.PerformClick()); Settled();
-        host = Open(); host.ScopeFailure = true; OnUi(f => f.Apply.PerformClick()); Settled(); Check(result.Failed && host.Cell.Writes == 0 && host.Disposals == 1, "changed target is zero-write failure");
+        host = Open(); host.ScopeFailure = true; ApplyAndClose(host); Check(result.Failed && host.Cell.Writes == 0 && host.Disposals == 1, "changed target is zero-write failure");
         host = Open(CellConversionKind.TextFilter); bool inspected = false;
         OnUi(delegate(CellConversionForm f)
         {
@@ -87,7 +103,7 @@ internal static class ConversionInteractionProbe
             Check(!f.Apply.Enabled, "no character categories disables apply"); ((CheckBox)f.Controls.Find("conversionKind3", true)[0]).Checked = true;
             Check(!f.Apply.Enabled, "manual address waits for fresh preview"); inspected = true;
         });
-        Pump(() => inspected && editor.Apply.Enabled); OnUi(f => f.Apply.PerformClick()); Settled(); Check(!result.Failed && (string)host.Cell.Current.Value == "7" && host.Cell.Current.NumberFormat == "@", "manual address and text settings delivered");
+        Pump(() => inspected && editor.Apply.Enabled); ApplyAndClose(host); Check(!result.Failed && (string)host.Cell.Current.Value == "7" && host.Cell.Current.NumberFormat == "@", "manual address and text settings delivered");
         PreviewChecks();
         BatchUiChecks();
         for (int i = 0; i < 3; i++)
@@ -127,7 +143,7 @@ internal static class ConversionInteractionProbe
         });
         Pump(() => done); OnUi(f => f.Pick.PerformClick()); Pump(() => host.Picks == 1 && editor.Enabled);
         Check(host.Cell.Writes == 0 && editor.RangeInput.Text == "A1", "batch picker cancel retains range without writes");
-        OnUi(f => f.Apply.PerformClick()); Settled();
+        ApplyAndClose(host);
         Check(!result.Failed && (string)host.Cell.Current.Value == "A$2" && !host.Cell.Current.IsFormula && result.PlainResults == 1 && result.FormulasAsText == 0 && host.Cell.Current.NumberFormat == "General", "batch controls submit ordinary result without a text-format fallback");
         host = Open(CellConversionKind.BatchInsertTrimDelete); done = false;
         OnUi(delegate(CellConversionForm f)
@@ -206,6 +222,122 @@ internal static class ConversionInteractionProbe
                 }
             }
         }
+        using (var form = new WorksheetBatchForm("Notes", "B3:F20", true))
+        using (var parking = new Panel { Size = form.Size })
+        {
+            Size client = form.ClientSize; form.FormBorderStyle = FormBorderStyle.None; form.ClientSize = client;
+            form.TopLevel = false; parking.Controls.Add(form); form.Show(); form.PerformLayout();
+            RenderWorksheetBatch(form, Path.Combine(folder, "conversion.worksheetBatch.png"));
+            var viewport = (Panel)form.Controls.Find("batchFormatViewport", true)[0];
+            viewport.AutoScrollPosition = new Point(0, viewport.VerticalScroll.Maximum);
+            RenderWorksheetBatch(form, Path.Combine(folder, "conversion.worksheetBatch.scrolled.png"));
+        }
+    }
+    private static void RenderWorksheetBatch(Form form, string path)
+    {
+        using (var overlay = new PreviewSelectionOverlay(form))
+        {
+            overlay.RefreshSnapshot();
+            using (var bitmap = new Bitmap(overlay.Width, overlay.Height))
+            {
+                overlay.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
+                bitmap.Save(path, ImageFormat.Png);
+            }
+        }
+    }
+
+    private static void Wheel(Control control, int delta)
+    {
+        Point screen = control.PointToScreen(new Point(control.Width / 2, control.Height / 2));
+        int location = (screen.Y << 16) | (screen.X & 0xffff);
+        SendMessage(control.Handle, 0x020A, new IntPtr(delta << 16), new IntPtr(location));
+    }
+
+    private static void WorksheetBatchLayout()
+    {
+        using (var form = DialogPreviewFactory.CreateProgramDefault("conversion.worksheetBatch"))
+        using (var parking = new Panel { Size = form.Size })
+        {
+            form.TopLevel = false; parking.Controls.Add(form); form.Show(); form.PerformLayout();
+            var review = (ListView)form.Controls.Find("batchReview", true)[0];
+            var sheet = (TextBox)form.Controls.Find("batchSheetName", true)[0];
+            var apply = (Button)form.Controls.Find("batchApply", true)[0];
+            Check(review.Items.Count == 3 && review.Height >= 120 && !apply.Enabled,
+                "worksheet batch sample presents an inert preview " + review.Bounds + ", items=" + review.Items.Count);
+            var undo = (WorksheetUndoButton)form.Controls.Find("worksheetUndo", true).Single();
+            Check(undo.Parent == apply.Parent && !undo.Enabled && !Descendants(form).Any(control => control is Label && control.Text == form.Text),
+                "worksheet batch shows one window title and an adjacent idle undo control");
+            Check(sheet.Parent is RoundedEditor && sheet.Width >= 180, "worksheet batch sheet field has a rounded frame and editable width");
+            var textStyle = (ComboBox)form.Controls.Find("batchTextStyle", true)[0];
+            var fonts = (ComboBox)form.Controls.Find("batchFontFamily", true)[0];
+            Check(textStyle.Items.Cast<string>().SequenceEqual(new[] { "保持原样", "加粗", "斜体", "下划线", "删除线" }) &&
+                textStyle.Parent is RoundedEditor && fonts.Items.Count > 1 && fonts.AutoCompleteSource == AutoCompleteSource.ListItems,
+                "text styles and searchable local fonts use rounded input frames");
+        }
+        using (var form = new WorksheetBatchForm("Notes", "A1:A2", true))
+        using (var parking = new Panel { Size = form.Size })
+        {
+            form.TopLevel = false; parking.Controls.Add(form); form.Show(); form.PerformLayout();
+            var apply = (Button)form.Controls.Find("batchApply", true)[0];
+            var review = (ListView)form.Controls.Find("batchReview", true)[0];
+            var sheet = (TextBox)form.Controls.Find("batchSheetName", true)[0];
+            Check(apply.Enabled, "changed preview enables apply");
+            var clear = (CheckBox)form.Controls.Find("batchClearFormatting", true)[0];
+            var alignment = (ComboBox)form.Controls.Find("batchHorizontal", true)[0];
+            var style = (ComboBox)form.Controls.Find("batchTextStyle", true)[0];
+            var replacement = (TextBox)form.Controls.Find("batchReplacement", true)[0];
+            var vertical = (ComboBox)form.Controls.Find("batchVertical", true)[0];
+            var viewport = (Panel)form.Controls.Find("batchFormatViewport", true)[0];
+            var replaceCard = (UiCard)form.Controls.Find("batchTextCard", true)[0];
+            var formatCard = (UiCard)form.Controls.Find("batchFormatCard", true)[0];
+            Check(replaceCard.Parent == formatCard.Parent &&
+                replaceCard.Top == formatCard.Top && replaceCard.Right < formatCard.Left,
+                "text replacement and formatting are side-by-side");
+            Point leftPosition = replacement.PointToScreen(Point.Empty), clearPosition = clear.PointToScreen(Point.Empty);
+            Check(viewport.VerticalScroll.Visible && !viewport.HorizontalScroll.Visible && viewport.Contains(vertical),
+                "the right-hand viewport contains the additional format selectors and scrolls only vertically");
+            int styleIndex = style.SelectedIndex;
+            Wheel(style, -120);
+            Check(viewport.AutoScrollPosition.Y < 0 && style.SelectedIndex == styleIndex && apply.Enabled,
+                "wheel on a closed selector scrolls the panel without changing choices or preview");
+            Check(replacement.PointToScreen(Point.Empty) == leftPosition && clear.PointToScreen(Point.Empty) == clearPosition,
+                "replacement and clear-format controls stay in place when the format list scrolls");
+            Wheel(viewport, 120);
+            Check(viewport.AutoScrollPosition.Y == 0, "upward wheel returns to the initial format options");
+            form.ActiveControl = vertical;
+            Point end = viewport.PointToClient(vertical.PointToScreen(new Point(0, vertical.Height)));
+            Check(viewport.AutoScrollPosition.Y < 0 && end.Y <= viewport.ClientSize.Height,
+                "focusing the last selector brings it into the scroll viewport");
+            int oldIndex = alignment.SelectedIndex;
+            clear.Checked = true;
+            Check(!apply.Enabled && review.Items.Count == 0 && !alignment.Enabled && !vertical.Enabled && replacement.Enabled,
+                "clear invalidates preview and locks appearance selectors while text replacement stays available");
+            WorksheetBatchRequest submitted = null;
+            form.Run += (request, previous) =>
+            {
+                submitted = request;
+                var result = new WorksheetBatchReport();
+                result.Rows.Add(new WorksheetBatchRow { Workbook = "sample.xlsx", Changed = 1, Detail = "可处理" });
+                return result;
+            };
+            typeof(WorksheetBatchForm).GetMethod("RunBatch", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(form, new object[] { false });
+            Check(submitted != null && submitted.ClearFormatting && submitted.ReplacesText && submitted.TextStyle == WorksheetBatchTextStyle.Keep &&
+                submitted.FontName == null && !submitted.Horizontal.HasValue && submitted.NumberFormat == null && apply.Enabled,
+                "clear submits only the requested reset and text replacement");
+            clear.Checked = false;
+            Check(alignment.Enabled && alignment.SelectedIndex == oldIndex && !apply.Enabled, "leaving clear mode restores choices and requires a new preview");
+            vertical.SelectedItem = "居中";
+            typeof(WorksheetBatchForm).GetMethod("RunBatch", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(form, new object[] { false });
+            Check(submitted.Horizontal == WorksheetBatchHorizontal.Justify && submitted.Vertical == WorksheetBatchVertical.Center &&
+                submitted.TextStyle == WorksheetBatchTextStyle.Italic && !submitted.ClearFormatting, "preview receives selected style and both alignments");
+            form.ClientSize = new Size(760, 620);
+            form.PerformLayout();
+            Check(form.AutoScrollMinSize.Height >= form.ClientSize.Height && alignment.Width >= 100 && apply.Width >= 100 &&
+                viewport.VerticalScroll.Visible && !viewport.HorizontalScroll.Visible,
+                "compact size retains reachable controls through scrolling");
+            sheet.Text = "Different";
+            Check(!apply.Enabled && review.Items.Count == 0, "editing target invalidates previous preview");
+        }
     }
     private static IEnumerable<Control> Descendants(Control root)
     { foreach (Control item in root.Controls) { yield return item; foreach (Control child in Descendants(item)) yield return child; } }
@@ -235,7 +367,10 @@ internal static class ConversionInteractionProbe
                     f.ReceivePreview(0, address, new ConversionPreview(address, state), null); f.PerformLayout();
                     if (id == "conversion.batchInsertTrimDelete") Check(f.Request().TextEdit.Operation == BatchTextEditOperation.Insert && After(f).Contains("示例"), "factory batch preview stays valid during native tab creation " + factor);
                     var bar = f.Apply.Parent; var root = bar.Parent;
-                    int buttonBottom = root.Top + bar.Top + Math.Max(f.Apply.Bottom, f.Cancel.Bottom);
+                    int buttonBottom = root.Top + bar.Bottom;
+                    Check(Math.Max(f.Undo.Bottom, Math.Max(f.Apply.Bottom, f.Cancel.Bottom)) <= bar.Height, "footer buttons are contained at scale " + factor);
+                    Check(f.Undo.Parent == bar && f.Undo.Width > 0 && !f.Undo.Enabled, "adjacent conversion undo stays disabled in an inert preview " + id + " " + factor);
+                    if (id != "formula.references") Check(!Descendants(f).Any(control => control is Label && control.Text == f.Text), "conversion uses one window title " + id);
                     int gap = f.ClientSize.Height - buttonBottom;
                     Check(f.AutoScrollMinSize.Height > f.ClientSize.Height || gap >= 0 && gap <= root.Padding.Bottom + 2, "compact footer in scaled layout " + id + " " + factor + ": gap=" + gap + "; padding=" + root.Padding.Bottom + "; preferred=" + f.AutoScrollMinSize + "; client=" + f.ClientSize + "; root=" + root.Bounds + "; bar=" + bar.Bounds + "; apply=" + f.Apply.Bounds);
                     Check(f.RangeInput.Width >= 180 && f.Apply.Width > 0 && f.Controls.Find("conversionBefore", true)[0].Height > 0, "visible real controls in scaled layout " + id + " " + factor);
@@ -267,7 +402,7 @@ internal static class ConversionInteractionProbe
     [STAThread] private static int Main(string[] args)
     {
         string settings = Path.Combine(Path.GetTempPath(), "ConversionUiProbe-" + Guid.NewGuid().ToString("N")); DialogSizeStore.RootOverride = settings;
-        try { InteractionChecks(); LayoutChecks(); if (args.Length == 2 && args[0] == "--render") Render(args[1]); Console.WriteLine("PASS ConversionInteractionProbe: " + checks + " assertions; hidden real controls, STA previews, scaled layouts, picker restore, busy and shutdown; no host connection"); return 0; }
+        try { InteractionChecks(); LayoutChecks(); WorksheetBatchLayout(); if (args.Length == 2 && args[0] == "--render") Render(args[1]); Console.WriteLine("PASS ConversionInteractionProbe: " + checks + " assertions; hidden real controls, STA previews, scaled layouts, picker restore, busy and shutdown; no host connection"); return 0; }
         catch (Exception error) { Console.WriteLine("FAIL ConversionInteractionProbe: " + error); return 1; }
         finally { ConversionInteraction.Shutdown(); ConversionWindowThread.CreatedForProbe = null; ConversionInteraction.ResultForProbe = null; }
     }

@@ -67,6 +67,8 @@ namespace Excel_Iterate
                 {
                     FormulaInteraction.Shutdown();
                     ConversionInteraction.Shutdown();
+                    ClearWorksheetUndo();
+                    CloseWorksheetBatchForm();
                     CloseDataMigrationForm();
                     CloseCompanyWorkbookForm();
                     RestoreFormulaStatus();

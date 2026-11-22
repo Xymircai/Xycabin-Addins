@@ -16,6 +16,7 @@ namespace Excel_Iterate
         private readonly IntPtr owner;
         private readonly object sync = new object();
         private CellConversionForm form;
+        private WorksheetUndoState undoState;
         private bool closing;
         private static readonly object registry = new object();
         private static readonly List<ConversionWindowThread> windows = new List<ConversionWindowThread>();
@@ -41,11 +42,12 @@ namespace Excel_Iterate
             try
             {
                 window = new CellConversionForm(kind, description, address, initialPreview, initialError) { SuppressActivation = HiddenForProbe };
-                lock (sync) form = window;
+                lock (sync) { form = window; window.Undo.SetState(undoState); }
                 window.Submitted += delegate(bool pick, ConversionRequest request) { ConversionInteraction.Receive(ticket, pick, request); };
                 window.PreviewRequested += delegate(long version, string range) { ConversionInteraction.ReadPreview(ticket, version, range); };
+                window.UndoRequested += delegate(long id) { ConversionInteraction.ReceiveUndo(ticket, id); };
                 window.FormClosed += delegate { ConversionInteraction.Receive(ticket, false, null); };
-                window.Load += delegate { lock (sync) { if (closing) Queue(delegate(CellConversionForm f) { f.Close(); }); } };
+                window.Load += delegate { lock (sync) { window.Undo.SetState(undoState); if (closing) Queue(delegate(CellConversionForm f) { f.Close(); }); } };
                 if (HiddenForProbe) { parking = new Panel { Size = window.Size }; window.TopLevel = false; window.FormBorderStyle = FormBorderStyle.None; parking.Controls.Add(window); }
                 using (var context = new ApplicationContext(window))
                 {
@@ -70,7 +72,12 @@ namespace Excel_Iterate
                 try { active.BeginInvoke((MethodInvoker)delegate { if (!active.IsDisposed) action(active); }); } catch (InvalidOperationException) { }
             }
         }
-        internal void Resume(string address, string error) { Queue(delegate(CellConversionForm f) { f.Resume(address, error); }); }
+        internal void Resume(string address, string error, string result = null, bool refresh = false)
+        { Queue(delegate(CellConversionForm f) { f.Resume(address, error, result, refresh); }); }
+        internal void SetUndo(WorksheetUndoState state)
+        {
+            lock (sync) { undoState = state; Queue(delegate(CellConversionForm f) { f.Undo.SetState(state); }); }
+        }
         internal void Preview(long version, string address, ConversionPreview value, string error)
         { Queue(delegate(CellConversionForm f) { f.ReceivePreview(version, address, value, error); }); }
         internal void Activate() { Queue(delegate(CellConversionForm f) { if (!HiddenForProbe && !closing) { if (f.WindowState == FormWindowState.Minimized) f.WindowState = FormWindowState.Normal; f.Activate(); } }); }

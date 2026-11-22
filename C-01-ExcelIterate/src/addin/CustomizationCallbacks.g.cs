@@ -23,31 +23,16 @@ namespace Excel_Iterate
         public string GetContent_menuOneClickConversion(object control) { return RibbonCustomization.Content("menuOneClickConversion"); }
         public string GetLabel_btnTextExtractFilter(object control) { return RibbonCustomization.Label("btnTextExtractFilter"); }
         public string GetLabel_btnBatchInsertTrimDelete(object control) { return RibbonCustomization.Label("btnBatchInsertTrimDelete"); }
+        public string GetLabel_btnWorksheetBatch(object control) { return RibbonCustomization.Label("btnWorksheetBatch"); }
         public string GetLabel_menuOneClickFormula(object control) { return RibbonCustomization.Label("menuOneClickFormula"); }
         public string GetContent_menuOneClickFormula(object control) { return RibbonCustomization.Content("menuOneClickFormula"); }
         public string GetLabel_menuWrapFormula(object control) { return RibbonCustomization.Label("menuWrapFormula"); }
         public string GetLabel_menuIFErrorWrap(object control) { return RibbonCustomization.Label("menuIFErrorWrap"); }
-        public string GetLabel_btnWrapIFError(object control) { return RibbonCustomization.Label("btnWrapIFError"); }
-        public string GetLabel_btnCustomIFError(object control) { return RibbonCustomization.Label("btnCustomIFError"); }
         public string GetLabel_menuRoundWrap(object control) { return RibbonCustomization.Label("menuRoundWrap"); }
-        public string GetLabel_btnWrapRound(object control) { return RibbonCustomization.Label("btnWrapRound"); }
-        public string GetLabel_btnCustomRound(object control) { return RibbonCustomization.Label("btnCustomRound"); }
         public string GetLabel_btnWrapAbs(object control) { return RibbonCustomization.Label("btnWrapAbs"); }
         public string GetLabel_btnCustomFunction(object control) { return RibbonCustomization.Label("btnCustomFunction"); }
         public string GetLabel_btnUnwrapFormula(object control) { return RibbonCustomization.Label("btnUnwrapFormula"); }
         public string GetLabel_menuArithmetic(object control) { return RibbonCustomization.Label("menuArithmetic"); }
-        public string GetLabel_menuCalculateAdd(object control) { return RibbonCustomization.Label("menuCalculateAdd"); }
-        public string GetLabel_btnCalculateAdd(object control) { return RibbonCustomization.Label("btnCalculateAdd"); }
-        public string GetLabel_btnCustomCalculateAdd(object control) { return RibbonCustomization.Label("btnCustomCalculateAdd"); }
-        public string GetLabel_menuCalculateSubtract(object control) { return RibbonCustomization.Label("menuCalculateSubtract"); }
-        public string GetLabel_btnCalculateSubtract(object control) { return RibbonCustomization.Label("btnCalculateSubtract"); }
-        public string GetLabel_btnCustomCalculateSubtract(object control) { return RibbonCustomization.Label("btnCustomCalculateSubtract"); }
-        public string GetLabel_menuCalculateMultiply(object control) { return RibbonCustomization.Label("menuCalculateMultiply"); }
-        public string GetLabel_btnCalculateMultiply(object control) { return RibbonCustomization.Label("btnCalculateMultiply"); }
-        public string GetLabel_btnCustomCalculateMultiply(object control) { return RibbonCustomization.Label("btnCustomCalculateMultiply"); }
-        public string GetLabel_menuCalculateDivide(object control) { return RibbonCustomization.Label("menuCalculateDivide"); }
-        public string GetLabel_btnCalculateDivide(object control) { return RibbonCustomization.Label("btnCalculateDivide"); }
-        public string GetLabel_btnCustomCalculateDivide(object control) { return RibbonCustomization.Label("btnCustomCalculateDivide"); }
         public string GetLabel_btnReferenceStyleConversion(object control) { return RibbonCustomization.Label("btnReferenceStyleConversion"); }
         public string GetLabel_menuFormulaValueConversion(object control) { return RibbonCustomization.Label("menuFormulaValueConversion"); }
         public string GetLabel_menuFormulaFormat(object control) { return RibbonCustomization.Label("menuFormulaFormat"); }

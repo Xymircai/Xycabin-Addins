@@ -9,7 +9,7 @@
 | 目录 | 类型 | 宿主 | 功能概述 |
 |---|---|---|---|
 | `C-00-Shared` | 共用源码与构建实现 | 编译到两个加载项 | 单一公共实现、窗口与网格组件、配置生成、PDF 工具、安装器及验证工具 |
-| `C-01-ExcelIterate` | VSTO 加载项 | WPS 表格 / Excel | 公式引用与从属追踪、一键公式封装与数值计算、按列控制显示、文件批量整理与重命名、OCR 文本提取 |
+| `C-01-ExcelIterate` | VSTO 加载项 | WPS 表格 / Excel | 公式引用与从属追踪、一键公式封装与数值计算、按列控制显示、文件批量整理与重命名、OCR 文本提取、同名工作表批量操作与窗口内撤销 |
 | `C-02-WordUpdater` | VSTO 加载项 | WPS 文字 / Word | 将 Excel 区域粘贴为表格链接、对选中范围的链接批量更新 |
 | `C-03-Website·Xycabin` | 站点生成器 | 浏览器 | 生成单文件离线站点，展示两款加载项的介绍、使用指南、版本与下载 |
 
@@ -86,14 +86,10 @@ python "C-03-Website·Xycabin/rebuild.py" --background --mode full
 
 ### 关于代码签名
 
-完整重建的最后阶段会使用 Authenticode 证书为 DLL、应用清单与部署清单签名。签名身份由各项目 `AA-Program` 下的配置器决定：Excel-Iterate 为 `C1-Exceliterate_Configure.py`，WordUpdater 为 `C2-Wordupdater_Configure.py`，其中的 `SIGNING_CERT_THUMBPRINT` 是唯一来源。
+两个加载项沿用同一位固定发布者。公开的 `C-00-Shared/signing/signing.json` 记录发布者主题、证书指纹和 PFX 摘要，可用于源码核对。
 
-**自行构建时，该指纹指向的证书在你的机器上并不存在，签名步骤会失败。** 有两种处理方式：
+签名时先核对当前用户个人证书库中的固定证书及私钥。若证书缺失，从可信渠道取得匹配的 PFX，放入 `C-00-Shared/signing/`，在同目录创建被 Git 忽略的 `signing.local.json`，格式为 `{"password":"本机 PFX 口令"}`。完整构建会校验 PFX 摘要，通过标准输入传送口令，导入后复检发布者与有效期。公开克隆可运行源码检查，正式打包需要本机签名材料。
 
-1. 在对应项目的配置器中将 `SIGNING_CERT_THUMBPRINT` 改为你自有证书的指纹，并确保证书位于当前用户的个人证书存储区且带私钥；
-2. 跳过完整重建，改用 `build.py` 编译出 DLL，再手动安装 VSTO 加载项用于开发调试。
-
-原项目的发布证书为自签名证书，未加入任何公共信任根。因此安装官方构建的安装包时，Windows 会提示「未知的发行者」，这属于预期行为。
 
 ## 未纳入版本管理的内容
 
@@ -105,9 +101,24 @@ python "C-03-Website·Xycabin/rebuild.py" --background --mode full
 | `AA-Program/*_Setup.exe` | 发布产物，通过 Releases 分发 |
 | `C-03-Website·Xycabin/AA-Program/XyCabin.html` | 由模板渲染生成的产物 |
 | `C-03-Website·Xycabin/AA-Program/index.html` | 同一产物在本地预览时的文件名 |
-| `*.cer`、`*.pfx`、`*.snk` | 证书与私钥材料 |
+| `*.cer`、`*.snk`、`*.pfx`、`C-00-Shared/signing/signing.local.json` | 本机签名材料与口令 |
+| `__pycache__/`、`*.pyc` | Python 本地字节码缓存 |
+
+仓库根目录的 `.gitignore` 排除安装包、生成网页和本机签名材料，公开的 `signing.json` 随源码保留。
 
 ## 新增功能、提交与 Release 发布
+
+### 本轮发布记录（2026-11-23）
+
+本轮 `main` 提交包含三组变更，Release 沿用 `v0.9.9.3` 并整体更新三附件：
+
+| 主题 | 变更内容 |
+|---|---|
+| 统一签名身份 | 两个加载项共用固定发布者。源码保留公共指纹和摘要，PFX 与口令留在本机。 |
+| Excel 功能窗口 | IFERROR、ROUND 和数值计算直接打开预填参数的窗口。转换、公式和按列筛选在各自窗口撤销最近对应批次。工作表批量操作可替换底层数值并核对写回类型。 |
+| 发布验证 | 联合构建核对两个安装包的签名、五载荷和网页内嵌字节，三份产物经 Release 分发。 |
+
+发布沿用 0.9.9.3，不移动标签；三附件由同一次完整重建生成，HTML 内嵌的两个安装包与独立附件逐字节一致。安装器发布者已由各产品独立证书切换为统一证书，从旧版升级可能出现一次「未知的发行者」确认或需要先卸载旧版，详见 [A-UserGuide.md](C-04-Devlog/A-UserGuide.md)。
 
 以下命令使用 **Windows PowerShell**，从仓库任意子目录开始。Python 至少 3.10；Git、GitHub CLI 需已安装，gh 登录账号需有仓库写入和 Release 更新权限。
 
@@ -133,14 +144,14 @@ Invoke-Checked -Program "git" -Arguments @("--version")
 Invoke-Checked -Program "gh" -Arguments @("auth", "status", "--hostname", "github.com")
 ```
 
-原证书与私钥、VSTO 依赖仍按上文准备。发布沿用固定身份，不能为了绕过签名失败而替换证书。
+按上文准备固定发布者和 VSTO 依赖。证书缺失时用本机配套的 PFX 和口令导入，核对后继续正式签名。
 
 ### 按门禁清理冗余
 
 只有明确要求清理时才执行，规则以 [B3 第 4 节](<C-04-Devlog/B3-Spec Coding.md#4-冗余文件清理>) 为准。范围为三个产品目录；`build`、旧日期、相同摘要或没有搜索到引用，都不能单独作为删除依据。
 
 1. 先运行 `git status --short --branch`，记录版本、现有改动、各目录字节数和候选文件 SHA-256，并按必要输入、当前产物、有效证据、可删历史、未确认五类盘点。核对静态引用、动态加载、文档链接及恢复用途。
-2. 将保留输入复制到独立临时目录，保留 `C-00-Shared`、三个产品、`C-04-Devlog`、根目录检查器及必要 `lib` 的同级关系；排除全部旧 `build`、生成 EXE/HTML 与字节码缓存。使用原证书，在隔离目录完成联合完整重建、签名、五载荷和独立后台验证。隔离失败时保留诊断，不删除原候选。
+2. 将保留输入复制到独立临时目录，保持 `C-00-Shared`（含公开的 `signing.json`）、三个产品、`C-04-Devlog`、根目录检查器及必要 `lib` 的同级关系。排除旧 `build`、生成 EXE/HTML、字节码缓存和本机 PFX 与口令。用当前用户证书库中已配置的证书和私钥完成联合完整重建、签名、五载荷和独立后台验证。隔离失败时保留诊断，不删除原候选。
 3. 将真实运行日志、隔离范围及返回码保存到网站 `build`，按 `file_inventory.py` 的格式生成本轮 `cleanup-review.json` 和 proof：绑定源指纹、候选逐文件摘要、用途与经验归并结论、成功日志及其摘要。不得复用旧路径的证明、伪造 `fixture-state`，也不要手填“成功”代替实际运行。
 4. 执行下列盘点命令，逐项审阅 `remove`、`retain` 和字节数；仅对已确认项执行同一清单的应用命令。当前专项审阅入口只接受产品 `build` 下的候选，源码区域的缓存按保守规则保留。
 
@@ -154,7 +165,7 @@ $CleanupPlan.retain | Group-Object category | Select-Object Name, Count
 Invoke-Checked -Program $TaskPython -Arguments @("C-03-Website·Xycabin/src/tools/cleanup.py", "--apply")
 ```
 
-清单生成后，源输入或候选内容发生变化必须重新核验、盘点。程序会复核绝对路径、重解析点、引用和摘要；出现失败须保留报告，不能改用递归删除绕过。证书、私钥、必要依赖、当前三件产物、实机证据及未完成恢复资料始终保留。移动到项目内其他目录不算释放空间。
+清单生成后，源输入或候选内容发生变化必须重新核验、盘点。程序会复核绝对路径、重解析点、引用和摘要；出现失败须保留报告，不能改用递归删除绕过。共享 PFX、口令、必要依赖、当前三件产物、实机证据及未完成恢复资料始终保留。移动到项目内其他目录不算释放空间。
 
 清理完成后运行网站的一键批处理，选择 **2（完整验证）**，它会依次重建两个 EXE 和内嵌同一两包的 HTML，并执行收尾独立验证：
 
@@ -190,11 +201,11 @@ Invoke-Checked -Program $TaskPython -Arguments @("verify_shared.py")
 
 ### 联合重建与验证
 
-先固定非审计文档，再执行以下两步，全部通过后才提交和发布。联合流程使用同一网页快照构建两个加载项，并将两个 EXE 与内含同一两包的 HTML 一起完成本地事务交付。
+先固定源码和非审计文档，再运行统一 BAT 并选择「2. 完整验证」。所有门禁通过后提交和发布。联合流程使用同一网页快照构建两个加载项，一并交付两个 EXE 与内含相同两包的 HTML。
 
 ```powershell
-Invoke-Checked -Program $TaskPython -Arguments @("C-03-Website·Xycabin/rebuild.py", "--background", "--mode", "full")
-Invoke-Checked -Program $TaskPython -Arguments @("C-03-Website·Xycabin/validate.py", "--background", "--mode", "full")
+& ".\C-03-Website·Xycabin\AA-Program\一键重建并打包.bat"
+if ($LASTEXITCODE -ne 0) { throw "联合构建或收尾验证失败" }
 ```
 
 重建期间不要编辑文档、共享源码或内嵌资源；发现变化应等待本轮结束、修正后重跑。后台回归、签名、五载荷、内嵌资源及网页中的两包均须通过。实际 WPS 点击与安装效果单列验收，构建不自动安装或关闭宿主。
@@ -239,7 +250,7 @@ gh api "repos/$RepoName/commits/main" --jq '.sha[0:7] + " " + .commit.message'
 
 任一步失败均停止，冲突和门禁未解决时不推送。提交信息采用“类型(可选范围): 摘要”，正文说明原因、影响和验证；原有未推送提交随 main 一并推送，不强推或改写历史。长期分支是 main，历史 restructure/20261019 分支不合入。
 
-不用 git add -A / git add . 代替范围审阅。build、stage、两个 EXE、生成 HTML、lib DLL、证书与私钥继续被忽略。git push 上传源码和文档，Release 附件需要单独上传。
+按路径与差异审阅暂存内容。构建目录、两个 EXE、生成 HTML、lib DLL 和本机签名材料留在本机。Git 推送源码和文档，Release 附件单独上传。
 
 ### 常见阻塞与处置
 

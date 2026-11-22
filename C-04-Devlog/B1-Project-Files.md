@@ -1,6 +1,6 @@
 **三项目档案与版本**
 
-最后更新：2026-11-18 ｜ 当前版本：**0.9.9.3** ｜ 交付物：`Excel_Iterate_Setup.exe`、`WordUpdater_Setup.exe`、`XyCabin.html`
+最后更新：2026-11-23 ｜ 当前版本：**0.9.9.3** ｜ 交付物：`Excel_Iterate_Setup.exe`、`WordUpdater_Setup.exe`、`XyCabin.html`
 
 # 一. Agent及开发者接手概览
 
@@ -43,7 +43,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ## 2. 版本摘要
 
-版本来源与归并规则见[门禁](<B3-Spec Coding.md#1-文档编号与经验更新>)，本次标记为0.9.9.3并沿用原固定发布者。
+版本来源与归并规则见[门禁](<B3-Spec Coding.md#1-文档编号与经验更新>)，本次标记为0.9.9.3并沿用项目统一共享发布者（CN=Xymircai WPS Addins Dev，两产品同指纹）。公开配置见 C-00-Shared/signing/signing.json。证书缺失时由构建链从匹配的本机 PFX 导入当前用户个人证书库。
 
 | 版本      | 重要变更                                                                                                                                                                                                 |
 | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -67,8 +67,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 | 追踪从属 | Excel-Iterate·数据 | — | 遍历所有已打开工作簿，找出哪些单元格的公式引用了当前单元格 |
 | 筛选增强 | Excel-Iterate·数据 | 按列筛选、快捷高筛 | 按活动单元格所在表格的表头选择显示列 |
 | 审计工具箱 | Excel-Iterate·数据 | 批量迁移数据、表头匹配、合并抵消（往来抵消、收入成本抵消） | 按表头列名批量匹配多个工作簿，把列数据合并到目标工作簿；往来抵消按列映射生成抵消分录，收入成本抵消按三维聚合生成矩阵式底稿（借贷恒等式保证平衡），两者均写入前备份、可一键还原 |
-| 一键转换 | Excel-Iterate·操作 | 文本提取与过滤、批量插入与删截 | 按类型提取过滤，或从首尾及中间区间插入、截取、删除；移除原公式等号后保存普通结果，语法无效的公式经整批确认后转文本。 |
-| 一键公式 | Excel-Iterate·操作 | 进行公式封装（IFERROR封装（默认返回空、自定义封装）、ROUND封装（默认保留2位、自定义封装）、ABS封装、自定义函数）、移除公式封装、数值计算（加（默认加、自定义计算）、减（默认减、自定义计算）、乘（默认乘、自定义计算）、除（默认除、自定义计算））、相对-绝对转换、公式-数值转换（转公式格式、转文本格式、仅保留数值） | 封装、计算、相对-绝对转换与公式-数值转换（转公式格式、转文本格式、仅保留数值）。 |
+| 一键转换 | Excel-Iterate·操作 | 文本提取与过滤、批量插入与删截、工作表批量操作 | 转换选区内容，预览并替换同名表的文字或底层数值，批量设置格式。 |
+| 一键公式 | Excel-Iterate·操作 | 进行公式封装（IFERROR、ROUND、ABS、自定义函数）、移除公式封装、数值计算、相对-绝对转换、公式-数值转换 | 在预填参数或确认窗口应用，可撤销最新对应批次。 |
 | 文件操作 | Excel-Iterate·操作 | 批量处理（文件批量整理、文件批量命名、文件提取名称）、文件转换与 PDF 工具（当前文档转 PDF、批量文件转 PDF、PDF 添加水印、PDF 拆分、PDF 合并） | 文件批量整理、命名、名称提取；当前文档或批量转 PDF，以及 PDF 水印、拆分和合并。 |
 | 链接助手 | Excel-Iterate·操作 | — | 扫描并说明名称外链，C列填新路径或“断开链接”；名称清理先预检，整簿备份可恢复 |
 | 生成目录 | Excel-Iterate·操作 | — | 链接全部工作表，隐藏表点击后显示并跳转 |
@@ -97,6 +97,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 ## 5. 当前状态与交付
 
 ### (1). 当前实现与待验收
+
+工作表批量操作按同名表与相同地址预览文字和底层数值替换，并可同批应用格式。改过的工作簿留在宿主中由用户保存。转换、公式、批量工作表与按列筛选的窗口内可撤销本次 WPS 会话最近的对应批次。IFERROR、ROUND 和数值计算直接打开预填窗口，三个转换窗口保留系统标题栏。
 
 批量复制数据的预检及执行默认在私有桌面的独立 WPS 会话中处理。后台任务启动已注册的 WPS 表格程序，私有会话中的 Excel-Iterate 经本地管道回传自身自动化接口。启动失败时在迁移窗口和日志中显示具体阶段及可用的 Win32 错误信息，用户可为本次操作手动确认改用前台。迁移窗支持最小化，完成时通过 Windows 通知报告结果。
 
@@ -161,6 +163,16 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 本轮沿用版本与发布身份，公共源码迁至C-00-Shared，项目清单直接引用，生成文件与产品入口保留原位置。抵消窗口在首次可见前应用最大化，来源事件先订阅再回填；局部缓冲覆盖布局、网格和拖柄，尺寸预览保持普通窗口。默认布局按窗口及DPI延迟测量；从属扫描和抵消预检通过原宿主线程分块读取、后台纯数据运算，来源变化时中止。宿主不支持变化监听时回退同步读取并记录兼容路径。EliminationSession统一持有目标、快照和任务，大结果预览按需取值，仍完整测宽、支持复制；取消与失败重试保留尚未还原的目标。实际WPS黑影、键入、菜单、跨屏DPI与写入还原由用户验收，离线检查不能代替。
 
 ### (2). 本轮交付证据
+
+功能窗口撤销、公式入口合并与数值替换通过后台回归。隔离 WPS 自建样本通过跨工作簿替换与整批撤销。正式安装后的功能区另行验收。联合 BAT 选择“2. 完整验证”，起止 02:51:45 至 02:56:41（北京时间），退出码 0，重建标识 `a166f30e70b14655b0197f1dfa2eca8f`，收尾标识 `cfd34b29e63342c7a1ff69566d3b8a9c`。`Excel_Iterate_Setup.exe` 为 5841920 字节，SHA-256 为 `f0b0f5fcfc35b1968eac7d59965960e08f2cc671417b9dcb90e2506cdc4dc804`。见 [BAT 日志](../build/worksheet-window-delivery/bat-console.log)与[交付摘要](../build/worksheet-window-delivery/delivery-summary.json)。
+
+本轮把签名身份改为项目统一共享 PFX（`C-00-Shared/signing/` 内 `XyWpsAddins-Dev.pfx` 与 `signing.json`，发布者 `CN=Xymircai WPS Addins Dev`，两产品同指纹 `FED1CCCA99A0F4F4133216182723B2D3B3EC7814`）；证书缺失时由 `C-00-Shared/resign.py` 自动导入当前用户个人证书库并复检，不自动创建、不按主题猜选、不更换发布者。按用户指定运行 [Excel 单项目打包入口](../C-01-ExcelIterate/AA-Program/一键重建并打包.bat)，完整重建，退出码 0；[首次签名日志](../C-01-ExcelIterate/build/runs/5843ce89277a4713a470933f78b40f24/rebuild/3-resign.py.log) 记录证书未找到后 `IMPORTED_OK`、`CERTIFICATE_OK` 与「已从项目内共享 PFX 导入签名证书」，[复用日志](../C-01-ExcelIterate/build/runs/074daf4ffbec43f6a139a2777082652b/rebuild/3-resign.py.log) 显示第二次直接 `CERTIFICATE_OK`、不重复导入；G-11、G-12 通过，清单双签名与五载荷核对通过。成果 `Excel_Iterate_Setup.exe` 为 5842432 字节，SHA-256 为 `587742551e7f64fcb9d8cc41a360ac141850e76d60d8b78bb8b0f92ee8239bb2`。正式安装、真实 WPS 点击与发布者信任确认仍单列验收。见 [运行摘要](../C-01-ExcelIterate/build/rebuild-run-summary.json)。
+
+本轮工作表批量操作扩充文本格式、字体、水平与垂直对齐和清除格式，恢复文字替换与格式的左右布局。Excel 无签名后台诊断 30 项通过，转换与批量处理 251 项、窗口交互与布局 213 项断言通过。独立 WPS 的自建工作簿通过 38 项检查，覆盖不同常规样式、预览失效、格式应用、回滚和手动保存。窗口离屏检查覆盖右侧格式区的滚轮、焦点滚动和窄窗口。见 [后台诊断](../build/worksheet-format-delivery/excel-diagnostic-checks.log)、[WPS COM 检查](../build/worksheet-format-delivery/wps-private.log)、[默认布局](../build/worksheet-format-delivery/previews/conversion.worksheetBatch.png)及[滚动后布局](../build/worksheet-format-delivery/previews/conversion.worksheetBatch.scrolled.png)。
+
+按用户指定执行 [Excel 单项目打包入口](../C-01-ExcelIterate/AA-Program/一键重建并打包.bat)，使用 `--mode full`，运行于 11月22日 21:59:11 至 22:00:15（北京时间），退出码 1，重建标识 `abbc7299c73e4417bb571b5221b3a539`。配置与编译通过。G-11 在签名检查中未找到固定发布者证书及私钥，G-12 未启动，尚未生成新版安装包。运行前后的 `Excel_Iterate_Setup.exe` 均为 5749248 字节，SHA-256 均为 `b32bfe16598fde220171e47163c96ceb488d1a331ea3e2b4ccd0a69338bcd69e`。正式安装后的功能区待验收。见 [BAT 日志](../build/worksheet-format-delivery/bat-console.log)、[运行与产物摘要](../build/worksheet-format-delivery/bat-run.json)及[签名日志](../C-01-ExcelIterate/build/runs/abbc7299c73e4417bb571b5221b3a539/rebuild/3-resign.py.log)。
+
+本轮工作表批量操作、最近一批撤销和三个弹窗改动已编译。R-30 自检 53 项、Excel 无签名诊断 30 项取得通过结果，其中转换及批量 247 项断言、窗口交互和布局 195 项断言。弹窗目录计数修正后独立复测 137 项通过。自建工作簿实机 WPS COM 19 项通过。统一入口选择“2. 完整验证”，运行于 11月22日 21:02:37 至 21:04:34（北京时间），退出码 1，重建标识 `63334a0825384ca7815df90b45f5e190`。G-11 在签名阶段缺少项目固定的 Excel 发布者证书及私钥，未进入正式发布和收尾核对。现有安装包校验值与上次交付一致。安装本次成果和前台功能区尚待验收。见 [统一 BAT 日志](../build/worksheet-batch-delivery/bat-console.log)、[签名日志](../C-01-ExcelIterate/build/runs/63334a0825384ca7815df90b45f5e190/rebuild/3-resign.py.log)、[Excel 诊断](../build/worksheet-batch-delivery/excel-diagnostic-checks.log)、[弹窗目录复测](../build/worksheet-batch-delivery/dialog-sizes-targeted.log)和 [WPS COM 检查](../build/worksheet-batch-delivery/wps-batch-final.log)。
 
 本轮移除独立迁移助手，由私有 WPS 内的加载项提供自动化接口。迁移离线 353 项断言及 Excel 后台回归 32 项通过。确认单独启动的私有 WPS 会加载 VSTO，另用受控进程核对接口传输及封送数据清理。同一 SHA-256 安装包通过实机功能区验收，预检和复制均在独立 WPS 完成，日志确认五份结果提交及两次 Windows 通知。用户在两项操作时切换窗口，确认焦点保持正常。相同安装的脚本探针通过四种格式和两种保存方式，核对一对五的 25 个值及五份原件备份，前台窗口 2834 次采样无变化。补充的数值探针首次与另一轮手工迁移的时间重叠，接口回传超时，串行复测通过。见 [多格式探针](../build/migration-hosted-binding/installed-background-buttons.log)、[数值探针](../build/migration-hosted-binding/installed-background-values.log)及[探针首次尝试](../build/migration-hosted-binding/installed-background-values-attempt1.log)。见 [现场故障](../build/migration-hosted-binding/installed-failure-extract.log)、[私有 WPS 启动](../build/migration-hosted-binding/private-wps-boot.log)、[跨进程接口夹具](../build/migration-hosted-binding/private-bridge-fixture.log)和[功能区验收记录](../build/migration-hosted-binding/ribbon-acceptance.json)。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 18:13:43 至 18:17:45（北京时间），退出码 0，重建标识 `7468089bc0414f37a53f63c4a590efeb`，收尾标识 `1125448073fe4c8c9619cf2d9eac46bb`。成果 `Excel_Iterate_Setup.exe` 为 5749248 字节，SHA-256 为 `b32bfe16598fde220171e47163c96ceb488d1a331ea3e2b4ccd0a69338bcd69e`。见 [BAT 控制台记录](../build/migration-hosted-binding/bat-console.log)及 [验收摘要](../build/migration-hosted-binding/delivery-summary.json)。
 
@@ -448,7 +460,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ## 2. 版本摘要
 
-版本来源与归并规则见[门禁](<B3-Spec Coding.md#1-文档编号与经验更新>)，本次标记为0.9.9.3并沿用原固定发布者。
+版本来源与归并规则见[门禁](<B3-Spec Coding.md#1-文档编号与经验更新>)，本次标记为0.9.9.3并沿用项目统一共享发布者（CN=Xymircai WPS Addins Dev，两产品同指纹）。公开配置见 C-00-Shared/signing/signing.json。证书缺失时由构建链从匹配的本机 PFX 导入当前用户个人证书库。
 
 | 版本      | 重要变更                                                                                                                                      |
 | ------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -510,6 +522,12 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 本轮沿用版本、原证书及稳定命令，公共实现改为C-00-Shared单源引用。更新链接与链接查看统一使用WordHostStateScope：完整取得提示、刷新状态后才修改，设置失败时恢复已触碰状态，恢复失败明确报告；移除诊断前固定等待，不关闭非自有进程。共享窗口尺寸和网格测宽采用统一生命周期与缓存。原逐格链接、Ctrl来源定位、表格结构、数值变化标黄及配置继续回归；本轮实机验证仅使用自建样本，不自动安装或关闭WPS。
 
 ### (2). 本轮交付证据
+
+统一发布者签名与 Word 后台回归通过。联合 BAT 选择“2. 完整验证”，起止 02:51:45 至 02:56:41（北京时间），退出码 0，重建标识 `a166f30e70b14655b0197f1dfa2eca8f`，收尾标识 `cfd34b29e63342c7a1ff69566d3b8a9c`。`WordUpdater_Setup.exe` 为 4339200 字节，SHA-256 为 `df31f4cd5c19786263a75fe1ebdbaab9744620d9a3a6544acbaccbaae92f9fa0`。见 [BAT 日志](../build/worksheet-window-delivery/bat-console.log)与[交付摘要](../build/worksheet-window-delivery/delivery-summary.json)。
+
+本轮签名身份切换为与 Excel 相同的项目统一共享 PFX（指纹 `FED1CCCA99A0F4F4133216182723B2D3B3EC7814`），Word 侧 `SignCmi.exe`、`MakeCertCapi.exe` 已按同一源码重编译。运行 [Word 单项目打包入口](../C-02-WordUpdater/AA-Program/一键重建并打包.bat)，完整重建，退出码 0；G-14、G-15 通过，复用已导入的共享证书完成清单双签名与五载荷核对。成果 `WordUpdater_Setup.exe` 为 4340224 字节，SHA-256 为 `dcb115df4245a1ec8ea47d45f59932e35ac9cfcdd0813f3ab1e936bd2a7e21f3`。正式安装、真实 WPS 点击与发布者信任确认仍单列验收。见 [运行摘要](../C-02-WordUpdater/build/rebuild-run-summary.json)。
+
+联合入口停在 Excel 签名。Word 单独编译成功，无签名后台诊断 23 项通过。现有 Word 安装包 SHA-256 与上次交付一致。见 [统一 BAT 日志](../build/worksheet-batch-delivery/bat-console.log) 和 [Word 诊断](../build/worksheet-batch-delivery/word-diagnostic-checks.log)。
 
 本轮随联合构建同步核对 WordUpdater，完整后台回归 25 项通过。安装器释放五个清单载荷，见 [释放记录](../build/migration-hosted-binding/installer-release-word.log)。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 18:13:43 至 18:17:45（北京时间），退出码 0，重建标识 `7468089bc0414f37a53f63c4a590efeb`，收尾标识 `1125448073fe4c8c9619cf2d9eac46bb`。成果 `WordUpdater_Setup.exe` 为 4333056 字节，SHA-256 为 `059dc388c14751b94691cadd026774d8b2cf448686232ad105f92a211713a785`。见 [BAT 控制台记录](../build/migration-hosted-binding/bat-console.log)及 [验收摘要](../build/migration-hosted-binding/delivery-summary.json)。
 
@@ -630,7 +648,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ## 2. 携带源码复现
 
-完整交付带三个同级项目、父verify_shared.py、两加载项lib、原证书私钥和项目内资产；仅重建单加载项也带完整Website。环境：Windows、可执行Python≥3.10、Node.js、.NET Framework4.8/C#5。先实际--version核解释器，子进程参数列表/UTF-8；普通构建不需网络或FFmpeg。
+完整交付带三个同级项目、根目录 verify_shared.py、两加载项 lib、公开 signing.json 和项目内资产。正式签名使用本机已配置的固定证书及私钥，证书缺失时从本机 PFX 导入。仅重建单加载项也带完整 Website。环境：Windows、可执行Python≥3.10、Node.js、.NET Framework4.8/C#5。先实际--version核解释器，子进程参数列表/UTF-8；普通构建不需网络或FFmpeg。
 
 预览运行 `python AA-Program/C3-XycabinSite_Configure.py`，只改HTML；仅使用成功交付记录中版本/大小/摘要匹配的包，无记录或变更时默认下载不可用。不要手改生成HTML或把配置器移出固定目录。
 
@@ -645,6 +663,12 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 源码与正式产物内容指纹控制增量；两包、独立页和交付记录统一事务发布。后台前端/下载/音频替身不发声、不真实下载，不能代替file页面、听感、浏览器许可或安装效果。当前交付摘要在审计区，方法不重复历史流水。
 
 ### (2). 本轮交付证据
+
+网站联合收尾通过，内嵌的两个安装包与本次 EXE 字节一致。联合 BAT 选择“2. 完整验证”，起止 02:51:45 至 02:56:41（北京时间），退出码 0，重建标识 `a166f30e70b14655b0197f1dfa2eca8f`，收尾标识 `cfd34b29e63342c7a1ff69566d3b8a9c`。`XyCabin.html` 为 14799276 字节，SHA-256 为 `21638c9c1743e19f8e8ab0ab05ed8726c54b5d13145ff62b10fce9c2e99ca034`。见 [BAT 日志](../build/worksheet-window-delivery/bat-console.log)与[交付摘要](../build/worksheet-window-delivery/delivery-summary.json)。
+
+本轮完成共享 PFX 签名链改造并同步文档、门禁与共享签名资产后，运行 [统一入口](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”，运行于 11月23日 01:23 至 01:28（北京时间），退出码 0，重建标识 `062a144d905e4ce787aa1695cd4d0aa6`，收尾标识 `2d7a375686e54782a1b415a7f58a0fb1`。18 个 build 关口与独立 G-23 全部通过，含 G-19 发布前文档指纹（构建期间 `C-00-Shared` 与 `C-04-Devlog` 零写入）；两 EXE 与网页内两包逐字节一致。成果 `XyCabin.html` 为 14801328 字节，SHA-256 为 `33661b6cbf2c5f33c32fb96380886e99b4a245145f30a41d1781420f14d2ddca`；三个正式产物于 01:28:29 同步事务发布。见 [运行摘要](../C-03-Website·Xycabin/build/last-run-summary.json)、[收尾摘要](../C-03-Website·Xycabin/build/validate-run-summary.json)及 [共享 PFX 自动导入日志](../C-01-ExcelIterate/build/runs/5843ce89277a4713a470933f78b40f24/rebuild/3-resign.py.log)。远程发布、真实下载与安装效果仍单列验收。
+
+统一入口的网站快照和前置门禁通过。统一入口选择“2. 完整验证”，运行于 11月22日 21:02:37 至 21:04:34（北京时间），退出码 1，重建标识 `63334a0825384ca7815df90b45f5e190`。G-11 在签名阶段缺少项目固定的 Excel 发布者证书及私钥，未进入正式发布和收尾核对。现有 XyCabin 页面 SHA-256 与上次交付一致。见 [统一 BAT 日志](../build/worksheet-batch-delivery/bat-console.log)。
 
 本轮联合构建的 18 个重建关口及 G-23 均通过。网页中的两个下载包与联合构建成果逐字节一致。统一入口为 [一键重建并打包.bat](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择“2. 完整验证”。运行于 11月18日 18:13:43 至 18:17:45（北京时间），退出码 0，重建标识 `7468089bc0414f37a53f63c4a590efeb`，收尾标识 `1125448073fe4c8c9619cf2d9eac46bb`。成果 `XyCabin.html` 为 14667520 字节，SHA-256 为 `6d1d98d13d4f07efc0011e478930e6f78ed12fef7fed5d58d3eea2d108e243ef`。见 [BAT 控制台记录](../build/migration-hosted-binding/bat-console.log)及 [验收摘要](../build/migration-hosted-binding/delivery-summary.json)。
 

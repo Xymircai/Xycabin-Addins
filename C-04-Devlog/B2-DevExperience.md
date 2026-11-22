@@ -12,7 +12,7 @@
 
 | 输入                                                                                                               | 最小职责                               |
 | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| project.json、AA-Program/C1-Exceliterate_Configure.py                                                             | 宿主/身份/sources/tools与唯一界面、版本、固定证书配置 |
+| project.json、AA-Program/C1-Exceliterate_Configure.py                                                             | 宿主/身份/sources/tools与唯一界面、版本、共享PFX指纹配置 |
 | src/addin/ThisAddIn.cs、Connect.cs、InteropDefs.cs、AssemblyInfo.cs                                                 | VSTO入口、专属回调、COM声明、程序集GUID          |
 | src/addin/UiKit.cs、HostDialogService.cs及所依赖公共源码                                                                  | 界面、宿主确认隔离；依赖以实际sources和工具清单为准      |
 | src/configuration、project_support.py、build/rebuild/resign/gen_manifest/build_installer/verify_package/validate脚本 | 生成、编译、签名、打包与验证；文件名中的斜线表示各独立脚本      |
@@ -39,7 +39,7 @@
 | HKCU Kingsoft白名单       | Software\Kingsoft\Office\WPS\AddinsWL                    | Software\Kingsoft\Office\ET\AddinsWL                         |
 | legacy_name            | WpsLinkUpdater（仅自身旧名）                                    | 空                                                            |
 
-新产品先确定合法程序集/命名空间、显示名、host/whitelist_host、ProgID、GUID、版本及独立发布者，再同步 project.json、配置、手写入口/安装器/日志、窗口登记和探针断言。新产品 legacy_name 留空，存储/挂载/安装目录按程序集隔离；网站产品映射按产品身份区分，不能因宿主同为Excel而套用本产品版本。
+新产品先确定合法程序集/命名空间、显示名、host/whitelist_host、ProgID、GUID、版本及稳定 ID，再同步 project.json、配置、手写入口/安装器/日志、窗口登记和探针断言；两产品按 C-00-Shared/signing/signing.json 共用固定发布者，签名使用本机对应的私钥。新产品 legacy_name 留空，存储/挂载/安装目录按程序集隔离；网站产品映射按产品身份区分，不能因宿主同为Excel而套用本产品版本。
 
 ThisAddIn使用 `[StartupObject(0)]`、FullTrust，继承 `Microsoft.Office.Tools.AddInBase`，接收对应宿主ApplicationFactory与IServiceProvider，重写CreateRibbonExtensibilityObject。主DLL不做强名称签名，应用/部署清单另签。AddinsWL登记“值名=addin_key、数据=空字符串”，只登记对应宿主，不建立同名子键。
 
@@ -51,11 +51,11 @@ Agent 正式成果的统一批处理入口、完整验证及交付证据要求�
 
 每次新增源码/探针同步 project.json 的 sources/tools、退出清理及产品断言。生成文件由配置/构建产生，不手改 `.g.cs`。发现旧命名空间、缺窗口映射、未知目录或错网站产品时按身份表修正，不以旧产品PASS证明新产品已受检。
 
-测试输入和业务算法分开：project.json 的 sources 编译主 DLL，tools 及 additional_sources 编译独立诊断 EXE；安装器只打包五个 VSTO 载荷，不包含这些探针。testharness 中固定的输入与独立预期结果用于验证字符边界、名称规范化、引用改写及回滚，不是实际业务的匹配清单；不应为了减少样例而删除有效断言，或调用待测算法来生成预期结果。优先采用简短的通用主体名与 fixtures 路径，保留用例所需的中文、空格、括号宽度、编号、别名及数值关系。开发者身份摘要、固定发布者与功能内约定名称属于产品契约，不按样例替换。
+测试输入和业务算法分开：project.json 的 sources 编译主 DLL，tools 及 additional_sources 编译独立诊断 EXE；安装器只打包五个 VSTO 载荷，不包含这些探针。testharness 中固定的输入与独立预期结果用于验证字符边界、名称规范化、引用改写及回滚，不是实际业务的匹配清单；不应为了减少样例而删除有效断言，或调用待测算法来生成预期结果。优先采用简短的通用主体名与 fixtures 路径，保留用例所需的中文、空格、括号宽度、编号、别名及数值关系。开发者身份摘要、项目统一发布者与功能内约定名称属于产品契约，不按样例替换。
 
 界面预览由 DialogPreviewFactory 提供固定演示数据，仅用于尺寸和格式编辑；实际执行从当前选区读取。迁移名称匹配用例独立归组。LiveVerify 复用同一批测试行生成源表，经 LiveProbeSafety 托管自建工作簿及引用，只计算样本表，恢复宿主状态和原选区；不依赖个人样本路径、不保存用户工作簿或退出宿主。实机命令可用 `build/LiveVerify.exe --standalone --new-instance`，仅在明确注册为 WPS 的 COM 宿主中执行。
 
-首次全新产品发布者由 src/tools/MakeCertCapi.cs独立编译生成，所需引用取project_support.CSC/COMMON_REF和write_project_info；先确认唯一配置可导入且固定指纹为空，再显式运行工具，核对CurrentUser/My中的主题、有效期和HasPrivateKey，回填准确指纹并保留私钥。失败先查是否已创建，避免重复建证书。已有产品只导入原证书及私钥，绝不静默换发布者；公开.cer不能用于签名。 本机开发测试可使用 Git 忽略的 .local-signing.json 记录已存在证书的指纹，通过本机测试打包入口把当前源码复制到隔离目录，仅在副本中明确使用该证书并标注测试包；仍执行签名、载荷与完整后台验证。该本机入口只处理 Excel，不替换正式配置、不为 Word 选择 Excel 证书，不创建证书或写入信任根；输出与日志保留在 build/local-packages，成功后才更新本机最新包。
+两产品共用固定发布者 CN=Xymircai WPS Addins Dev。公开 signing.json 管理主题、指纹和 PFX 摘要。正式重建先核对当前用户个人证书库，缺失时校验本机忽略的 PFX，读取 signing.local.json，并通过标准输入传递口令。导入后复验指纹、有效期与私钥。公开源码预检只需要公共身份。签名测试使用替身模拟证书库或独立测试指纹。
 
 ### (4). 公共源码单源与产品上下文
 
@@ -85,7 +85,7 @@ SourceLayoutProbe 从保留源码在独立临时目录生成网页快照，不�
 
 普通按钮使用全局唯一稳定ID、专属public回调和 `GetImage_<ID>`；网址叶子由生成器建立 `OnOpenUrl_<ID>`。不要按显示文案或WPS代理control.Id分派。配置器检查Connect.cs及Connect.*.cs；业务源文件必须在sources内。
 
-最小配置如下，保留产品自身的版本、证书和生成器导入/bind/main部分；两个回调在Connect分部类实现，图片包装调用本产品现有图片入口：
+最小配置如下，保留产品自身的版本和生成器导入/bind/main部分；配置器的签名指纹须与公开的 C-00-Shared/signing/signing.json 一致；两个回调在Connect分部类实现，图片包装调用本产品现有图片入口：
 
 ```python
 BUTTONS = [{
@@ -298,9 +298,9 @@ PDF 功能共享 Connect.Pdf、PdfToolsForm、PdfCurrentDocument 及 src/pdf 下
 
 普通批量在任何输出前预检 Office 来源占用；已打开/被占用时返回暂停并要求保存关闭后重试。混合转换后合并在自建临时目录转换全部输入，全部成功才发布一个 PDF；失败或取消清理中间产物，不输出缺页结果。每次执行都选择输出目录，同名自动编号。文字水印支持 RGB 颜色和居中/平铺。PDF 请求及结果 XML 禁止 DTD，不上传文件。
 
-src/pdf/build_trial.py 仅生成独立诊断验证包：使用编译接口夹具、排除 ThisAddIn，启动器附加已打开的对应宿主以验证当前文档功能。它不是 VSTO 安装器，也不能证明真实加载项菜单、安装签名和焦点验收通过。正式 build.py 继续要求真实 Microsoft 引用和原固定证书，不替换发布身份。测试入口为 PdfToolsProbe 与 PdfCurrentDocumentProbe；后者 --live 先核对自取 Application 的 HWND/PID 不属于原有进程，且文档集合为空，才在该独立实例创建测试文档；归属不明则跳过，不操作用户文档。
+src/pdf/build_trial.py 仅生成独立诊断验证包：使用编译接口夹具、排除 ThisAddIn，启动器附加已打开的对应宿主以验证当前文档功能。它不是 VSTO 安装器，也不能证明真实加载项菜单、安装签名和焦点验收通过。正式 build.py 继续要求真实 Microsoft 引用；签名使用本机证书库中的固定发布者，证书缺失时从匹配的本机 PFX 导入。测试入口为 PdfToolsProbe 与 PdfCurrentDocumentProbe；后者 --live 先核对自取 Application 的 HWND/PID 不属于原有进程，且文档集合为空，才在该独立实例创建测试文档；归属不明则跳过，不操作用户文档。
 
-清单签名校验兼容性：不同 .NET Framework 维护版本的 SignedCmiManifest2 私有校验方法可能只有命名空间参数，也可能增加哈希算法枚举参数。ValidateXmlSig 按实际方法签名调用，仍检查身份、许可证摘要及两段 SHA-256 签名；无兼容签名时失败退出，不跳过校验。本机测试副本用独立安装标识和测试证书构建，不修改本源码的原发布身份或固定证书。
+清单签名校验兼容性：不同 .NET Framework 维护版本的 SignedCmiManifest2 私有校验方法可能只有命名空间参数，也可能增加哈希算法枚举参数。ValidateXmlSig 按实际方法签名调用，仍检查身份、许可证摘要及两段 SHA-256 签名；无兼容签名时失败退出，不跳过校验。本机测试副本用独立安装标识和一次性临时指纹构建，保留本机正式签名材料与统一发布身份；测试结束按指纹删除测试证书。
 
 已知问题 PDF-001（待复现、未修复）：用户反馈 XLSX 行列较多或文本较长时，导出可能出现跨页拆分、换行或内容显示不完整。尚无最小复现文件，不能认定存在实际内容丢失。当前沿用宿主打印/分页设置，未实现自动适配一页宽、打印预览或重复表头设置；后续需结合具体文件和宿主版本验证。
 
@@ -667,6 +667,14 @@ ComConversionHost.BatchTextEdit 使用至多 1024 格的连续矩形读取和提
 “转公式格式”作为纯展开菜单，下设“转为公式文本”和“还原文本公式”。还原只接受非公式且 Value2 为等号开头的字符串，使用 Formula2（仅成员缺失时回退 Formula）写入，保留表达式内部单引号。原文本格式改为 General，其他格式保留。先写完全部目标，再将相邻单元格压缩为矩形并合并计算范围，调用 Range.Calculate，不改变全局计算模式；写入或计算失败仍在同一事务内恢复原文本和格式。
 
 还原后的写入核对允许宿主对函数与名称的大小写归一，双引号字符串必须逐字一致；采用核验后的宿主公式进行计算后复核。设置事件与屏幕刷新状态后、首次写入前再次核验全批保护状态，防止初检后保护发生变化。
+
+WorksheetEditBatch 按宿主会话保存最近实际写入的批次。撤销状态包含来源功能、批次标识与原目标摘要，窗口以标识在原宿主 STA 发起撤销。持久原表身份用 IUnknown 加工作簿路径和表名核对。预览或无改动不覆盖记录，撤销前核对所有目标，失败时用快照复原并记录恢复细节。
+
+WorksheetBatchHost 从当前宿主的工作簿集合与所选本地路径匹配目标。预览临时以只读方式打开未打开的文件，应用前重建改动清单并核对写入前后的摘要，包括清除格式使用的工作簿常规样式。关闭临时工作簿、禁用打开文件时的宏及外链更新、恢复原宿主状态都在同一个宿主线程完成。实际改过的工作簿保留打开，由用户保存。文本按原文匹配，数值常量用底层十进制字串匹配。日期时间不进入替换，保留数字精度及前导零的结果按类型写回。
+
+WorksheetBatchFormat 逐项记录文本样式、主题字体与颜色、色调、填充、数字格式和对齐。清除格式按本簿的 Normal 恢复字体及字体颜色，逐项取消文本样式和填充，数字格式与对齐恢复默认值。字体与对齐引发的换行、缩进及行高变化纳入撤销核验。按行记录宿主写入前后的几何状态，撤销时在单元格更新后恢复原行高。WPS 对单格的可选属性可能返回未定义值，字体的常规样式通过本簿名称定位。
+
+三个转换窗口复用 RoundedEditor 包住原生输入控件，保留输入法与编辑行为。按钮沿用 RoundedButton。工作表窗口的文字替换和单元格格式并排。右侧格式列表支持滚轮、滚动条和键盘聚焦滚动，关闭的下拉框将滚轮事件交给列表。清除格式固定在列表下方。窗口登记为 conversion.worksheetBatch，默认大小测量、安全预览、格式编辑和功能区树使用同一生产窗体。后台渲染和真实 WPS COM 夹具证据独立保存。
 
 B3-Spec Coding.md 为 B3 工程规范入口。改名需要同时修改 verify_devlog 的文档集合、章节范围与规则读取分支、verify_shared、公共 project_support、网站 document_assets 和 layout/document_assets 夹具，并复核所有本地链接；仅改磁盘文件名会使构建视为缺少规定文档。历史证据保留，生成资源由标准构建重新产生。
 

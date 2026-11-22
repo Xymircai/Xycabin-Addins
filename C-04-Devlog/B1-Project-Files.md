@@ -164,6 +164,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+GitHub Release 已重下载校验 `Excel_Iterate_Setup.exe`，SHA-256 为 `f6aef7cd5481326ec61b8335d1a1f2c5055c59d03d7c4fa47b40e6f5ebc1c909`。构建源码提交为 `fa974a9b139671652c3f597ce4fcbae316ff5afa`。见 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。
+
 一键公式 11 个窗口通过系统标题与正文核对。离屏渲染和转换布局回归通过。正式安装后的 WPS 窗口另行验收。见 [布局验证](../build/formula-title-delivery/conversion-interaction.log)。联合 BAT 选择“2. 完整验证”，起止 03:12:21 至 03:17:16（北京时间），退出码 0，重建标识 `d293a2d3b07d42bcb9291acb84b67db9`，收尾标识 `fd410c7a63c64da28b911c360bc90c6e`。`Excel_Iterate_Setup.exe` 为 5841920 字节，SHA-256 为 `f6aef7cd5481326ec61b8335d1a1f2c5055c59d03d7c4fa47b40e6f5ebc1c909`。见 [BAT 日志](../build/formula-title-delivery/bat-console.log)与[交付摘要](../build/formula-title-delivery/delivery-summary.json)。
 
 GitHub Release 已重下载校验 `Excel_Iterate_Setup.exe`，SHA-256 为 `f0b0f5fcfc35b1968eac7d59965960e08f2cc671417b9dcb90e2506cdc4dc804`。构建源码提交为 `719b751e0d4725de5a705f01dc50abcc91951ded`。见 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。
@@ -527,6 +529,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+GitHub Release 已重下载校验 `WordUpdater_Setup.exe`，SHA-256 为 `ea7bb11507b46a6e67913173d4e705c9b07fab612ba996966fc6ab214fe675f5`。构建源码提交为 `fa974a9b139671652c3f597ce4fcbae316ff5afa`。见 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。
+
 Word 签名、五载荷及后台回归通过。联合 BAT 选择“2. 完整验证”，起止 03:12:21 至 03:17:16（北京时间），退出码 0，重建标识 `d293a2d3b07d42bcb9291acb84b67db9`，收尾标识 `fd410c7a63c64da28b911c360bc90c6e`。`WordUpdater_Setup.exe` 为 4339200 字节，SHA-256 为 `ea7bb11507b46a6e67913173d4e705c9b07fab612ba996966fc6ab214fe675f5`。见 [BAT 日志](../build/formula-title-delivery/bat-console.log)与[交付摘要](../build/formula-title-delivery/delivery-summary.json)。
 
 GitHub Release 已重下载校验 `WordUpdater_Setup.exe`，SHA-256 为 `df31f4cd5c19786263a75fe1ebdbaab9744620d9a3a6544acbaccbaae92f9fa0`。构建源码提交为 `719b751e0d4725de5a705f01dc50abcc91951ded`。见 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。
@@ -671,6 +675,8 @@ GitHub Release 已重下载校验 `WordUpdater_Setup.exe`，SHA-256 为 `df31f4c
 源码与正式产物内容指纹控制增量；两包、独立页和交付记录统一事务发布。后台前端/下载/音频替身不发声、不真实下载，不能代替file页面、听感、浏览器许可或安装效果。当前交付摘要在审计区，方法不重复历史流水。
 
 ### (2). 本轮交付证据
+
+GitHub Release 已重下载校验 `XyCabin.html`，SHA-256 为 `dcbeb04f40c4bbe6b80d8bea53de015d8e0bc68a2f575974447e3068c30aec70`。构建源码提交为 `fa974a9b139671652c3f597ce4fcbae316ff5afa`。见 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。
 
 网站联合收尾通过，内嵌的两个安装包与本次 EXE 字节一致。联合 BAT 选择“2. 完整验证”，起止 03:12:21 至 03:17:16（北京时间），退出码 0，重建标识 `d293a2d3b07d42bcb9291acb84b67db9`，收尾标识 `fd410c7a63c64da28b911c360bc90c6e`。`XyCabin.html` 为 14799276 字节，SHA-256 为 `dcbeb04f40c4bbe6b80d8bea53de015d8e0bc68a2f575974447e3068c30aec70`。见 [BAT 日志](../build/formula-title-delivery/bat-console.log)与[交付摘要](../build/formula-title-delivery/delivery-summary.json)。
 

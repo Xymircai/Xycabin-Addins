@@ -11,6 +11,9 @@ from process_support import run_process
 import os
 import re
 import sys
+# Compile-time-only constant: build.py runs before any certificate or
+# signing.json exists, so the shared subject must not depend on runtime data.
+from signing_config import SHARED_CERT_SUBJECT
 
 ROOT = Path(PROJECT_ROOT).resolve()
 BUILD = ROOT / 'build'
@@ -88,7 +91,7 @@ def write_project_info():
                   AddinKeyPath='Software\\Microsoft\\Office\\' + p['host'] + '\\Addins\\' + p['addin_key'],
                   SetupKeyPath='Software\\' + p['assembly'] + 'Setup',
                   AddinsWlKeyPath='Software\\Kingsoft\\Office\\' + p['whitelist_host'] + '\\AddinsWL',
-                  PayloadVstoName=p['assembly'] + '.vsto', CertificateSubject='CN=' + p['assembly'] + ' Dev',
+                  PayloadVstoName=p['assembly'] + '.vsto', CertificateSubject=SHARED_CERT_SUBJECT,
                   LegacyAddinName=legacy, LegacyVstoName=legacy + '.vsto' if legacy else '',
                   LegacyAddinKeyPath='Software\\Microsoft\\Office\\' + p['host'] + '\\Addins\\' + legacy if legacy else '',
                   LegacySetupKeyPath='Software\\' + legacy + 'Setup' if legacy else '')

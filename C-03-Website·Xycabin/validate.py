@@ -34,7 +34,7 @@ def verify_delivery():
         run([sys.executable, base / 'verify_package.py'], base, ROOT / ('build/' + assembly + '-signatures.log'))
         verify_payload(base, assembly, installer, site, ROOT)
     verify_installers(site.read_text(encoding='utf-8'), packages)
-    print('PASS: 正式产物摘要、固定发布者、清单双签名、五载荷、内嵌资源及网页两包字节一致')
+    print('PASS: 正式产物摘要、项目统一发布者（共享 PFX）、清单双签名、五载荷、内嵌资源及网页两包字节一致')
     return {'artifacts': actual, 'record': str(record_path)}
 
 

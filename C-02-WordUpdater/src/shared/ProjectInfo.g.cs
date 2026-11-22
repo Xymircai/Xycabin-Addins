@@ -15,7 +15,7 @@ namespace WpsShared
         internal const string SetupKeyPath = @"Software\WordUpdaterSetup";
         internal const string AddinsWlKeyPath = @"Software\Kingsoft\Office\WPS\AddinsWL";
         internal const string PayloadVstoName = @"WordUpdater.vsto";
-        internal const string CertificateSubject = @"CN=WordUpdater Dev";
+        internal const string CertificateSubject = @"CN=Xymircai WPS Addins Dev";
         internal const string LegacyAddinName = @"WpsLinkUpdater";
         internal const string LegacyVstoName = @"WpsLinkUpdater.vsto";
         internal const string LegacyAddinKeyPath = @"Software\Microsoft\Office\Word\Addins\WpsLinkUpdater";

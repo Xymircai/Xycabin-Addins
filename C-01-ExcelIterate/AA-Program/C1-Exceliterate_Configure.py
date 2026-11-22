@@ -559,7 +559,7 @@ INSTALLER_VERSION = "0.9.9.3"
 # --- 固定签名证书（证书指纹，不含私钥）---
 # 常规重建复用此证书；证书或私钥不可用就停止，不按主题猜选，也不自动创建。
 # 仅在明确更换发布者证书时修改此值；清空 build 不会改变签名身份。
-SIGNING_CERT_THUMBPRINT = "8EA393A55F624AE71F3BD6ADCE2732B84171900B"  # CN=Excel_Iterate Dev，与主题一致并带私钥
+SIGNING_CERT_THUMBPRINT = "FED1CCCA99A0F4F4133216182723B2D3B3EC7814"  # 项目统一共享证书指纹
 INSTALLER_COPYRIGHT = "Xymircai Initial Development"
 INSTALLER_VERSION_LINE_PREFIX = "Exceliterate"
 

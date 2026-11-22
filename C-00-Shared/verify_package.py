@@ -1,4 +1,8 @@
-"""Read-only VSTO payload, pinned publisher and cryptographic signature gate."""
+"""Read-only VSTO payload, unified pinned publisher and cryptographic signature gate.
+
+The publisher is one project-wide shared PFX; both add-ins pin the same
+40-character fingerprint, which is also recorded in C-00-Shared/signing/signing.json.
+"""
 import base64
 import hashlib
 import re
@@ -59,6 +63,9 @@ def verify(build=None, verifier=None):
     thumb = configured.strip().upper()
     if not re.fullmatch(r'[0-9A-F]{40}', thumb):
         raise ValueError('配置器脚本 must pin a 40-character SIGNING_CERT_THUMBPRINT')
+    from signing_config import load_signing
+    if load_signing()['thumb'] != thumb:
+        raise ValueError('指定签名证书：配置器指纹与 C-00-Shared/signing/signing.json 不一致')
     if not verifier.is_file():
         raise ValueError('Mandatory cryptographic verifier is missing; run build.py')
     for name in PAYLOAD:
@@ -115,7 +122,7 @@ def verify(build=None, verifier=None):
                  if line.startswith('PASS SHA256_DOUBLE_SIGNATURE ')]
     if sorted(confirmed) != sorted(str(build / name) for name in PAYLOAD[-2:]):
         raise ValueError('Verifier did not confirm both signatures; recompile it with build.py')
-    print('PASS:', PROJECT['assembly'], 'version, host, actual CLR identities/AssemblyRef, payload hashes, pinned publisher and SHA-256 double signatures')
+    print('PASS:', PROJECT['assembly'], 'version, host, actual CLR identities/AssemblyRef, payload hashes, unified pinned publisher (shared PFX) and SHA-256 double signatures')
 
 
 if __name__ == '__main__':

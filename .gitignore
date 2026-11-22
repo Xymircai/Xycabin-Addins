@@ -29,6 +29,7 @@ build_last.log
 # ============================================================
 # 发布产物（通过 GitHub Releases 分发，不入库）
 # ============================================================
+**/AA-Program/*_Setup.exe
 C-01-ExcelIterate/AA-Program/Excel_Iterate_Setup.exe
 C-02-WordUpdater/AA-Program/WordUpdater_Setup.exe
 C-03-Website·Xycabin/AA-Program/XyCabin.html
@@ -40,7 +41,8 @@ C-03-Website·Xycabin/AA-Program/index.html
 **/lib/*.dll
 
 # ============================================================
-# 签名材料与私钥（严禁入库）
+# 其他证书与私钥材料（严禁入库）
+# 唯一例外见文末：项目统一共享签名资产必须随源码分发
 # ============================================================
 *.cer
 *.crt
@@ -50,7 +52,7 @@ C-03-Website·Xycabin/AA-Program/index.html
 *.key
 *.pem
 
-# 本机测试签名配置与打包入口；正式配置器保持原证书
+# 本机测试签名配置与打包入口（共享 PFX 后不再需要本地证书副本）
 /.local-signing.json
 /.local-build.py
 /本机测试打包.bat
@@ -71,3 +73,10 @@ desktop.ini
 *.swp
 .vscode/
 .idea/
+
+# ============================================================
+# 项目签名身份随源码分发。私钥和口令留在本机。
+# ============================================================
+/C-00-Shared/signing/*.pfx
+/C-00-Shared/signing/signing.local.json
+!C-00-Shared/signing/signing.json

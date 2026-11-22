@@ -59,7 +59,8 @@
     "src/tools/source_layout_probe.py",
     "src/tools/package_identity_probe.py",
     "src/addin/CellAddress.cs",
-    "tool_catalog.py"
+    "tool_catalog.py",
+    "signing_config.py"
   ],
   "entries": [
     "AA-Program/一键重建并打包.bat",

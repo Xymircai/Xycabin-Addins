@@ -7,6 +7,7 @@ sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / 'C-00-Shared'))
 from source_layout import manifest, resolve_source
+from signing_config import load_signing
 
 DOCS = {'B0-Entry.md', 'A-UserGuide.md', 'B1-Project-Files.md',
         'B2-DevExperience.md', 'B3-Spec Coding.md', 'B4-Code Index.md'}
@@ -66,6 +67,11 @@ def check_documents():
                 raise ValueError('项目内不得保留文档副本：' + str(leftovers[0]))
 
 
+def check_shared_signing():
+    """Validate the published identity on both public and provisioned checkouts."""
+    load_signing()
+
+
 # rule=R-15
 def main():
     left, right = ROOT / 'C-01-ExcelIterate', ROOT / 'C-02-WordUpdater'
@@ -100,6 +106,10 @@ def main():
             errors.append('公共依赖不同：' + relative)
     try:
         check_documents()
+    except (OSError, ValueError) as error:
+        errors.append(str(error))
+    try:
+        check_shared_signing()
     except (OSError, ValueError) as error:
         errors.append(str(error))
     for relative in ('src/document_assets.py', 'src/site_core.py', 'src/site_template.html',

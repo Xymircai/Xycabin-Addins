@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "pfx": "XyWpsAddins-Dev.pfx",
+  "pfx_sha256": "8f89b2844d8c6e0ed32a1783e1b4dc33c5cb5bef8d05d6f702eb3f29de48c80f",
+  "expected_thumbprint": "FED1CCCA99A0F4F4133216182723B2D3B3EC7814",
+  "expected_subject": "CN=Xymircai WPS Addins Dev",
+  "store": "CurrentUser\\My",
+  "notes": "口令仅用于解密 PFX，非身份凭据；不得复用于任何账户/CI secret"
+}

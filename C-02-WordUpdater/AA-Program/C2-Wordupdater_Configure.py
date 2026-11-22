@@ -26,8 +26,9 @@ C2-Wordupdater_Configure.py —— 「WordUpdater」按钮集中配置生成器
           时可能不再询问。取消或失败会明确提示，不能当作安装成功
        5) 安装器报告成功后重开 WPS 文字，顶部出现「WordUpdater」选项卡即成功
 
-  签名身份只由下方 SIGNING_CERT_THUMBPRINT 决定；常规重建不创建新证书。
-  指定证书、有效期或私钥不可用时停止签名；build 缓存不参与证书选择。
+  签名身份由项目统一共享 PFX 决定：CN=Xymircai WPS Addins Dev，两产品同指纹。
+  证书缺失时由 C-00-Shared/resign.py 从 C-00-Shared/signing/ 自动导入当前用户\个人；
+  仍不按主题猜选、不自动创建证书、不更换发布者；build 缓存不参与证书选择。
 
 二、会改动哪些文件
 ==============================================================================
@@ -359,10 +360,12 @@ INSTALLER_FEATURE_TEXT = (
 )
 INSTALLER_VERSION = "0.9.9.3"
 
-# --- 固定签名证书（证书指纹，不含私钥）---
-# 常规重建复用此证书；证书或私钥不可用就停止，不按主题猜选，也不自动创建。
-# 仅在明确更换发布者证书时修改此值；清空 build 不会改变签名身份。
-SIGNING_CERT_THUMBPRINT = "81B72008EC4CDBBBC6CCED3A2EB8378812F5E231"  # CN=WordUpdater Dev，与主题一致并带私钥
+# --- 项目统一签名证书（指纹，不含私钥）---
+# 两产品共用 C-00-Shared/signing/ 内的共享 PFX，主题 CN=Xymircai WPS Addins Dev。
+# 常规重建复用此证书；缺失时由共享 PFX 自动导入当前用户\个人，再复检指纹、主题、有效期和私钥。
+# 仍不按主题猜选、不自动创建证书、不静默更换发布者；清空 build 不会改变签名身份。
+# 仅在明确轮换发布者证书时，同步更新此值、signing.json 与共享 PFX。
+SIGNING_CERT_THUMBPRINT = "FED1CCCA99A0F4F4133216182723B2D3B3EC7814"  # 项目统一共享证书指纹
 INSTALLER_COPYRIGHT = "Xymircai Initial Development"
 INSTALLER_VERSION_LINE_PREFIX = "Wordupdater"
 

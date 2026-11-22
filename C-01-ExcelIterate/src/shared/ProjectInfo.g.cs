@@ -15,7 +15,7 @@ namespace WpsShared
         internal const string SetupKeyPath = @"Software\Excel_IterateSetup";
         internal const string AddinsWlKeyPath = @"Software\Kingsoft\Office\ET\AddinsWL";
         internal const string PayloadVstoName = @"Excel_Iterate.vsto";
-        internal const string CertificateSubject = @"CN=Excel_Iterate Dev";
+        internal const string CertificateSubject = @"CN=Xymircai WPS Addins Dev";
         internal const string LegacyAddinName = @"";
         internal const string LegacyVstoName = @"";
         internal const string LegacyAddinKeyPath = @"";

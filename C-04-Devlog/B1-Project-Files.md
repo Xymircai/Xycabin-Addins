@@ -164,6 +164,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+GitHub Release 已重下载校验 `Excel_Iterate_Setup.exe`，SHA-256 为 `f0b0f5fcfc35b1968eac7d59965960e08f2cc671417b9dcb90e2506cdc4dc804`。构建源码提交为 `719b751e0d4725de5a705f01dc50abcc91951ded`。见 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。
+
 功能窗口撤销、公式入口合并与数值替换通过后台回归。隔离 WPS 自建样本通过跨工作簿替换与整批撤销。正式安装后的功能区另行验收。联合 BAT 选择“2. 完整验证”，起止 02:51:45 至 02:56:41（北京时间），退出码 0，重建标识 `a166f30e70b14655b0197f1dfa2eca8f`，收尾标识 `cfd34b29e63342c7a1ff69566d3b8a9c`。`Excel_Iterate_Setup.exe` 为 5841920 字节，SHA-256 为 `f0b0f5fcfc35b1968eac7d59965960e08f2cc671417b9dcb90e2506cdc4dc804`。见 [BAT 日志](../build/worksheet-window-delivery/bat-console.log)与[交付摘要](../build/worksheet-window-delivery/delivery-summary.json)。
 
 本轮把签名身份改为项目统一共享 PFX（`C-00-Shared/signing/` 内 `XyWpsAddins-Dev.pfx` 与 `signing.json`，发布者 `CN=Xymircai WPS Addins Dev`，两产品同指纹 `FED1CCCA99A0F4F4133216182723B2D3B3EC7814`）；证书缺失时由 `C-00-Shared/resign.py` 自动导入当前用户个人证书库并复检，不自动创建、不按主题猜选、不更换发布者。按用户指定运行 [Excel 单项目打包入口](../C-01-ExcelIterate/AA-Program/一键重建并打包.bat)，完整重建，退出码 0；[首次签名日志](../C-01-ExcelIterate/build/runs/5843ce89277a4713a470933f78b40f24/rebuild/3-resign.py.log) 记录证书未找到后 `IMPORTED_OK`、`CERTIFICATE_OK` 与「已从项目内共享 PFX 导入签名证书」，[复用日志](../C-01-ExcelIterate/build/runs/074daf4ffbec43f6a139a2777082652b/rebuild/3-resign.py.log) 显示第二次直接 `CERTIFICATE_OK`、不重复导入；G-11、G-12 通过，清单双签名与五载荷核对通过。成果 `Excel_Iterate_Setup.exe` 为 5842432 字节，SHA-256 为 `587742551e7f64fcb9d8cc41a360ac141850e76d60d8b78bb8b0f92ee8239bb2`。正式安装、真实 WPS 点击与发布者信任确认仍单列验收。见 [运行摘要](../C-01-ExcelIterate/build/rebuild-run-summary.json)。
@@ -523,6 +525,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+GitHub Release 已重下载校验 `WordUpdater_Setup.exe`，SHA-256 为 `df31f4cd5c19786263a75fe1ebdbaab9744620d9a3a6544acbaccbaae92f9fa0`。构建源码提交为 `719b751e0d4725de5a705f01dc50abcc91951ded`。见 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。
+
 统一发布者签名与 Word 后台回归通过。联合 BAT 选择“2. 完整验证”，起止 02:51:45 至 02:56:41（北京时间），退出码 0，重建标识 `a166f30e70b14655b0197f1dfa2eca8f`，收尾标识 `cfd34b29e63342c7a1ff69566d3b8a9c`。`WordUpdater_Setup.exe` 为 4339200 字节，SHA-256 为 `df31f4cd5c19786263a75fe1ebdbaab9744620d9a3a6544acbaccbaae92f9fa0`。见 [BAT 日志](../build/worksheet-window-delivery/bat-console.log)与[交付摘要](../build/worksheet-window-delivery/delivery-summary.json)。
 
 本轮签名身份切换为与 Excel 相同的项目统一共享 PFX（指纹 `FED1CCCA99A0F4F4133216182723B2D3B3EC7814`），Word 侧 `SignCmi.exe`、`MakeCertCapi.exe` 已按同一源码重编译。运行 [Word 单项目打包入口](../C-02-WordUpdater/AA-Program/一键重建并打包.bat)，完整重建，退出码 0；G-14、G-15 通过，复用已导入的共享证书完成清单双签名与五载荷核对。成果 `WordUpdater_Setup.exe` 为 4340224 字节，SHA-256 为 `dcb115df4245a1ec8ea47d45f59932e35ac9cfcdd0813f3ab1e936bd2a7e21f3`。正式安装、真实 WPS 点击与发布者信任确认仍单列验收。见 [运行摘要](../C-02-WordUpdater/build/rebuild-run-summary.json)。
@@ -663,6 +667,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 源码与正式产物内容指纹控制增量；两包、独立页和交付记录统一事务发布。后台前端/下载/音频替身不发声、不真实下载，不能代替file页面、听感、浏览器许可或安装效果。当前交付摘要在审计区，方法不重复历史流水。
 
 ### (2). 本轮交付证据
+
+GitHub Release 已重下载校验 `XyCabin.html`，SHA-256 为 `21638c9c1743e19f8e8ab0ab05ed8726c54b5d13145ff62b10fce9c2e99ca034`。构建源码提交为 `719b751e0d4725de5a705f01dc50abcc91951ded`。见 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。
 
 网站联合收尾通过，内嵌的两个安装包与本次 EXE 字节一致。联合 BAT 选择“2. 完整验证”，起止 02:51:45 至 02:56:41（北京时间），退出码 0，重建标识 `a166f30e70b14655b0197f1dfa2eca8f`，收尾标识 `cfd34b29e63342c7a1ff69566d3b8a9c`。`XyCabin.html` 为 14799276 字节，SHA-256 为 `21638c9c1743e19f8e8ab0ab05ed8726c54b5d13145ff62b10fce9c2e99ca034`。见 [BAT 日志](../build/worksheet-window-delivery/bat-console.log)与[交付摘要](../build/worksheet-window-delivery/delivery-summary.json)。
 

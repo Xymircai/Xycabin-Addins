@@ -227,13 +227,13 @@ internal static class ConversionInteractionProbe
         {
             Size client = form.ClientSize; form.FormBorderStyle = FormBorderStyle.None; form.ClientSize = client;
             form.TopLevel = false; parking.Controls.Add(form); form.Show(); form.PerformLayout();
-            RenderWorksheetBatch(form, Path.Combine(folder, "conversion.worksheetBatch.png"));
+            RenderForm(form, Path.Combine(folder, "conversion.worksheetBatch.png"));
             var viewport = (Panel)form.Controls.Find("batchFormatViewport", true)[0];
             viewport.AutoScrollPosition = new Point(0, viewport.VerticalScroll.Maximum);
-            RenderWorksheetBatch(form, Path.Combine(folder, "conversion.worksheetBatch.scrolled.png"));
+            RenderForm(form, Path.Combine(folder, "conversion.worksheetBatch.scrolled.png"));
         }
     }
-    private static void RenderWorksheetBatch(Form form, string path)
+    private static void RenderForm(Form form, string path)
     {
         using (var overlay = new PreviewSelectionOverlay(form))
         {
@@ -242,6 +242,32 @@ internal static class ConversionInteractionProbe
             {
                 overlay.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size));
                 bitmap.Save(path, ImageFormat.Png);
+            }
+        }
+    }
+
+    private static void FormulaWindowCaptions(string renderFolder)
+    {
+        if (renderFolder != null) Directory.CreateDirectory(renderFolder);
+        foreach (var dialog in DialogCatalog.All.Where(item => item.Id.StartsWith("formula.", StringComparison.Ordinal)))
+        using (var form = DialogPreviewFactory.CreateProgramDefault(dialog.Id))
+        {
+            string caption = DialogPreviewFactory.OriginalTitle(form);
+            Check(!string.IsNullOrWhiteSpace(caption) && form.Text.EndsWith(caption, StringComparison.Ordinal),
+                "formula keeps its window caption " + dialog.Id);
+            Check(!Descendants(form).OfType<Label>().Any(label => label.Text == caption),
+                "formula does not repeat the window caption in the body " + dialog.Id);
+            if (renderFolder == null) continue;
+            using (var parking = new Panel { Size = form.Size })
+            {
+                Size client = form.ClientSize;
+                form.FormBorderStyle = FormBorderStyle.None;
+                form.ClientSize = client;
+                form.TopLevel = false;
+                parking.Controls.Add(form);
+                form.Show();
+                form.PerformLayout();
+                RenderForm(form, Path.Combine(renderFolder, dialog.Id + ".png"));
             }
         }
     }
@@ -370,7 +396,7 @@ internal static class ConversionInteractionProbe
                     int buttonBottom = root.Top + bar.Bottom;
                     Check(Math.Max(f.Undo.Bottom, Math.Max(f.Apply.Bottom, f.Cancel.Bottom)) <= bar.Height, "footer buttons are contained at scale " + factor);
                     Check(f.Undo.Parent == bar && f.Undo.Width > 0 && !f.Undo.Enabled, "adjacent conversion undo stays disabled in an inert preview " + id + " " + factor);
-                    if (id != "formula.references") Check(!Descendants(f).Any(control => control is Label && control.Text == f.Text), "conversion uses one window title " + id);
+                    Check(!Descendants(f).OfType<Label>().Any(label => label.Text == DialogPreviewFactory.OriginalTitle(f)), "conversion uses one window title " + id);
                     int gap = f.ClientSize.Height - buttonBottom;
                     Check(f.AutoScrollMinSize.Height > f.ClientSize.Height || gap >= 0 && gap <= root.Padding.Bottom + 2, "compact footer in scaled layout " + id + " " + factor + ": gap=" + gap + "; padding=" + root.Padding.Bottom + "; preferred=" + f.AutoScrollMinSize + "; client=" + f.ClientSize + "; root=" + root.Bounds + "; bar=" + bar.Bounds + "; apply=" + f.Apply.Bounds);
                     Check(f.RangeInput.Width >= 180 && f.Apply.Width > 0 && f.Controls.Find("conversionBefore", true)[0].Height > 0, "visible real controls in scaled layout " + id + " " + factor);
@@ -402,7 +428,17 @@ internal static class ConversionInteractionProbe
     [STAThread] private static int Main(string[] args)
     {
         string settings = Path.Combine(Path.GetTempPath(), "ConversionUiProbe-" + Guid.NewGuid().ToString("N")); DialogSizeStore.RootOverride = settings;
-        try { InteractionChecks(); LayoutChecks(); WorksheetBatchLayout(); if (args.Length == 2 && args[0] == "--render") Render(args[1]); Console.WriteLine("PASS ConversionInteractionProbe: " + checks + " assertions; hidden real controls, STA previews, scaled layouts, picker restore, busy and shutdown; no host connection"); return 0; }
+        try
+        {
+            InteractionChecks();
+            LayoutChecks();
+            WorksheetBatchLayout();
+            string renderFolder = args.Length == 2 && args[0] == "--render" ? args[1] : null;
+            FormulaWindowCaptions(renderFolder);
+            if (renderFolder != null) Render(renderFolder);
+            Console.WriteLine("PASS ConversionInteractionProbe: " + checks + " assertions; hidden real controls, STA previews, scaled layouts, picker restore, busy and shutdown; no host connection");
+            return 0;
+        }
         catch (Exception error) { Console.WriteLine("FAIL ConversionInteractionProbe: " + error); return 1; }
         finally { ConversionInteraction.Shutdown(); ConversionWindowThread.CreatedForProbe = null; ConversionInteraction.ResultForProbe = null; }
     }

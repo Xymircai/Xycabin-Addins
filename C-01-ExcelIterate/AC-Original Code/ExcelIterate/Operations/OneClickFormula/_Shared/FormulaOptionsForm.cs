@@ -17,7 +17,7 @@ namespace Excel_Iterate
         internal readonly RoundedButton Apply, Cancel;
         public WorksheetUndoButton Undo { get; private set; }
         public event Action<FormulaRequest> Submitted;
-        private readonly Label title, intro, typeLabel, inputLabel, previewLabel, operatorLabel;
+        private readonly Label intro, typeLabel, inputLabel, previewLabel, operatorLabel;
         private readonly UiCard card;
         private readonly FlowLayoutPanel actions;
         private bool arranging;
@@ -35,7 +35,6 @@ namespace Excel_Iterate
             DialogSizing.Prepare(this, id, "table", Ui.Blue);
             ShowInTaskbar = false; MinimizeBox = false; MaximizeBox = false; KeyPreview = true;
             AutoScroll = true;
-            title = TextLabel(Text, 16, true);
             intro = TextLabel("可继续操作表格；确认只处理打开窗口时的选区。原内容变化时停止，取消不修改。", 9, false);
             card = new UiCard();
             if (operation >= FormulaOperation.Add)
@@ -67,7 +66,7 @@ namespace Excel_Iterate
             Undo = new WorksheetUndoButton();
             Cancel = Ui.Button("关闭", 96); Cancel.TabIndex = 5; Cancel.DialogResult = DialogResult.Cancel;
             actions.Controls.AddRange(new Control[] { Apply, Undo, Cancel });
-            Controls.AddRange(new Control[] { title, intro, card, Validation, actions });
+            Controls.AddRange(new Control[] { intro, card, Validation, actions });
             AcceptButton = null; CancelButton = Cancel;
             Apply.Click += delegate
             {
@@ -134,7 +133,6 @@ namespace Excel_Iterate
                 width=Math.Max(width,requiredEditor+labelWidth+gap+inset*2);
                 width=Math.Max(width,DialogControlSizing.Resolve(Preview,Size.Empty).Width+inset*2);
                 int y = pad;
-                Place(title,pad, y, width, TextHeight(title, width)); y = title.Bottom + gap;
                 Place(intro,pad, y, width, TextHeight(intro, width)); y = intro.Bottom + section;
                 int inner = width - inset * 2, editorLeft = inset + labelWidth + gap;
                 int editorWidth = inner - labelWidth - gap, rowY = inset;
@@ -173,7 +171,7 @@ namespace Excel_Iterate
                 Apply.Margin = new Padding(0, 0, section, 0); Cancel.Margin = Padding.Empty;
                 actions.SetBounds(pad, y, width, Math.Max(Apply.Height,Cancel.Height)); actions.PerformLayout();actions.Height=Math.Max(actions.Height,Math.Max(Undo.Bottom,Math.Max(Apply.Bottom,Cancel.Bottom)));
                 int contentHeight = actions.Bottom + pad;
-                AutoScrollMinSize = new Size(Math.Max(width+pad*2,Math.Max(title.Right,intro.Right)+pad), contentHeight);
+                AutoScrollMinSize = new Size(Math.Max(width + pad * 2, intro.Right + pad), contentHeight);
             }
             finally { arranging = false; }
         }

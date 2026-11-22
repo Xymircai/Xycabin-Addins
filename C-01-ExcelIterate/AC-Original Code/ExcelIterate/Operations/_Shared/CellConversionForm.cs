@@ -79,7 +79,6 @@ namespace Excel_Iterate
             KeyPreview = true; AutoScroll = true;
             root = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, Padding = new Padding(24, 17, 24, 14), BackColor = Ui.Canvas };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); Controls.Add(root);
-            if (kind == CellConversionKind.ReferenceStyle) Add(ConversionUi.Label(Text, 18, true));
             Add(ConversionUi.Hint(description ?? "工作簿：示例.xlsx\r\n工作表：数据"));
             var range = new TableLayoutPanel { AutoSize = true, Dock = DockStyle.Top, ColumnCount = 3, Margin = new Padding(0, 10, 0, 3) };
             range.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); range.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); range.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));

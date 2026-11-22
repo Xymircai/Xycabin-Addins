@@ -98,7 +98,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (1). 当前实现与待验收
 
-工作表批量操作按同名表与相同地址预览文字和底层数值替换，并可同批应用格式。改过的工作簿留在宿主中由用户保存。转换、公式、批量工作表与按列筛选的窗口内可撤销本次 WPS 会话最近的对应批次。IFERROR、ROUND 和数值计算直接打开预填窗口，三个转换窗口保留系统标题栏。
+工作表批量操作按同名表与相同地址预览文字和底层数值替换，并可同批应用格式。改过的工作簿留在宿主中由用户保存。转换、公式、批量工作表与按列筛选的窗口内可撤销本次 WPS 会话最近的对应批次。IFERROR、ROUND 和数值计算直接打开预填窗口。一键公式各窗口的功能名称只在系统标题栏显示，正文从目标选区或操作说明开始。
 
 批量复制数据的预检及执行默认在私有桌面的独立 WPS 会话中处理。后台任务启动已注册的 WPS 表格程序，私有会话中的 Excel-Iterate 经本地管道回传自身自动化接口。启动失败时在迁移窗口和日志中显示具体阶段及可用的 Win32 错误信息，用户可为本次操作手动确认改用前台。迁移窗支持最小化，完成时通过 Windows 通知报告结果。
 
@@ -163,6 +163,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 本轮沿用版本与发布身份，公共源码迁至C-00-Shared，项目清单直接引用，生成文件与产品入口保留原位置。抵消窗口在首次可见前应用最大化，来源事件先订阅再回填；局部缓冲覆盖布局、网格和拖柄，尺寸预览保持普通窗口。默认布局按窗口及DPI延迟测量；从属扫描和抵消预检通过原宿主线程分块读取、后台纯数据运算，来源变化时中止。宿主不支持变化监听时回退同步读取并记录兼容路径。EliminationSession统一持有目标、快照和任务，大结果预览按需取值，仍完整测宽、支持复制；取消与失败重试保留尚未还原的目标。实际WPS黑影、键入、菜单、跨屏DPI与写入还原由用户验收，离线检查不能代替。
 
 ### (2). 本轮交付证据
+
+一键公式 11 个窗口通过系统标题与正文核对。离屏渲染和转换布局回归通过。正式安装后的 WPS 窗口另行验收。见 [布局验证](../build/formula-title-delivery/conversion-interaction.log)。联合 BAT 选择“2. 完整验证”，起止 03:12:21 至 03:17:16（北京时间），退出码 0，重建标识 `d293a2d3b07d42bcb9291acb84b67db9`，收尾标识 `fd410c7a63c64da28b911c360bc90c6e`。`Excel_Iterate_Setup.exe` 为 5841920 字节，SHA-256 为 `f6aef7cd5481326ec61b8335d1a1f2c5055c59d03d7c4fa47b40e6f5ebc1c909`。见 [BAT 日志](../build/formula-title-delivery/bat-console.log)与[交付摘要](../build/formula-title-delivery/delivery-summary.json)。
 
 GitHub Release 已重下载校验 `Excel_Iterate_Setup.exe`，SHA-256 为 `f0b0f5fcfc35b1968eac7d59965960e08f2cc671417b9dcb90e2506cdc4dc804`。构建源码提交为 `719b751e0d4725de5a705f01dc50abcc91951ded`。见 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。
 
@@ -525,6 +527,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+Word 签名、五载荷及后台回归通过。联合 BAT 选择“2. 完整验证”，起止 03:12:21 至 03:17:16（北京时间），退出码 0，重建标识 `d293a2d3b07d42bcb9291acb84b67db9`，收尾标识 `fd410c7a63c64da28b911c360bc90c6e`。`WordUpdater_Setup.exe` 为 4339200 字节，SHA-256 为 `ea7bb11507b46a6e67913173d4e705c9b07fab612ba996966fc6ab214fe675f5`。见 [BAT 日志](../build/formula-title-delivery/bat-console.log)与[交付摘要](../build/formula-title-delivery/delivery-summary.json)。
+
 GitHub Release 已重下载校验 `WordUpdater_Setup.exe`，SHA-256 为 `df31f4cd5c19786263a75fe1ebdbaab9744620d9a3a6544acbaccbaae92f9fa0`。构建源码提交为 `719b751e0d4725de5a705f01dc50abcc91951ded`。见 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。
 
 统一发布者签名与 Word 后台回归通过。联合 BAT 选择“2. 完整验证”，起止 02:51:45 至 02:56:41（北京时间），退出码 0，重建标识 `a166f30e70b14655b0197f1dfa2eca8f`，收尾标识 `cfd34b29e63342c7a1ff69566d3b8a9c`。`WordUpdater_Setup.exe` 为 4339200 字节，SHA-256 为 `df31f4cd5c19786263a75fe1ebdbaab9744620d9a3a6544acbaccbaae92f9fa0`。见 [BAT 日志](../build/worksheet-window-delivery/bat-console.log)与[交付摘要](../build/worksheet-window-delivery/delivery-summary.json)。
@@ -667,6 +671,8 @@ GitHub Release 已重下载校验 `WordUpdater_Setup.exe`，SHA-256 为 `df31f4c
 源码与正式产物内容指纹控制增量；两包、独立页和交付记录统一事务发布。后台前端/下载/音频替身不发声、不真实下载，不能代替file页面、听感、浏览器许可或安装效果。当前交付摘要在审计区，方法不重复历史流水。
 
 ### (2). 本轮交付证据
+
+网站联合收尾通过，内嵌的两个安装包与本次 EXE 字节一致。联合 BAT 选择“2. 完整验证”，起止 03:12:21 至 03:17:16（北京时间），退出码 0，重建标识 `d293a2d3b07d42bcb9291acb84b67db9`，收尾标识 `fd410c7a63c64da28b911c360bc90c6e`。`XyCabin.html` 为 14799276 字节，SHA-256 为 `dcbeb04f40c4bbe6b80d8bea53de015d8e0bc68a2f575974447e3068c30aec70`。见 [BAT 日志](../build/formula-title-delivery/bat-console.log)与[交付摘要](../build/formula-title-delivery/delivery-summary.json)。
 
 GitHub Release 已重下载校验 `XyCabin.html`，SHA-256 为 `21638c9c1743e19f8e8ab0ab05ed8726c54b5d13145ff62b10fce9c2e99ca034`。构建源码提交为 `719b751e0d4725de5a705f01dc50abcc91951ded`。见 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。
 

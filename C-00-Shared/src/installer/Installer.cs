@@ -118,58 +118,74 @@ namespace Excel_IterateSetup
             _uninstallMode = uninstallMode;
             Text = InstallerText.WindowTitle;
             if (uninstallMode) Text = "卸载 " + InstallerText.Title;
-            Ui.PrepareForm(this, new Size(700, 620), new Size(560, 500));
-            FormBorderStyle = FormBorderStyle.Sizable; MaximizeBox = false; MinimizeBox = false;
-            TableLayoutPanel root = new TableLayoutPanel();
-            root.Dock = DockStyle.Fill; root.Padding = new Padding(16); root.ColumnCount = 1; root.RowCount = 5;
+            SuspendLayout();
+            Ui.PrepareForm(this, new Size(744, 576), new Size(560, 440));
+            FormBorderStyle = FormBorderStyle.Sizable;
+            MaximizeBox = MinimizeBox = false;
+            var root = new TableLayoutPanel {
+                Dock = DockStyle.Fill, Padding = new Padding(20), ColumnCount = 1, RowCount = 5
+            };
             root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 144));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 106));
-            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 112));
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
-            UiCard header = new UiCard(); header.Dock = DockStyle.Fill;
-            TableLayoutPanel heading = new TableLayoutPanel(); heading.Dock = DockStyle.Fill; heading.ColumnCount = 1; heading.RowCount = 3;
-            heading.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            heading.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
-            heading.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
-            heading.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            Label title = Ui.Label(InstallerText.Title, 16f, true); title.ForeColor = Ui.Blue;
-            Label subtitle = Ui.Label(InstallerText.Subtitle, 10f, false); subtitle.ForeColor = Ui.InkDim;
-            Label hint = Ui.Label(InstallerText.FeatureText, 9f, false); hint.ForeColor = Ui.InkDim;
-            hint.AutoEllipsis = false; hint.TextAlign = ContentAlignment.TopLeft;
-            heading.Controls.Add(title, 0, 0); heading.Controls.Add(subtitle, 0, 1); heading.Controls.Add(hint, 0, 2);
-            header.Controls.Add(heading); root.Controls.Add(header, 0, 0);
-            UiCard pathCard = new UiCard(); pathCard.Dock = DockStyle.Fill;
-            TableLayoutPanel path = new TableLayoutPanel(); path.Dock = DockStyle.Fill; path.ColumnCount = 2; path.RowCount = 2;
-            path.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); path.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
-            path.RowStyles.Add(new RowStyle(SizeType.Absolute, 30)); path.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-            Label pathTitle = Ui.Label("安装位置", 10f, true); path.Controls.Add(pathTitle, 0, 0); path.SetColumnSpan(pathTitle, 2);
+            root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+            root.Controls.Add(CreateBanner(), 0, 0);
+
             string initNote;
-            _txtPath = new TextBox(); _txtPath.Dock = DockStyle.Fill; _txtPath.Margin = new Padding(0, 5, 12, 0);
-            _txtPath.BorderStyle = BorderStyle.FixedSingle; _txtPath.Text = ResolveInitialDir(out initNote);
-            _txtPath.Font = Ui.MakeFont(10f, FontStyle.Regular, Font); _txtPath.BackColor = Color.White; _txtPath.ForeColor = Ui.Ink;
-            path.Controls.Add(_txtPath, 0, 1);
-            RoundedButton browse = Ui.Button("浏览…", 96); browse.Dock = DockStyle.Fill; browse.Margin = Padding.Empty;
-            _btnBrowse = browse; browse.Click += delegate { Browse(); }; path.Controls.Add(browse, 1, 1); pathCard.Controls.Add(path); root.Controls.Add(pathCard, 0, 1);
-            FlowLayoutPanel bar = Ui.ActionBar();
-            RoundedButton install = Ui.Button("安装", 120); Ui.StylePrimary(install); install.Click += delegate { Install(); }; _btnInstall = install;
-            RoundedButton uninstall = Ui.Button("卸载", 100); uninstall.Click += delegate { Uninstall(); }; _btnUninstall = uninstall;
+            var pathRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+            pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            pathRow.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 94));
+            pathRow.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            var field = new UiCard { Dock = DockStyle.Fill, BackColor = Ui.GridHead,
+                Padding = new Padding(11, 5, 10, 5), Margin = new Padding(0, 0, 10, 0) };
+            _txtPath = new TextBox { AccessibleName = "安装位置", BorderStyle = BorderStyle.None,
+                Anchor = AnchorStyles.Left | AnchorStyles.Right, Font = Ui.MakeFont(11f, FontStyle.Regular, Font),
+                BackColor = field.BackColor, ForeColor = Ui.Ink, Text = ResolveInitialDir(out initNote) };
+            var center = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1 };
+            center.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            center.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            center.Controls.Add(_txtPath);
+            field.Controls.Add(center);
+            pathRow.Controls.Add(field, 0, 0);
+            var browse = Ui.Button("浏览…", 94);
+            browse.Dock = DockStyle.Fill; browse.Margin = Padding.Empty;
+            _btnBrowse = browse; browse.Click += delegate { Browse(); };
+            pathRow.Controls.Add(browse, 1, 0);
+            root.Controls.Add(Section("安装位置", pathRow), 0, 1);
+
+            _log = new TextBox { AccessibleName = "安装日志", Multiline = true, ReadOnly = true,
+                ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, Dock = DockStyle.Fill,
+                BackColor = Color.White, ForeColor = Ui.Ink, Margin = Padding.Empty,
+                Font = Ui.MakeFont(10.5f, FontStyle.Regular, Font) };
+            root.Controls.Add(Section("安装日志", _log), 0, 2);
+
+            var bar = Ui.ActionBar();
+            bar.FlowDirection = FlowDirection.RightToLeft;
+            var install = Ui.Button("安装", 118);
+            Ui.StylePrimary(install, Id.Host == "Excel");
+            install.Font = Ui.MakeFont(11f, FontStyle.Bold, Font);
             install.Visible = !uninstallMode;
-            RoundedButton close = Ui.Button("关闭", 100); _btnClose = close; close.Click += delegate { Close(); };
-            RoundedButton runtime = Ui.Button("获取运行库", 128);
+            _btnInstall = install; install.Click += delegate { Install(); };
+            var uninstall = Ui.Button("卸载", 86);
+            if (uninstallMode) Ui.StyleDanger(uninstall);
+            _btnUninstall = uninstall; uninstall.Click += delegate { Uninstall(); };
+            var close = Ui.Button("关闭", 86);
+            _btnClose = close; close.Click += delegate { Close(); };
+            var runtime = Ui.Button("获取运行库", 122);
             runtime.Click += delegate {
                 Log("微软 VSTO 运行库官方下载地址：" + RuntimeLocator.DownloadUrl);
                 try { Process.Start(new ProcessStartInfo(RuntimeLocator.DownloadUrl) { UseShellExecute = true }); }
                 catch (Exception ex) { Log("打开微软下载页失败：" + ex.Message + "\r\n请复制上述地址到浏览器，下载并运行 vstor_redist.exe。"); }
             };
-            bar.Controls.Add(install); bar.Controls.Add(uninstall); bar.Controls.Add(runtime); bar.Controls.Add(close); root.Controls.Add(bar, 0, 2);
-            _log = new TextBox(); _log.Multiline = true; _log.ReadOnly = true; _log.ScrollBars = ScrollBars.Vertical;
-            _log.BorderStyle = BorderStyle.None; _log.BackColor = Color.White; _log.ForeColor = Ui.Ink;
-            _log.Font = Ui.MakeFont(9f, FontStyle.Regular, Font);
-            root.Controls.Add(Ui.Card(_log, "安装日志"), 0, 3);
-            Label copyright = Ui.Label(InstallerText.Copyright, 8.5f, true); copyright.ForeColor = Ui.Blue;
-            copyright.TextAlign = ContentAlignment.MiddleCenter; root.Controls.Add(copyright, 0, 4); Controls.Add(root);
+            bar.Controls.AddRange(new Control[] { install, uninstall, runtime, close });
+            root.Controls.Add(bar, 0, 3);
+            var copyright = Ui.Label(InstallerText.Copyright, 9f, false);
+            copyright.ForeColor = Ui.GridHeadInk;
+            root.Controls.Add(copyright, 0, 4);
+            Controls.Add(root);
+            ResumeLayout(true);
             FormClosing += delegate(object sender, FormClosingEventArgs e) {
                 if (_busy) {
                     e.Cancel = true;
@@ -184,11 +200,73 @@ namespace Excel_IterateSetup
             if (uninstallMode) { _txtPath.ReadOnly = true; _btnBrowse.Enabled = false; Shown += delegate { _btnUninstall.Select(); }; }
         }
 
-        /// <summary>主按钮：实心蓝底白字，悬停/按下逐级加深。</summary>
+        private static UiCard Section(string caption, Control content)
+        {
+            var card = new UiCard { Dock = DockStyle.Fill, Padding = new Padding(16, 10, 16, 12) };
+            var rows = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+            rows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            rows.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            rows.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            var label = Ui.Label(caption, 12f, true);
+            label.AutoSize = true;
+            label.Margin = new Padding(0, 0, 0, 7);
+            rows.Controls.Add(label, 0, 0);
+            rows.Controls.Add(content, 0, 1);
+            card.Controls.Add(rows);
+            return card;
+        }
 
+        private UiCard CreateBanner()
+        {
+            bool excel = Id.Host == "Excel";
+            var ink = excel ? Color.FromArgb(17, 73, 64) : Color.FromArgb(27, 54, 106);
+            var card = new UiCard { Dock = DockStyle.Fill, BackColor = ink, Padding = new Padding(20, 10, 20, 10) };
+            var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 2, BackColor = ink };
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 76));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 60));
+            layout.RowStyles.Add(new RowStyle(SizeType.Percent, 40));
+            var mark = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, Dock = DockStyle.Fill,
+                Margin = new Padding(0, 4, 14, 4), TabStop = false };
+            IntPtr icon;
+            if (PrivateExtractIcons(Assembly.GetExecutingAssembly().Location, 0, 128, 128, out icon, IntPtr.Zero, 1, 0) == 1 && icon != IntPtr.Zero)
+            {
+                try { using (var extracted = Icon.FromHandle(icon)) mark.Image = extracted.ToBitmap(); }
+                finally { DestroyIcon(icon); }
+                mark.Disposed += delegate { mark.Image.Dispose(); };
+            }
+            layout.Controls.Add(mark, 0, 0);
+            layout.SetRowSpan(mark, 2);
+            var title = Ui.Label(InstallerText.Title, 22f, true);
+            title.ForeColor = Color.White;
+            title.TextAlign = ContentAlignment.BottomLeft;
+            layout.Controls.Add(title, 1, 0);
+            var subtitle = Ui.Label(InstallerText.Subtitle, 11f, false);
+            subtitle.ForeColor = excel ? Color.FromArgb(212, 242, 230) : Color.FromArgb(220, 233, 255);
+            subtitle.TextAlign = ContentAlignment.TopLeft;
+            layout.Controls.Add(subtitle, 1, 1);
+            if (!string.IsNullOrWhiteSpace(InstallerText.FeatureText))
+            {
+                var details = new LinkLabel { Text = "功能说明", AutoSize = true, Anchor = AnchorStyles.Right,
+                    Font = Ui.MakeFont(10f, FontStyle.Bold, Font), LinkColor = Color.White, ActiveLinkColor = subtitle.ForeColor,
+                    VisitedLinkColor = Color.White, LinkBehavior = LinkBehavior.HoverUnderline };
+                details.LinkClicked += delegate {
+                    UiDialog.Show(this, InstallerText.FeatureText, InstallerText.Title + " · 功能说明",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                };
+                layout.Controls.Add(details, 2, 0);
+                layout.SetRowSpan(details, 2);
+            }
+            card.Controls.Add(layout);
+            return card;
+        }
 
-        /// <summary>次按钮：白底灰边，悬停泛淡蓝。</summary>
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "PrivateExtractIconsW", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern uint PrivateExtractIcons(string path, int index, int width, int height, out IntPtr icon, IntPtr id, uint count, uint flags);
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool DestroyIcon(IntPtr icon);
 
         private void Browse()
         {

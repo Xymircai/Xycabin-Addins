@@ -6,6 +6,7 @@ import sys
 sys.dont_write_bytecode = True
 from project_support import ROOT, BUILD, OUT, SRC, CSC, PROJECT, PAYLOAD, DEFINES, load_configure, write_project_info
 from verify_package import verify
+from source_layout import SHARED_ROOT
 sys.path.insert(0, str(ROOT.parent / "C-03-Website·Xycabin/src"))
 from build_cache import compile_cached
 
@@ -34,6 +35,7 @@ def main():
     target.parent.mkdir(parents=True, exist_ok=True)
     args = [CSC, '/nologo', '/target:winexe', '/platform:anycpu', '/optimize+', '/codepage:65001', '/out:' + str(target)]
     args.append('/win32icon:' + str(SRC / 'installer/Setup.ico'))
+    args.append('/win32manifest:' + str(SHARED_ROOT / 'src/installer/Setup.manifest'))
     args += DEFINES + ['/r:' + r for r in ['System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll', 'System.Xml.dll', 'System.Security.dll']]
     args += ['/resource:' + str(BUILD / n) + ',' + n for n in PAYLOAD]
     args += [source_path('src/installer/Installer.cs'), source_path('src/installer/InstallFlow.cs'), SRC / 'installer/InstallerText.g.cs', source_path('src/addin/UiKit.cs'), info, metadata]

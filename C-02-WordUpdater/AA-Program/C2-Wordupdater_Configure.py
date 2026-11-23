@@ -375,7 +375,7 @@ INSTALLER_VERSION_LINE_PREFIX = "Wordupdater"
 #   INSTALLER_SUBTITLE      顶部色带里的副标题（小字，主标题下方）
 INSTALLER_WINDOW_TITLE = "WordUpdater - 安装程序"
 INSTALLER_TITLE = "WordUpdater"
-INSTALLER_SUBTITLE = "WPS 文字加载项 · WordUpdater"
+INSTALLER_SUBTITLE = "为互联与效率而生"
 
 
 

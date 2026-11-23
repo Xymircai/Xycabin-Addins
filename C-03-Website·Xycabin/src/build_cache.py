@@ -174,6 +174,8 @@ def compile_cached(command, cwd, mode='full'):
         suffix = ''
         if argument.startswith('/r:'):
             prefix, value = '/r:', argument[3:]
+        elif argument.startswith('/win32icon:'):
+            prefix, value = '/win32icon:', argument[len('/win32icon:'):]
         elif argument.startswith('/resource:'):
             prefix, value = '/resource:', argument[10:]
             value, separator, resource = value.partition(',')

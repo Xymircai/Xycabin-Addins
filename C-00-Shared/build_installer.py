@@ -33,6 +33,7 @@ def main():
     target = args.output.resolve() if args.output else OUT / (PROJECT['assembly'] + '_Setup.exe')
     target.parent.mkdir(parents=True, exist_ok=True)
     args = [CSC, '/nologo', '/target:winexe', '/platform:anycpu', '/optimize+', '/codepage:65001', '/out:' + str(target)]
+    args.append('/win32icon:' + str(SRC / 'installer/Setup.ico'))
     args += DEFINES + ['/r:' + r for r in ['System.dll', 'System.Core.dll', 'System.Drawing.dll', 'System.Windows.Forms.dll', 'System.Xml.dll', 'System.Security.dll']]
     args += ['/resource:' + str(BUILD / n) + ',' + n for n in PAYLOAD]
     args += [source_path('src/installer/Installer.cs'), source_path('src/installer/InstallFlow.cs'), SRC / 'installer/InstallerText.g.cs', source_path('src/addin/UiKit.cs'), info, metadata]

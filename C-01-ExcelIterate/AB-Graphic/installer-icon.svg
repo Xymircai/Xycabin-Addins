@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256">
+  <title>Excel-Iterate 安装器</title>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2=".85" y2="1">
+      <stop stop-color="#39BB92"/>
+      <stop offset=".52" stop-color="#16876F"/>
+      <stop offset="1" stop-color="#0D5B4A"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="0" y1="1" x2="1" y2="0">
+      <stop stop-color="#A9F6D6"/>
+      <stop offset="1" stop-color="#fff"/>
+    </linearGradient>
+  </defs>
+  <path d="M15 3h21.5c1.5 0 2.9.6 4 1.7L51.3 15.5c1.1 1.1 1.7 2.5 1.7 4V51a8 8 0 0 1-8 8H15a8 8 0 0 1-8-8V11a8 8 0 0 1 8-8Z" fill="url(#paper)" stroke="#0D5B4A" stroke-width="1.3"/>
+  <path d="m36.5 3.7 15.8 15.8v3.8L40.5 20a5.4 5.4 0 0 1-4-5.2Z" fill="#0D5B4A" opacity=".35"/>
+  <path d="M36.5 3.7v10.8a5 5 0 0 0 5 5h10.8Z" fill="url(#fold)"/>
+  <g stroke="#fff" stroke-width="2.7" stroke-linejoin="round">
+    <rect x="14" y="22" width="25" height="20" rx="2.5" fill="#fff" fill-opacity=".10"/>
+    <path d="M14 29h25M14 35.5h25M23.5 29v13" fill="none"/>
+  </g>
+  <circle cx="48" cy="48" r="13.5" fill="#073D38" stroke="#A9F6D6" stroke-width="2"/>
+  <path d="M48 41v13m-5-5 5 5 5-5" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -38,7 +38,8 @@
 ├── C-02-WordUpdater/      结构同上
 ├── C-03-Website·Xycabin/
 │   ├── AA-Program/        站点配置器、启动器与生成的网页
-│   └── src/               模板、控制器、资产
+│   ├── src/               模板、控制器、资产
+│   └── build/             联合构建、验证证据与发布审计（未入库）
 ├── C-04-Devlog/           唯一文档维护位置（B0、A-UserGuide、B1、B2、B3、B4）
 ├── verify_devlog.py       文档结构、概览、审计与规则注册表校验
 ├── verify_shared.py       公共实现、源引用和产品薄入口校验
@@ -82,6 +83,8 @@ python "C-03-Website·Xycabin/rebuild.py" --background --mode full
 
 完整重建依次执行：写入配置 → 编译 → 生成并签名清单 → 封装安装包 → 校验。`--mode incremental` 会复用 `build/incremental-cache/` 中的编译缓存。
 
+仓库根目录的可见文件夹为 C-00 至 C-04。各产品的构建输出存放在各自的 `build/`，联合构建及发布审计存放在 `C-03-Website·Xycabin/build/`。构建发现遗留的根级 `build/` 时会提示并继续，清理需单独执行。
+
 `C-03-Website·Xycabin/rebuild.py` 是唯一的联合交付入口：它先构建并验证两个加载项，再把两个安装包内嵌进单文件网页，最后事务发布三件产物。只发布其中一个产品时，仍应走联合入口，否则网页内嵌的安装包会与独立附件不一致。单独运行 `AA-Program/C3-XycabinSite_Configure.py` 只会在同目录生成不含安装包的预览页，不能作为发布附件。
 
 ### 关于代码签名
@@ -116,6 +119,7 @@ Release `v0.9.9.3` 包含以下功能与交付改动。
 |---|---|
 | 统一签名身份 | 两个加载项共用固定发布者。源码保留公共指纹和摘要，PFX 与口令留在本机。 |
 | Excel 功能窗口 | 「一键公式」各窗口的功能名称只在系统标题栏显示，正文直接呈现目标选区或操作说明。IFERROR、ROUND 和数值计算直接打开预填参数的窗口。转换、公式和按列筛选在各自窗口撤销最近对应批次。工作表批量操作可替换底层数值并核对写回类型。 |
+| Excel 弹窗与预览 | 工作表批量操作按字体和缩放计算行距，合并首次布局并按需加载字体列表。下拉选项采用与批量复制数据一致的留白和圆角选中样式，批量预览三列居中并使用浅红表头。ABS、自定义函数及同类窗口按内容计算默认高度，支持拖动缩小。 |
 | 发布验证 | 联合构建核对两个安装包的签名、五载荷和网页内嵌字节，三份产物经 Release 分发。 |
 
 发布沿用 0.9.9.3，不移动标签；三附件由同一次完整重建生成，HTML 内嵌的两个安装包与独立附件逐字节一致。安装器发布者已由各产品独立证书切换为统一证书，从旧版升级可能出现一次「未知的发行者」确认或需要先卸载旧版，详见 [A-UserGuide.md](C-04-Devlog/A-UserGuide.md)。
@@ -271,7 +275,7 @@ $ReleaseFiles = @(
     "C-02-WordUpdater/AA-Program/WordUpdater_Setup.exe",
     "C-03-Website·Xycabin/AA-Program/XyCabin.html"
 )
-$ReleaseAudit = Join-Path "build" ("release-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
+$ReleaseAudit = Join-Path "C-03-Website·Xycabin/build/release-audit" ("release-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 $ReleaseBackup = Join-Path $ReleaseAudit "backup"
 $ReleaseVerify = Join-Path $ReleaseAudit "downloaded"
 New-Item -ItemType Directory -Path $ReleaseBackup, $ReleaseVerify -Force | Out-Null

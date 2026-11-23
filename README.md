@@ -28,6 +28,8 @@
 
 两个 EXE 内嵌从 16 到 256 像素的透明图标，供 Windows 资源管理器按显示尺寸选择。图稿位于各产品的 `AB-Graphic/installer-icon.svg`，打包用的多尺寸 ICO 位于 `src/installer/Setup.ico`。修改图案后同步更新 ICO，重新打包即可生效。
 
+安装程序按 Windows 系统 DPI 绘制窗口。Excel 使用绿色标题区，Word 使用蓝色标题区及「为互联与效率而生」副标题。点击「功能说明」可查看完整介绍。安装路径和日志使用较大的中文字体，底部集中提供安装、卸载和运行库入口。
+
 ### 构建环境
 
 - **加载项**：C# 5（由 .NET Framework 自带的 `csc.exe` 编译），VSTO vstov4 清单，无 Visual Studio 工程文件；独立 PDF 工具按锁定版本和 SHA-256 恢复依赖。

@@ -164,6 +164,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+Excel 安装程序采用系统 DPI、绿色标题区与 11 磅路径文字。通过 150% 缩放下安装及卸载模式的离屏控件验证和 32 项后台回归。见 [安装界面](../C-03-Website·Xycabin/build/setup-ui-1795425582714/Excel-install.png)。11 月 23 日运行[网站联合 BAT](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)并选择“2. 完整验证”，起止 17:32:14 至 17:41:33（北京时间），退出码 0，19 个门禁通过。重建标识 `50b87fa8ec1e4b18a1a2507dfeb698e7`，收尾标识 `adf44961c23a4bda8995aad3fbe12369`。`Excel_Iterate_Setup.exe` 为 5932544 字节，SHA-256 为 `3252224c2cfcd2cfcf50a9c9f2b05110cc6fa55fe3cd72f50ee0c02504570696`。见 [BAT 日志](../C-03-Website·Xycabin/build/setup-ui-1795425582714/bat-console.log)与[交付摘要](../C-03-Website·Xycabin/build/setup-ui-1795425582714/delivery-summary.json)。
+
 Excel 安装器嵌入翡翠绿表格图标，经 Windows 核对 10 个尺寸和原始 ICO 帧内容一致。后台回归 32 项通过。见[图标验收](../C-03-Website·Xycabin/build/installer-icons-20261123/embedded-icons.json)。11 月 23 日运行[网站联合 BAT](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)并选择“2. 完整验证”，起止 16:58:45 至 17:08:26（北京时间），退出码 0，19 个门禁通过。重建标识 `82c08551dae8494c8b93a464efeb4df2`，收尾标识 `fd62c74da4524093accb1833b20b2da2`。`Excel_Iterate_Setup.exe` 为 5929472 字节，SHA-256 为 `b9c663c06144f11d7fdc23220cbeacaa4a8dca628e11f8d3d0c1f39347a5ac0e`。见 [BAT 日志](../C-03-Website·Xycabin/build/installer-icons-20261123/bat-console.log)与[交付摘要](../C-03-Website·Xycabin/build/installer-icons-20261123/delivery-summary.json)。
 
 11 月 23 日推送 [构建源码 a694813](https://github.com/Xymircai/Xycabin-Addins/tree/a69481309da7f763576178819fdc3d2d16c02379) 并更新 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。重新下载后与本地正式产物核对一致。`Excel_Iterate_Setup.exe` 为 5853696 字节，SHA-256 为 `eadaaf846f81d1e4eb2c32f024ec1b4ca4a94e8445dc954b38de55dfa42eaef4`。WPS 实机首帧与跨屏缩放待验收。见 [发布前备份](../C-03-Website·Xycabin/build/release-audit/release-20261123-133445/release-before.json)与[发布核对](../C-03-Website·Xycabin/build/release-audit/release-20261123-133445/release-after.json)。
@@ -539,6 +541,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+Word 安装程序采用系统 DPI、蓝色标题区、「为互联与效率而生」副标题与 10.5 磅日志文字。通过 150% 缩放下安装及卸载模式的离屏控件验证和 25 项后台回归。见 [安装界面](../C-03-Website·Xycabin/build/setup-ui-1795425582714/Word-install.png)。11 月 23 日运行[网站联合 BAT](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)并选择“2. 完整验证”，起止 17:32:14 至 17:41:33（北京时间），退出码 0，19 个门禁通过。重建标识 `50b87fa8ec1e4b18a1a2507dfeb698e7`，收尾标识 `adf44961c23a4bda8995aad3fbe12369`。`WordUpdater_Setup.exe` 为 4417024 字节，SHA-256 为 `452daac531821426d0ab6a5a73e738bb5b0158ba62d1bf3d5140c3adfe7a3ab6`。见 [BAT 日志](../C-03-Website·Xycabin/build/setup-ui-1795425582714/bat-console.log)与[交付摘要](../C-03-Website·Xycabin/build/setup-ui-1795425582714/delivery-summary.json)。
+
 Word 安装器嵌入蓝色文稿图标，经 Windows 核对 10 个尺寸和原始 ICO 帧内容一致。后台回归 25 项通过。见[图标验收](../C-03-Website·Xycabin/build/installer-icons-20261123/embedded-icons.json)。11 月 23 日运行[网站联合 BAT](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)并选择“2. 完整验证”，起止 16:58:45 至 17:08:26（北京时间），退出码 0，19 个门禁通过。重建标识 `82c08551dae8494c8b93a464efeb4df2`，收尾标识 `fd62c74da4524093accb1833b20b2da2`。`WordUpdater_Setup.exe` 为 4414976 字节，SHA-256 为 `f88cae3b36302d0bec99067151a0fbd9dd88b23c4ff5ad83919535145ec9f1df`。见 [BAT 日志](../C-03-Website·Xycabin/build/installer-icons-20261123/bat-console.log)与[交付摘要](../C-03-Website·Xycabin/build/installer-icons-20261123/delivery-summary.json)。
 
 11 月 23 日推送 [构建源码 a694813](https://github.com/Xymircai/Xycabin-Addins/tree/a69481309da7f763576178819fdc3d2d16c02379) 并更新 [Release v0.9.9.3](https://github.com/Xymircai/Xycabin-Addins/releases/tag/v0.9.9.3)。重新下载后与本地正式产物核对一致。`WordUpdater_Setup.exe` 为 4340224 字节，SHA-256 为 `cd1aade231dfd8eef3f99aabdd6912dde73cd2ce1221a60f8315410d7cd652db`。Word 后台回归与签名已核验。见 [发布前备份](../C-03-Website·Xycabin/build/release-audit/release-20261123-133445/release-before.json)与[发布核对](../C-03-Website·Xycabin/build/release-audit/release-20261123-133445/release-after.json)。
@@ -695,6 +699,8 @@ GitHub Release 已重下载校验 `WordUpdater_Setup.exe`，SHA-256 为 `df31f4c
 源码与正式产物内容指纹控制增量；两包、独立页和交付记录统一事务发布。后台前端/下载/音频替身不发声、不真实下载，不能代替file页面、听感、浏览器许可或安装效果。当前交付摘要在审计区，方法不重复历史流水。
 
 ### (2). 本轮交付证据
+
+本地离线网页已嵌入两款新版安装程序，并核对与独立安装包字节一致。11 月 23 日运行[网站联合 BAT](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)并选择“2. 完整验证”，起止 17:32:14 至 17:41:33（北京时间），退出码 0，19 个门禁通过。重建标识 `50b87fa8ec1e4b18a1a2507dfeb698e7`，收尾标识 `adf44961c23a4bda8995aad3fbe12369`。`XyCabin.html` 为 15023876 字节，SHA-256 为 `3b2e6617a2399fbb81d50224b6ad6eec94febdec03c99ad0f22c2cd563e5c791`。见 [BAT 日志](../C-03-Website·Xycabin/build/setup-ui-1795425582714/bat-console.log)与[交付摘要](../C-03-Website·Xycabin/build/setup-ui-1795425582714/delivery-summary.json)。
 
 本地离线网页内嵌两个使用新图标的安装器，已核对与独立安装包字节一致。11 月 23 日运行[网站联合 BAT](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)并选择“2. 完整验证”，起止 16:58:45 至 17:08:26（北京时间），退出码 0，19 个门禁通过。重建标识 `82c08551dae8494c8b93a464efeb4df2`，收尾标识 `fd62c74da4524093accb1833b20b2da2`。`XyCabin.html` 为 15017048 字节，SHA-256 为 `25dce5b7ffb7d8fae0a60c2ecf10a7a9fd993aa397f7af83281ce96ab543826f`。见 [BAT 日志](../C-03-Website·Xycabin/build/installer-icons-20261123/bat-console.log)与[交付摘要](../C-03-Website·Xycabin/build/installer-icons-20261123/delivery-summary.json)。
 

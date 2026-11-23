@@ -86,7 +86,8 @@ namespace Excel_Iterate
                     ValueInput.Text = FormulaRequest.DefaultNumber(operation);
                     UpdatePreview();
                 };
-            Shown += delegate { Arrange(false); if(!SuppressActivation&&!DialogPreviewFactory.IsFormatRendering(this)){ValueInput.Focus();ValueInput.SelectAll();} };
+            Load += delegate { Arrange(); DialogSizing.FitContentHeight(this, center: true); };
+            Shown += delegate { if (!simple && !SuppressActivation && !DialogPreviewFactory.IsFormatRendering(this)) { ValueInput.Focus(); ValueInput.SelectAll(); } };
             UpdatePreview();
         }
 
@@ -102,7 +103,7 @@ namespace Excel_Iterate
         {
             Enabled = true;
             UpdatePreview();
-            if (!string.IsNullOrEmpty(message)) { Validation.Text = message; Arrange(true); }
+            if (!string.IsNullOrEmpty(message)) { Validation.Text = message; Arrange(); }
         }
 
         private static Label TextLabel(string text, float size, bool bold)
@@ -116,13 +117,12 @@ namespace Excel_Iterate
         { return TextRenderer.MeasureText(label.Text, label.Font, new Size(Math.Max(1, width), int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height; }
 
         protected override void OnLayout(LayoutEventArgs e)
-        { base.OnLayout(e); Arrange(false); }
+        { base.OnLayout(e); Arrange(); }
         private static void Place(Control control,int x,int y,int width,int height)
         {Size wanted=DialogControlSizing.Resolve(control,new Size(width,height));control.SetBounds(x,y,wanted.Width,wanted.Height);}
-        private void Arrange(bool compact)
+        private void Arrange()
         {
             if (arranging || actions == null) return;
-            compact = compact && !DialogSizing.HasOverride(this);
             arranging = true;
             try
             {
@@ -177,7 +177,7 @@ namespace Excel_Iterate
         }
 
         public Size MeasureDefaultClient()
-        {Arrange(false);return new Size(DialogSizing.LogicalClient(this).Width,(int)Math.Ceiling((actions.Bottom+Logical(16))/DialogSizing.Scale(this)));}
+        { Arrange(); return new Size(DialogSizing.LogicalClient(this).Width, (int)Math.Ceiling(AutoScrollMinSize.Height / DialogSizing.Scale(this))); }
 
         internal bool TryRequest(out FormulaRequest request)
         {
@@ -203,7 +203,7 @@ namespace Excel_Iterate
             string sample = operation == FormulaOperation.Unwrap ? "=IFERROR(A1+V2+3,0)" : "=A1+V2+3";
             previewLabel.Text = request != null && request.IsArithmetic ? "示例预览（数值 20 与公式 =A1+V2+3）" : "示例预览（原公式：" + sample + "）";
             Preview.Text = request == null ? "参数尚未通过检查" : request.IsArithmetic ? "数值：=20" + request.Operator + request.Argument + "\r\n公式：" + FormulaWrapper.Transform(sample, request) : FormulaWrapper.Transform(sample, request);
-            Arrange(true);
+            Arrange();
         }
         protected override void OnKeyDown(KeyEventArgs e)
         {

@@ -58,7 +58,8 @@ namespace Excel_Iterate
             Cancel.Click += delegate { Request = null; DialogResult = DialogResult.Cancel; Close(); };
             Template.TextChanged += delegate { RefreshSlots(); UpdatePreview(); };
             Slot.SelectedIndexChanged += delegate { if (!refreshingSlots) UpdatePreview(); };
-            Shown += delegate { Arrange(false); if (!SuppressActivation && !DialogPreviewFactory.IsFormatRendering(this)) { Template.Focus(); Template.SelectAll(); } };
+            Load += delegate { Arrange(); DialogSizing.FitContentHeight(this, center: true); };
+            Shown += delegate { if (!SuppressActivation && !DialogPreviewFactory.IsFormatRendering(this)) { Template.Focus(); Template.SelectAll(); } };
             // Seed the picker so its disabled state is correct before the first keystroke.
             RefreshSlots();
             UpdatePreview();
@@ -75,7 +76,7 @@ namespace Excel_Iterate
         {
             Enabled = true;
             UpdatePreview();
-            if (!string.IsNullOrEmpty(message)) { Validation.Text = message; Arrange(true); }
+            if (!string.IsNullOrEmpty(message)) { Validation.Text = message; Arrange(); }
         }
 
         private static Label TextLabel(string text, float size, bool bold)
@@ -114,13 +115,12 @@ namespace Excel_Iterate
         }
 
         protected override void OnLayout(LayoutEventArgs e)
-        { base.OnLayout(e); Arrange(false); }
+        { base.OnLayout(e); Arrange(); }
         private static void Place(Control control, int x, int y, int width, int height)
         { Size wanted = DialogControlSizing.Resolve(control, new Size(width, height)); control.SetBounds(x, y, wanted.Width, wanted.Height); }
-        private void Arrange(bool compact)
+        private void Arrange()
         {
             if (arranging || actions == null) return;
-            compact = compact && !DialogSizing.HasOverride(this);
             arranging = true;
             try
             {
@@ -165,7 +165,7 @@ namespace Excel_Iterate
         }
 
         public Size MeasureDefaultClient()
-        { Arrange(false); return new Size(DialogSizing.LogicalClient(this).Width, (int)Math.Ceiling((actions.Bottom + Logical(12)) / DialogSizing.Scale(this))); }
+        { Arrange(); return new Size(DialogSizing.LogicalClient(this).Width, (int)Math.Ceiling(AutoScrollMinSize.Height / DialogSizing.Scale(this))); }
 
         // Kept on screen once the template validates. Clearing the line made the dialog
         // look unfinished and left the next step unexplained.
@@ -209,7 +209,7 @@ namespace Excel_Iterate
             Apply.Enabled = TryRequest(out request) && canApply;
             Preview.Text = request == null ? "模板尚未通过检查" :
                 "文本：=" + request.ApplyCustom(FormulaRequest.SerializeValue("a-b-c")) + "\r\n公式：" + FormulaWrapper.Transform("=A1+V2+3", request);
-            Arrange(true);
+            Arrange();
         }
         protected override void OnKeyDown(KeyEventArgs e)
         {

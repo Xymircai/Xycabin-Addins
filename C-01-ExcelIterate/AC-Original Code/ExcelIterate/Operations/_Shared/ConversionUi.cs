@@ -41,11 +41,23 @@ namespace Excel_Iterate
         {
             base.OnLayout(levent);
             if (editor == null || editor.Parent != this) return;
-            var text = editor as TextBox;
-            int naturalHeight = multiline ? Height - Padding.Vertical : text != null ? Math.Max(18, text.PreferredHeight) : editor.PreferredSize.Height;
+            int naturalHeight = multiline ? Height - Padding.Vertical : PreferredEditorHeight();
             Size size = DialogControlSizing.Resolve(editor, new Size(Math.Max(1, Width - Padding.Horizontal), Math.Max(1, naturalHeight)));
             var bounds = new Rectangle(Padding.Left, multiline ? Padding.Top : Math.Max(2, (Height - size.Height) / 2), size.Width, size.Height);
             if (editor.Bounds != bounds) editor.Bounds = bounds;
+        }
+
+        private int PreferredEditorHeight()
+        {
+            var text = editor as TextBox;
+            return text != null ? Math.Max(18, text.PreferredHeight) : editor.PreferredSize.Height;
+        }
+
+        internal Size MeasureField(Size minimum)
+        {
+            Size size = DialogControlSizing.Resolve(editor, new Size(minimum.Width, PreferredEditorHeight()));
+            return new Size(Math.Max(minimum.Width, size.Width) + Padding.Horizontal,
+                Math.Max(minimum.Height, size.Height + Padding.Vertical));
         }
 
         protected override void OnMouseDown(MouseEventArgs e)

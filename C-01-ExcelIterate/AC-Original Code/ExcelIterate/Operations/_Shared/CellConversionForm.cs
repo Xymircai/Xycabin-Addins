@@ -19,7 +19,7 @@ namespace Excel_Iterate
         private ConversionPreview sample;
         private string readError;
         private long revision;
-        private bool arranging, shown, userSized, resizing;
+        private bool arranging, loaded, userSized, resizing;
         private Size resizeStart;
         internal readonly TextBox RangeInput;
         internal readonly Label Validation;
@@ -148,7 +148,8 @@ namespace Excel_Iterate
             SizeChanged += delegate { Arrange(false); };
             ResizeBegin += delegate { resizeStart = ClientSize; resizing = true; };
             ResizeEnd += delegate { if (ClientSize != resizeStart) userSized = true; resizing = false; };
-            Shown += delegate { shown = true; Arrange(true); if (!SuppressActivation && !DialogPreviewFactory.IsFormatRendering(this)) RangeInput.Focus(); };
+            Load += delegate { loaded = true; Arrange(true, center: true); };
+            Shown += delegate { if (!SuppressActivation && !DialogPreviewFactory.IsFormatRendering(this)) RangeInput.Focus(); };
             sample = initialPreview; readError = initialError;
             if (description != null && address == null) { RangeInput.Enabled = Pick.Enabled = false; }
             RefreshPreview();
@@ -158,7 +159,7 @@ namespace Excel_Iterate
         private void Add(Control control) { root.RowStyles.Add(new RowStyle(SizeType.AutoSize)); root.Controls.Add(control, 0, root.RowCount++); }
         private void WrapLabels()
         { if (root == null) return; foreach (Control control in root.Controls) if (control is Label) control.MaximumSize = new Size(Math.Max(1, ClientSize.Width - root.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth), 0); }
-        private void Arrange(bool fit)
+        private void Arrange(bool fit, bool center = false)
         {
             if (arranging || actions == null) return; arranging = true;
             try
@@ -166,15 +167,7 @@ namespace Excel_Iterate
                 WrapLabels(); Validation.Visible = Validation.Text.Length > 0; outcome.Visible = outcome.Text.Length > 0; root.PerformLayout();
                 int height = root.GetPreferredSize(new Size(ClientSize.Width, 0)).Height;
                 AutoScrollMinSize = new Size(0, height);
-                if (fit && shown && !resizing && !userSized && !DialogSizing.HasOverride(this) && WindowState == FormWindowState.Normal)
-                {
-                    Rectangle area = Screen.FromControl(this).WorkingArea;
-                    int frame = Height - ClientSize.Height, margin = (int)Math.Round(24 * DialogSizing.Scale(this));
-                    // A scrollbar changes ClientSize.Width without changing the outer width.
-                    // Adjust only height so a long sample cannot progressively narrow the window.
-                    Height = frame + Math.Min(Math.Max((int)Math.Round(320 * DialogSizing.Scale(this)), height), Math.Max(1, area.Height - frame - margin));
-                    if (TopLevel && Bottom > area.Bottom) Top = Math.Max(area.Top, area.Bottom - Height);
-                }
+                if (fit && loaded && !resizing && !userSized) DialogSizing.FitContentHeight(this, center);
             }
             finally { arranging = false; }
         }

@@ -26,6 +26,9 @@ namespace Excel_Iterate
     // Stable identities are independent of translated captions and add-in versions.
     internal static class DialogCatalog
     {
+#if WPS_EXCEL
+        private const int CompactFormulaMinimumHeight = 240;
+#endif
         internal static readonly DialogDefinition[] All = new DialogDefinition[] {
 #if WPS_WORD
             new DialogDefinition("word.links", "查看链接", "查看链接", 1180,720,820,560),
@@ -34,20 +37,20 @@ namespace Excel_Iterate
             new DialogDefinition("trace.dependents", "追踪从属", "数据 / 追踪从属",1240,680,760,500),
             new DialogDefinition("trace.errorsources", "错误来源", "数据 / 追踪引用 / 显示错误来源",1100,620,760,460),
             new DialogDefinition("columns.filter", "按列筛选", "数据 / 筛选增强",760,560,540,380),
-            new DialogDefinition("formula.iferror", "IFERROR 参数", "操作 / 一键公式",620,420,560,350),
-            new DialogDefinition("formula.round", "ROUND 参数", "操作 / 一键公式",620,420,560,350),
-            new DialogDefinition("formula.add", "数值计算", "操作 / 一键公式",620,420,560,350),
-            new DialogDefinition("formula.abs", "ABS封装", "操作 / 一键公式",620,420,560,350),
-            new DialogDefinition("formula.unwrap", "移除公式封装", "操作 / 一键公式",620,420,560,350),
-            new DialogDefinition("formula.custom", "自定义函数", "操作 / 一键公式",620,420,560,350),
+            new DialogDefinition("formula.iferror", "IFERROR 参数", "操作 / 一键公式",620,420,560,CompactFormulaMinimumHeight),
+            new DialogDefinition("formula.round", "ROUND 参数", "操作 / 一键公式",620,420,560,CompactFormulaMinimumHeight),
+            new DialogDefinition("formula.add", "数值计算", "操作 / 一键公式",620,420,560,CompactFormulaMinimumHeight),
+            new DialogDefinition("formula.abs", "ABS封装", "操作 / 一键公式",620,420,560,CompactFormulaMinimumHeight),
+            new DialogDefinition("formula.unwrap", "移除公式封装", "操作 / 一键公式",620,420,560,CompactFormulaMinimumHeight),
+            new DialogDefinition("formula.custom", "自定义函数", "操作 / 一键公式",620,420,560,CompactFormulaMinimumHeight),
             new DialogDefinition("conversion.text", "文本提取与过滤", "操作 / 一键转换",700,320,600,320),
             new DialogDefinition("conversion.batchInsertTrimDelete", "批量插入与删截", "操作 / 一键转换",700,540,600,400),
-            new DialogDefinition("conversion.worksheetBatch", "工作表批量操作", "操作 / 一键转换",900,700,760,620),
+            new DialogDefinition("conversion.worksheetBatch", "工作表批量操作", "操作 / 一键转换",900,820,760,620),
             new DialogDefinition("formula.references", "相对-绝对转换", "操作 / 一键公式",700,320,620,320),
-            new DialogDefinition("formula.formulaAsText", "转为公式文本", "操作 / 一键公式",700,320,620,300),
-            new DialogDefinition("formula.restoreTextFormula", "还原文本公式", "操作 / 一键公式",700,320,620,300),
-            new DialogDefinition("formula.resultAsText", "转文本格式", "操作 / 一键公式",700,320,620,300),
-            new DialogDefinition("formula.valuesOnly", "仅保留数值", "操作 / 一键公式",700,320,620,300),
+            new DialogDefinition("formula.formulaAsText", "转为公式文本", "操作 / 一键公式",700,320,620,CompactFormulaMinimumHeight),
+            new DialogDefinition("formula.restoreTextFormula", "还原文本公式", "操作 / 一键公式",700,320,620,CompactFormulaMinimumHeight),
+            new DialogDefinition("formula.resultAsText", "转文本格式", "操作 / 一键公式",700,320,620,CompactFormulaMinimumHeight),
+            new DialogDefinition("formula.valuesOnly", "仅保留数值", "操作 / 一键公式",700,320,620,CompactFormulaMinimumHeight),
             new DialogDefinition("links.assistant", "链接助手", "操作 / 链接助手",1340,650,640,480),
             new DialogDefinition("file.organize", "文件批量整理", "操作 / 文件操作 / 批量处理",840,480,550,310),
             new DialogDefinition("file.names", "文件提取名称", "操作 / 文件操作 / 批量处理",1200,760,900,620),
@@ -176,6 +179,9 @@ namespace Excel_Iterate
         }
         private static Size DefaultFor(Form context,DialogDefinition definition)
         {
+            // The batch window has a flexible preview viewport and lays out its actual
+            // controls on load. Avoid constructing a second copy just to measure it.
+            if (definition.Id == "conversion.worksheetBatch") return definition.BaseDefault;
             if(resolving || !(definition.Id.StartsWith("formula.",StringComparison.Ordinal)||definition.Id.StartsWith("file.",StringComparison.Ordinal)||definition.Id.StartsWith("conversion.",StringComparison.Ordinal))) return definition.BaseDefault;
             string fontName;using(var font=Ui.MakeFont(10f,FontStyle.Regular,null))fontName=font.Name;
             string key=definition.Id+"|"+Scale(context).ToString("R",CultureInfo.InvariantCulture)+"|"+fontName;
@@ -203,6 +209,24 @@ namespace Excel_Iterate
         }
         internal static void EnsureAllDefaults(Form context) {Initialize();foreach(var definition in DialogCatalog.All)DefaultFor(context,definition);}
         internal static bool HasOverride(Form form) {return custom.Contains(form);}
+        internal static void FitContentHeight(Form form, bool center = false)
+        {
+            if (HasOverride(form) || form.WindowState != FormWindowState.Normal) return;
+            Rectangle area = form.TopLevel ? Screen.FromControl(form).WorkingArea : Rectangle.Empty;
+            int limit = form.TopLevel ? Math.Max(1, area.Height - Ui.Px(form, 24)) : int.MaxValue;
+            // Keep the outside width. A native scrollbar can change the client
+            // height and the measured content after the first adjustment.
+            for (int pass = 0; pass < 2; pass++)
+            {
+                int height = form.Height + form.AutoScrollMinSize.Height - form.ClientSize.Height;
+                height = Math.Min(limit, Math.Max(form.MinimumSize.Height, height));
+                if (height == form.Height) break;
+                form.Height = height;
+            }
+            if (!form.TopLevel) return;
+            if (center) form.Top = area.Top + (area.Height - form.Height) / 2;
+            else if (form.Bottom > area.Bottom) form.Top = Math.Max(area.Top, area.Bottom - form.Height);
+        }
         internal static float Scale(Form form) {using(var g=form.CreateGraphics())return g.DpiX/96f;}
         internal static Size LogicalClient(Form form)
         {float scale=Scale(form);return new Size((int)Math.Round(form.ClientSize.Width/scale),(int)Math.Round(form.ClientSize.Height/scale));}

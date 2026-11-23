@@ -228,8 +228,8 @@ internal static class ConversionInteractionProbe
             Size client = form.ClientSize; form.FormBorderStyle = FormBorderStyle.None; form.ClientSize = client;
             form.TopLevel = false; parking.Controls.Add(form); form.Show(); form.PerformLayout();
             RenderForm(form, Path.Combine(folder, "conversion.worksheetBatch.png"));
-            var viewport = (Panel)form.Controls.Find("batchFormatViewport", true)[0];
-            viewport.AutoScrollPosition = new Point(0, viewport.VerticalScroll.Maximum);
+            var scroll = form.Controls.Find("batchFormatScroll", true)[0];
+            PressKey(scroll, Keys.End);
             RenderForm(form, Path.Combine(folder, "conversion.worksheetBatch.scrolled.png"));
         }
     }
@@ -258,7 +258,7 @@ internal static class ConversionInteractionProbe
             Check(!Descendants(form).OfType<Label>().Any(label => label.Text == caption),
                 "formula does not repeat the window caption in the body " + dialog.Id);
             if (renderFolder == null) continue;
-            using (var parking = new Panel { Size = form.Size })
+            using (var parking = new Panel { Size = new Size(2400, 1800) })
             {
                 Size client = form.ClientSize;
                 form.FormBorderStyle = FormBorderStyle.None;
@@ -279,6 +279,81 @@ internal static class ConversionInteractionProbe
         SendMessage(control.Handle, 0x020A, new IntPtr(delta << 16), new IntPtr(location));
     }
 
+    private static KeyEventArgs PressKey(Control control, Keys key)
+    {
+        var e = new KeyEventArgs(key);
+        typeof(Control).GetMethod("OnKeyDown", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(control, new object[] { e });
+        return e;
+    }
+
+    private static Rectangle In(Control container, Control child)
+    { return new Rectangle(container.PointToClient(child.PointToScreen(Point.Empty)), child.Size); }
+
+    private static bool TextIsCentered(Bitmap bitmap)
+    {
+        int left = bitmap.Width, right = -1;
+        for (int y = 1; y < bitmap.Height - 2; y++)
+        for (int x = 1; x < bitmap.Width - 1; x++)
+            if (bitmap.GetPixel(x, y).GetBrightness() < 0.55f)
+            {
+                left = Math.Min(left, x);
+                right = Math.Max(right, x);
+            }
+        return left <= right && Math.Abs(left + right + 1 - bitmap.Width) <= 10;
+    }
+
+    private static void ReviewAlignment(ListView review)
+    {
+        var events = BindingFlags.Instance | BindingFlags.NonPublic;
+        var header = typeof(ListView).GetMethod("OnDrawColumnHeader", events);
+        var cell = typeof(ListView).GetMethod("OnDrawSubItem", events);
+        ListViewItem item = review.Items[0];
+        foreach (ColumnHeader column in review.Columns)
+        using (var bitmap = new Bitmap(220, 32))
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            var bounds = new Rectangle(Point.Empty, bitmap.Size);
+            var title = new DrawListViewColumnHeaderEventArgs(graphics, bounds, column.Index, column,
+                ListViewItemStates.Default, review.ForeColor, review.BackColor, review.Font);
+            header.Invoke(review, new object[] { title });
+            Check(!title.DrawDefault && (SystemInformation.HighContrast ||
+                (bitmap.GetPixel(3, 3).ToArgb() == Color.FromArgb(253, 232, 235).ToArgb() && TextIsCentered(bitmap))),
+                "preview headers are centered on a light red fill " + column.Text);
+            var subItem = new DrawListViewSubItemEventArgs(graphics, bounds, item, item.SubItems[column.Index],
+                0, column.Index, column, ListViewItemStates.Default);
+            cell.Invoke(review, new object[] { subItem });
+            Check(!subItem.DrawDefault && (SystemInformation.HighContrast || TextIsCentered(bitmap)),
+                "preview text is centered even in the first column " + column.Text);
+        }
+        Check(review.ShowItemToolTips && item.ToolTipText.Contains(item.Text),
+            "clipped preview values retain the workbook and outcome tooltip");
+    }
+
+    private static void CheckBlueChrome(Control choice, Control scroll)
+    {
+        if (SystemInformation.HighContrast) return;
+        using (var normal = new Bitmap(choice.Width, choice.Height))
+        using (var hovered = new Bitmap(choice.Width, choice.Height))
+        using (var track = new Bitmap(scroll.Width, scroll.Height))
+        {
+            Rectangle bounds = new Rectangle(Point.Empty, choice.Size);
+            choice.DrawToBitmap(normal, bounds);
+            typeof(Control).GetMethod("OnMouseEnter", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(choice, new object[] { EventArgs.Empty });
+            choice.DrawToBitmap(hovered, bounds);
+            scroll.DrawToBitmap(track, new Rectangle(Point.Empty, track.Size));
+            int valueX = choice.Width / 2, middle = choice.Height / 2;
+            int arrowX = choice.Width - Ui.Px(choice, 18);
+            Check(normal.GetPixel(valueX, middle).ToArgb() == choice.BackColor.ToArgb() &&
+                hovered.GetPixel(valueX, middle).ToArgb() == choice.BackColor.ToArgb(),
+                "the closed choice keeps a plain background on hover");
+            Check(normal.GetPixel(arrowX, middle).ToArgb() == Ui.SelectBack.ToArgb() &&
+                hovered.GetPixel(arrowX, middle).ToArgb() == Ui.Btn2Down.ToArgb(),
+                "the closed choice paints only its arrow with the blue hover style");
+            Check(track.GetPixel(scroll.Width / 2, scroll.Height / 4).ToArgb() == Ui.Blue.ToArgb(),
+                "the formatting scrollbar paints a blue thumb");
+        }
+    }
+
     private static void WorksheetBatchLayout()
     {
         using (var form = DialogPreviewFactory.CreateProgramDefault("conversion.worksheetBatch"))
@@ -290,6 +365,7 @@ internal static class ConversionInteractionProbe
             var apply = (Button)form.Controls.Find("batchApply", true)[0];
             Check(review.Items.Count == 3 && review.Height >= 120 && !apply.Enabled,
                 "worksheet batch sample presents an inert preview " + review.Bounds + ", items=" + review.Items.Count);
+            ReviewAlignment(review);
             var undo = (WorksheetUndoButton)form.Controls.Find("worksheetUndo", true).Single();
             Check(undo.Parent == apply.Parent && !undo.Enabled && !Descendants(form).Any(control => control is Label && control.Text == form.Text),
                 "worksheet batch shows one window title and an adjacent idle undo control");
@@ -299,6 +375,35 @@ internal static class ConversionInteractionProbe
             Check(textStyle.Items.Cast<string>().SequenceEqual(new[] { "保持原样", "加粗", "斜体", "下划线", "删除线" }) &&
                 textStyle.Parent is RoundedEditor && fonts.Items.Count > 1 && fonts.AutoCompleteSource == AutoCompleteSource.ListItems,
                 "text styles and searchable local fonts use rounded input frames");
+            var methods = BindingFlags.Instance | BindingFlags.NonPublic;
+            int closedHeight = textStyle.Height;
+            textStyle.GetType().GetMethod("MeasureList", methods).Invoke(textStyle, null);
+            int rowHeight = textStyle.GetItemHeight(0);
+            Check(textStyle.DrawMode == DrawMode.OwnerDrawVariable && rowHeight > textStyle.Font.Height &&
+                textStyle.DropDownHeight >= rowHeight * textStyle.Items.Count && textStyle.Height == closedHeight,
+                "expanded row height " + rowHeight + ", list height " + textStyle.DropDownHeight +
+                ", closed editor " + closedHeight + " -> " + textStyle.Height);
+            if (!SystemInformation.HighContrast)
+            using (var bitmap = new Bitmap(170, rowHeight))
+            using (var graphics = Graphics.FromImage(bitmap))
+            {
+                int selected = textStyle.SelectedIndex;
+                var bounds = new Rectangle(Point.Empty, bitmap.Size);
+                textStyle.GetType().GetMethod("OnDrawItem", methods).Invoke(textStyle, new object[] {
+                    new DrawItemEventArgs(graphics, textStyle.Font, bounds, selected, DrawItemState.Selected)
+                });
+                Check(bitmap.GetPixel(0, 0).ToArgb() == textStyle.BackColor.ToArgb() &&
+                    bitmap.GetPixel(153, bitmap.Height / 2).ToArgb() == Ui.SelectBack.ToArgb(),
+                    "the selected drop-down row uses a pale-blue rounded highlight with a white inset");
+            }
+        }
+        using (var form = new WorksheetBatchForm("Notes", "A1"))
+        {
+            var fonts = (ComboBox)form.Controls.Find("batchFontFamily", true)[0];
+            Check(fonts.Items.Count == 1, "opening the working dialog defers the installed font scan");
+            fonts.GetType().GetMethod("EnsureItems", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public).Invoke(fonts, null);
+            Check(fonts.Items.Count > 1 && fonts.SelectedIndex == 0 && fonts.AutoCompleteSource == AutoCompleteSource.ListItems,
+                "the font list loads on demand with type-ahead and the original selection");
         }
         using (var form = new WorksheetBatchForm("Notes", "A1:A2", true))
         using (var parking = new Panel { Size = form.Size })
@@ -314,25 +419,47 @@ internal static class ConversionInteractionProbe
             var replacement = (TextBox)form.Controls.Find("batchReplacement", true)[0];
             var vertical = (ComboBox)form.Controls.Find("batchVertical", true)[0];
             var viewport = (Panel)form.Controls.Find("batchFormatViewport", true)[0];
+            var scroll = form.Controls.Find("batchFormatScroll", true)[0];
+            var formatTable = (TableLayoutPanel)style.Parent.Parent;
+            var clip = formatTable.Parent;
+            var source = (ComboBox)form.Controls.Find("batchSource", true)[0];
             var replaceCard = (UiCard)form.Controls.Find("batchTextCard", true)[0];
             var formatCard = (UiCard)form.Controls.Find("batchFormatCard", true)[0];
             Check(replaceCard.Parent == formatCard.Parent &&
                 replaceCard.Top == formatCard.Top && replaceCard.Right < formatCard.Left,
                 "text replacement and formatting are side-by-side");
             Point leftPosition = replacement.PointToScreen(Point.Empty), clearPosition = clear.PointToScreen(Point.Empty);
-            Check(viewport.VerticalScroll.Visible && !viewport.HorizontalScroll.Visible && viewport.Contains(vertical),
+            Check(scroll.Visible && scroll.AccessibleRole == AccessibleRole.ScrollBar &&
+                !viewport.HorizontalScroll.Visible && viewport.Contains(vertical) && clip.Contains(vertical),
                 "the right-hand viewport contains the additional format selectors and scrolls only vertically");
+            int sourceIndex = source.SelectedIndex;
+            Control active = form.ActiveControl;
+            CheckBlueChrome(source, scroll);
+            Check(source.SelectedIndex == sourceIndex && form.ActiveControl == active && apply.Enabled,
+                "hovering the target workbook choice does not change selection, focus or preview");
             int styleIndex = style.SelectedIndex;
             Wheel(style, -120);
-            Check(viewport.AutoScrollPosition.Y < 0 && style.SelectedIndex == styleIndex && apply.Enabled,
+            bool wheelEnabled = SystemInformation.MouseWheelScrollLines != 0;
+            Check((formatTable.Top < 0) == wheelEnabled && style.SelectedIndex == styleIndex && apply.Enabled,
                 "wheel on a closed selector scrolls the panel without changing choices or preview");
             Check(replacement.PointToScreen(Point.Empty) == leftPosition && clear.PointToScreen(Point.Empty) == clearPosition,
                 "replacement and clear-format controls stay in place when the format list scrolls");
             Wheel(viewport, 120);
-            Check(viewport.AutoScrollPosition.Y == 0, "upward wheel returns to the initial format options");
+            Check(formatTable.Top == 0, "upward wheel returns to the initial format options");
+            Check(PressKey(scroll, Keys.End).Handled && formatTable.Top < 0 && clip.ClientRectangle.Contains(In(clip, vertical)),
+                "End on the scrollbar brings the last selector into view");
+            int bottom = formatTable.Top;
+            Check(PressKey(scroll, Keys.PageUp).Handled && formatTable.Top > bottom && PressKey(scroll, Keys.Home).Handled && formatTable.Top == 0,
+                "Page Up and Home move the custom scrollbar");
+            int x = scroll.Width / 2, y = scroll.Height / 4;
+            var mouse = BindingFlags.Instance | BindingFlags.NonPublic;
+            typeof(Control).GetMethod("OnMouseDown", mouse).Invoke(scroll, new object[] { new MouseEventArgs(MouseButtons.Left, 1, x, y, 0) });
+            typeof(Control).GetMethod("OnMouseMove", mouse).Invoke(scroll, new object[] { new MouseEventArgs(MouseButtons.Left, 0, x, scroll.Height - 2, 0) });
+            typeof(Control).GetMethod("OnMouseUp", mouse).Invoke(scroll, new object[] { new MouseEventArgs(MouseButtons.Left, 1, x, scroll.Height - 2, 0) });
+            Check(formatTable.Top == bottom && !scroll.Capture, "dragging the painted thumb reaches the bottom and releases capture");
+            PressKey(scroll, Keys.Home);
             form.ActiveControl = vertical;
-            Point end = viewport.PointToClient(vertical.PointToScreen(new Point(0, vertical.Height)));
-            Check(viewport.AutoScrollPosition.Y < 0 && end.Y <= viewport.ClientSize.Height,
+            Check(formatTable.Top < 0 && clip.ClientRectangle.Contains(In(clip, vertical)),
                 "focusing the last selector brings it into the scroll viewport");
             int oldIndex = alignment.SelectedIndex;
             clear.Checked = true;
@@ -358,15 +485,143 @@ internal static class ConversionInteractionProbe
                 submitted.TextStyle == WorksheetBatchTextStyle.Italic && !submitted.ClearFormatting, "preview receives selected style and both alignments");
             form.ClientSize = new Size(760, 620);
             form.PerformLayout();
-            Check(form.AutoScrollMinSize.Height >= form.ClientSize.Height && alignment.Width >= 100 && apply.Width >= 100 &&
-                viewport.VerticalScroll.Visible && !viewport.HorizontalScroll.Visible,
+            Check(alignment.Width >= 96 && apply.Width >= 100 && scroll.Visible && !viewport.HorizontalScroll.Visible,
                 "compact size retains reachable controls through scrolling");
             sheet.Text = "Different";
             Check(!apply.Enabled && review.Items.Count == 0, "editing target invalidates previous preview");
         }
     }
+
+    private static void WorksheetBatchScaledLayout(string renderFolder)
+    {
+        foreach (float factor in new[] { 1f, 1.25f, 1.5f, 2f })
+        {
+            var fonts = new List<Font>();
+            try
+            {
+                using (var form = new WorksheetBatchForm("Notes", "B3:F20", true))
+                using (var parking = new Panel { Size = new Size(2400, 2000) })
+                {
+                    Size client = form.ClientSize;
+                    form.FormBorderStyle = FormBorderStyle.None;
+                    form.ClientSize = client;
+                    form.TopLevel = false;
+                    parking.Controls.Add(form);
+                    form.Show();
+                    if (factor != 1)
+                    {
+                        var sizes = new[] { (Control)form }.Concat(Descendants(form)).ToDictionary(control => control, control => control.Font.SizeInPoints);
+                        form.Scale(new SizeF(factor, factor));
+                        foreach (var item in sizes)
+                        {
+                            var scaled = new Font(item.Key.Font.FontFamily, item.Value * factor, item.Key.Font.Style);
+                            fonts.Add(scaled);
+                            item.Key.Font = scaled;
+                        }
+                    }
+                    string samplePath = @"C:\演示目录\" + string.Concat(Enumerable.Repeat("工作簿批量处理目录\\", 12));
+                    typeof(WorksheetBatchForm).GetField("folder", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(form, samplePath);
+                    var source = (ComboBox)form.Controls.Find("batchSource", true)[0];
+                    source.SelectedIndex = (int)WorksheetBatchSource.Folder;
+                    foreach (int width in new[] { 900, 760 })
+                    {
+                        form.ClientSize = new Size((int)(width * factor), (int)(700 * factor));
+                        form.PerformLayout();
+                        string size = width + " at " + factor;
+                        var target = form.Controls.Find("batchTargetCard", true)[0];
+                        var detail = Descendants(target).OfType<Label>().Single(label => label.Text == samplePath);
+                        var select = Descendants(target).OfType<Button>().Single(button => button.Text.Contains("文件夹"));
+                        Rectangle choice = In(target, source), frame = In(target, source.Parent), detailBounds = In(target, detail);
+                        Check(Descendants(target).OfType<Label>().Any(label => label.Text == "目标与区域") &&
+                            Descendants(target).OfType<Label>().Any(label => label.Text == "目标工作簿"),
+                            "worksheet batch uses the new target captions " + size);
+                        Check(frame.Contains(choice) && In(target, select).Bottom <= detailBounds.Top && frame.Bottom <= detailBounds.Top &&
+                            detailBounds.Bottom <= In(target, form.Controls.Find("batchSheetName", true)[0].Parent).Top,
+                            "target choice, chooser and long source details stay in separate rows " + size + ": " + choice + " in " + frame + " before " + detailBounds);
+                        Check(detail.Height >= TextRenderer.MeasureText(detail.Text, detail.Font,
+                            new Size(detail.Width, int.MaxValue), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix).Height,
+                            "the source details are tall enough for the wrapped path " + size);
+                        var format = form.Controls.Find("batchFormatCard", true)[0];
+                        var text = form.Controls.Find("batchTextCard", true)[0];
+                        Check(text.Top == format.Top && text.Right < format.Left, "format card stays to the right " + size);
+                        foreach (string caption in new[] { "文本格式", "数字格式", "字体", "字体颜色", "填充颜色", "水平对齐", "垂直对齐" })
+                        {
+                            var label = Descendants(format).OfType<Label>().Single(item => item.Text == caption);
+                            Size line = TextRenderer.MeasureText(caption, label.Font, Size.Empty, TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+                            Check(label.Width >= line.Width && label.Height == line.Height,
+                                "format label fits on one line " + caption + " " + size);
+                        }
+                        foreach (string name in new[] { "batchTextStyle", "batchNumberFormat", "batchFontColor", "batchFillColor" })
+                        {
+                            Control editor = form.Controls.Find(name, true)[0];
+                            var clip = editor.Parent.Parent.Parent;
+                            Check(clip.ClientRectangle.Contains(In(clip, editor.Parent)) && editor.Parent.ClientRectangle.Contains(In(editor.Parent, editor)),
+                                "a complete format row is visible without clipping " + name + " " + size);
+                        }
+                        if (renderFolder != null && factor == 1.5f && width == 900)
+                            RenderForm(form, Path.Combine(renderFolder, "conversion.worksheetBatch.scaled.png"));
+                    }
+                }
+            }
+            finally { foreach (var font in fonts) font.Dispose(); }
+        }
+    }
     private static IEnumerable<Control> Descendants(Control root)
     { foreach (Control item in root.Controls) { yield return item; foreach (Control child in Descendants(item)) yield return child; } }
+
+    private static void FormulaCompactLayout()
+    {
+        string[] formulas = { "formula.abs", "formula.unwrap", "formula.custom", "formula.round", "formula.iferror", "formula.add",
+            "formula.formulaAsText", "formula.restoreTextFormula", "formula.resultAsText", "formula.valuesOnly" };
+        var events = BindingFlags.Instance | BindingFlags.NonPublic;
+        foreach (string id in formulas)
+        using (var form = DialogPreviewFactory.CreateProgramDefault(id))
+        using (var parking = new Panel { Size = new Size(1400, 1100) })
+        {
+            var editor = form as IFormulaOperationDialog;
+            if (editor != null && id != "formula.custom")
+                editor.SetTarget(@"目标选区 C:\演示目录\" + new string('中', 95) + ".xlsx / 工作表 · $A$1:$D$30", true);
+            form.TopLevel = false;
+            parking.Controls.Add(form);
+            form.Show();
+            form.PerformLayout();
+            int startingHeight = form.ClientSize.Height;
+            Check(form.FormBorderStyle == FormBorderStyle.Sizable && Math.Abs(startingHeight - form.AutoScrollMinSize.Height) <= 2,
+                "default formula height fits actual content " + id + " client=" + form.ClientSize + " content=" + form.AutoScrollMinSize);
+
+            typeof(Form).GetMethod("OnResizeBegin", events).Invoke(form, new object[] { EventArgs.Empty });
+            int minimum = (int)Math.Round(DialogCatalog.Find(id).Minimum.Height * DialogSizing.Scale(form));
+            form.ClientSize = new Size(form.ClientSize.Width, minimum);
+            typeof(Form).GetMethod("OnResizeEnd", events).Invoke(form, new object[] { EventArgs.Empty });
+            Size resized = form.ClientSize;
+            Check(resized.Height < startingHeight && form.AutoScrollMinSize.Height > resized.Height,
+                "formula can shrink below its old floor with content still scrollable " + id);
+            if (editor != null) editor.Resume("这是重新计算后的校验提示。");
+            else
+            {
+                var conversion = (CellConversionForm)form;
+                conversion.ReceivePreview(0, conversion.RangeInput.Text,
+                    new ConversionPreview(conversion.RangeInput.Text, new ConversionCellState { Display = "示例", Value = "示例" }), null);
+            }
+            Check(form.ClientSize == resized, "live content preserves a manually resized formula window " + id);
+            var close = (Control)form.CancelButton;
+            form.ScrollControlIntoView(close);
+            Check(form.ClientRectangle.Contains(In(form, close)),
+                "the formula footer remains reachable when the window is shortened " + id + " " + In(form, close));
+        }
+
+        foreach (string id in new[] { "formula.abs", "formula.custom", "formula.valuesOnly" })
+        using (var form = DialogPreviewFactory.Create(id, new Size(740, 410)))
+        using (var parking = new Panel { Size = new Size(1400, 1100) })
+        {
+            form.TopLevel = false;
+            parking.Controls.Add(form);
+            form.Show();
+            Check(DialogSizing.HasOverride(form) && DialogSizing.LogicalClient(form) == new Size(740, 410),
+                "the shared fit respects an explicit formula size " + id);
+        }
+    }
+
     private static void LayoutChecks()
     {
         foreach (string id in new[] { "conversion.text", "formula.references", "conversion.batchInsertTrimDelete" })
@@ -428,12 +683,16 @@ internal static class ConversionInteractionProbe
     [STAThread] private static int Main(string[] args)
     {
         string settings = Path.Combine(Path.GetTempPath(), "ConversionUiProbe-" + Guid.NewGuid().ToString("N")); DialogSizeStore.RootOverride = settings;
+        FormatSession.SourceOverride = Path.Combine(settings, "Customization.xml");
         try
         {
+            string renderFolder = args.Length == 2 && args[0] == "--render" ? args[1] : null;
+            if (renderFolder != null) Directory.CreateDirectory(renderFolder);
             InteractionChecks();
             LayoutChecks();
+            FormulaCompactLayout();
             WorksheetBatchLayout();
-            string renderFolder = args.Length == 2 && args[0] == "--render" ? args[1] : null;
+            WorksheetBatchScaledLayout(renderFolder);
             FormulaWindowCaptions(renderFolder);
             if (renderFolder != null) Render(renderFolder);
             Console.WriteLine("PASS ConversionInteractionProbe: " + checks + " assertions; hidden real controls, STA previews, scaled layouts, picker restore, busy and shutdown; no host connection");

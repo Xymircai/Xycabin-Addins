@@ -255,6 +255,9 @@ namespace Excel_Iterate
             }finally{state.Busy=false;}
         }
     }
+    // These controls draw their own value when DrawToBitmap sends WM_PRINTCLIENT.
+    internal interface IDialogPreviewSelfPainted { }
+
     internal sealed class PreviewSelectionOverlay:Control
     {
         [StructLayout(LayoutKind.Sequential)] private struct PrintRect {internal int Left,Top,Right,Bottom;}
@@ -307,7 +310,7 @@ namespace Excel_Iterate
         private void RenderNativeText(Bitmap bitmap) {
             foreach(var c in DialogFormatting.Walk(preview)) {
                 var rich=c as RichTextBox;var text=c as TextBox;var choice=c as ComboBox;
-                if(!rectangles.ContainsKey(c)||(rich==null&&text==null&&choice==null))continue;
+                if(c is IDialogPreviewSelfPainted||!rectangles.ContainsKey(c)||(rich==null&&text==null&&choice==null))continue;
                 var bounds=BoundsInPreview(c);if(bounds.Width<1||bounds.Height<1)continue;
                 var clip=VisibleBounds(c);if(clip.Width<1||clip.Height<1)continue;
                 if(rich!=null) {

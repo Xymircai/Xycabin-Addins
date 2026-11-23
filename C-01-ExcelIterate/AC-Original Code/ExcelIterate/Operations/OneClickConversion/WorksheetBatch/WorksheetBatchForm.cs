@@ -1,17 +1,370 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Excel_Iterate
 {
-    internal sealed class WorksheetBatchForm : Form, IDialogDefaultLayout
+    internal sealed class WorksheetBatchForm : Form
     {
+        // The native ComboBox still owns the list, selection, focus and keyboard input.
+        private sealed class BatchChoice : ComboBox, IDialogPreviewSelfPainted
+        {
+            [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+            private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
+            private const int SetItemHeight = 0x0153;
+            private bool hovered;
+            internal Action<int> ScrollClosed;
+            internal Action PrepareItems;
+
+            internal BatchChoice()
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList;
+                DrawMode = DrawMode.OwnerDrawVariable;
+                IntegralHeight = false;
+                SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                    ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            }
+
+            private void MeasureList()
+            {
+                using (var graphics = CreateGraphics())
+                {
+                    int rowHeight = ListRowHeight(graphics);
+                    for (int i = 0; i < Items.Count; i++)
+                        if (GetItemHeight(i) != rowHeight)
+                            SendMessage(Handle, SetItemHeight, new IntPtr(i), new IntPtr(rowHeight));
+                    int rows = Math.Min(Items.Count, MaxDropDownItems);
+                    int limit = Math.Max(rowHeight, Screen.FromControl(this).WorkingArea.Height / 2 - 2);
+                    int listHeight = Math.Max(1, Math.Min(rows, limit / rowHeight)) * rowHeight + 2;
+                    if (DropDownHeight != listHeight) DropDownHeight = listHeight;
+                }
+            }
+
+            private int ListRowHeight(Graphics graphics)
+            { return (int)Math.Ceiling(Font.GetHeight(graphics) + 16 * graphics.DpiY / 96f); }
+
+            protected override void OnMeasureItem(MeasureItemEventArgs e)
+            {
+                if (e.Index >= 0) e.ItemHeight = ListRowHeight(e.Graphics);
+                base.OnMeasureItem(e);
+            }
+
+            protected override void OnDrawItem(DrawItemEventArgs e)
+            {
+                var graphics = e.Graphics;
+                var bounds = e.Bounds;
+                bool contrast = SystemInformation.HighContrast;
+                bool inList = (e.State & DrawItemState.ComboBoxEdit) == 0;
+                bool current = inList && e.Index >= 0 && e.Index == SelectedIndex;
+                bool highlighted = inList && (e.State & DrawItemState.Selected) != 0;
+                Color background = contrast ? SystemColors.Window : BackColor;
+                if (contrast && highlighted) background = SystemColors.Highlight;
+                Color ink = contrast ? (highlighted ? SystemColors.HighlightText : SystemColors.WindowText) : current ? Ui.Blue : ForeColor;
+                using (var brush = new SolidBrush(background)) graphics.FillRectangle(brush, bounds);
+                float scale = graphics.DpiX / 96f;
+                if (!contrast && (current || highlighted) && bounds.Width > 8 * scale && bounds.Height > 4 * scale)
+                {
+                    var pill = new RectangleF(bounds.X + 4 * scale, bounds.Y + 2 * scale,
+                        bounds.Width - 8 * scale, bounds.Height - 4 * scale);
+                    var smoothing = graphics.SmoothingMode;
+                    graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                    using (var path = Ui.RoundRect(pill, 6 * scale))
+                    using (var brush = new SolidBrush(current ? Ui.SelectBack : Ui.GridHead)) graphics.FillPath(brush, path);
+                    graphics.SmoothingMode = smoothing;
+                }
+                int inset = (int)Math.Round((inList ? 16 : 3) * scale);
+                if (e.Index >= 0 && e.Index < Items.Count && bounds.Width > inset * 2)
+                    TextRenderer.DrawText(graphics, GetItemText(Items[e.Index]), Font, Rectangle.Inflate(bounds, -inset, 0), ink,
+                        TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
+                        TextFormatFlags.NoPrefix | TextFormatFlags.PreserveGraphicsClipping);
+                if (contrast && inList) e.DrawFocusRectangle();
+            }
+
+            protected override void WndProc(ref Message message)
+            {
+                const int LeftButtonDown = 0x0201, KeyDown = 0x0100, SystemKeyDown = 0x0104, ShowDropDown = 0x014f;
+                if (message.Msg == LeftButtonDown || message.Msg == KeyDown || message.Msg == SystemKeyDown ||
+                    (message.Msg == ShowDropDown && message.WParam != IntPtr.Zero))
+                    EnsureItems();
+                const int MouseWheel = 0x020a;
+                if (message.Msg == MouseWheel && ScrollClosed != null && !DroppedDown)
+                {
+                    ScrollClosed(unchecked((short)(message.WParam.ToInt64() >> 16)));
+                    message.Result = IntPtr.Zero;
+                    return;
+                }
+                base.WndProc(ref message);
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                var graphics = e.Graphics;
+                bool contrast = SystemInformation.HighContrast;
+                Color background = !Enabled ? SystemColors.Control : contrast ? SystemColors.Window : BackColor;
+                Color ink = !Enabled ? SystemColors.GrayText : contrast ? SystemColors.WindowText : ForeColor;
+                graphics.Clear(background);
+                float scale = graphics.DpiX / 96f;
+                int arrowWidth = Math.Min(ClientSize.Width, (int)Math.Round(24 * scale));
+                int left = ClientSize.Width - arrowWidth;
+                TextRenderer.DrawText(graphics, GetItemText(SelectedItem), Font,
+                    new Rectangle(0, 0, Math.Max(0, left - 4), ClientSize.Height), ink,
+                    TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
+                    TextFormatFlags.NoPrefix | TextFormatFlags.PreserveGraphicsClipping);
+                if (arrowWidth < 4 || ClientSize.Height < 4) return;
+
+                Color arrowBack = contrast ? SystemColors.Control :
+                    !Enabled ? Ui.GridHead : DroppedDown ? Ui.Blue : hovered ? Ui.Btn2Down : Ui.SelectBack;
+                Color arrowInk = !Enabled ? SystemColors.GrayText :
+                    contrast ? SystemColors.ControlText : DroppedDown ? Color.White : Ui.Blue;
+                graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var path = Ui.RoundRect(new RectangleF(left, 1, arrowWidth - 1, ClientSize.Height - 2), 5 * scale))
+                using (var brush = new SolidBrush(arrowBack)) graphics.FillPath(brush, path);
+                float x = left + arrowWidth / 2f, y = ClientSize.Height / 2f;
+                float half = Math.Min(4 * scale, (arrowWidth - 2) / 2f);
+                using (var stroke = new Pen(arrowInk, Math.Max(1, 1.5f * scale)))
+                {
+                    stroke.StartCap = stroke.EndCap = LineCap.Round;
+                    graphics.DrawLines(stroke, new[] {
+                        new PointF(x - half, y - half / 3), new PointF(x, y + half / 2),
+                        new PointF(x + half, y - half / 3)
+                    });
+                }
+            }
+
+            protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); hovered = true; Invalidate(); }
+            protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hovered = false; Invalidate(); }
+            protected override void OnDropDown(EventArgs e) { EnsureItems(); MeasureList(); base.OnDropDown(e); Invalidate(); }
+            protected override void OnDropDownClosed(EventArgs e) { base.OnDropDownClosed(e); Invalidate(); }
+            protected override void OnSelectedIndexChanged(EventArgs e) { base.OnSelectedIndexChanged(e); Invalidate(); }
+
+            internal void EnsureItems()
+            {
+                if (PrepareItems == null) return;
+                PrepareItems();
+                PrepareItems = null;
+            }
+        }
+
         private sealed class FormatViewport : Panel
         {
-            internal void ScrollFromChoice(object sender, MouseEventArgs e)
+            private readonly Panel clip = new Panel { TabStop = false, Margin = Padding.Empty };
+            private readonly FormatScrollBar scroll = new FormatScrollBar();
+            private readonly TableLayoutPanel content;
+            private int scrollWidth, scrollGap;
+            private bool arranging;
+
+            internal FormatViewport(TableLayoutPanel fields)
             {
-                if (!((ComboBox)sender).DroppedDown) OnMouseWheel(e);
+                Name = "batchFormatViewport";
+                AccessibleName = "可滚动的单元格格式选项";
+                Dock = DockStyle.Top;
+                Margin = new Padding(0, 0, 0, 4);
+                TabStop = false;
+                content = fields;
+                content.Dock = DockStyle.None;
+                content.AutoSize = false;
+                clip.Controls.Add(content);
+                Controls.Add(clip);
+                Controls.Add(scroll);
+                scroll.OffsetChanged += delegate { content.Top = -scroll.Offset; };
+                clip.MouseWheel += ForwardWheel;
+                scroll.MouseWheel += ForwardWheel;
+                content.MouseWheel += ForwardWheel;
+                foreach (Control item in content.Controls)
+                {
+                    item.MouseWheel += ForwardWheel;
+                    Control field = item;
+                    field.Enter += delegate { Reveal(field); };
+                }
+            }
+
+            internal void SetMetrics(int fullHeight, int visibleHeight, int width, int gap, int lineHeight)
+            {
+                if (content.Height == fullHeight && Height == visibleHeight && scrollWidth == width && scrollGap == gap && scroll.LineHeight == lineHeight) return;
+                scrollWidth = width;
+                scrollGap = gap;
+                scroll.LineHeight = lineHeight;
+                content.Height = fullHeight;
+                Height = visibleHeight;
+                PerformLayout();
+            }
+
+            protected override void OnLayout(LayoutEventArgs e)
+            {
+                base.OnLayout(e);
+                if (content == null || arranging) return;
+                arranging = true;
+                try
+                {
+                    clip.SetBounds(0, 0, Math.Max(0, ClientSize.Width - scrollWidth - scrollGap), ClientSize.Height);
+                    scroll.SetBounds(clip.Right + scrollGap, 0, scrollWidth, ClientSize.Height);
+                    scroll.SetExtent(content.Height, clip.Height);
+                    content.SetBounds(0, -scroll.Offset, Math.Max(1, clip.Width), content.Height);
+                }
+                finally { arranging = false; }
+            }
+
+            private void Reveal(Control field)
+            {
+                if (clip.Height <= 0) return;
+                if (field.Top < scroll.Offset) scroll.Offset = field.Top;
+                else if (field.Bottom > scroll.Offset + clip.Height) scroll.Offset = field.Bottom - clip.Height;
+            }
+
+            protected override void OnMouseWheel(MouseEventArgs e)
+            {
+                ForwardWheel(this, e);
+                base.OnMouseWheel(e);
+            }
+
+            private void ForwardWheel(object sender, MouseEventArgs e)
+            {
+                ScrollByWheel(e.Delta);
+                var handled = e as HandledMouseEventArgs;
+                if (handled != null) handled.Handled = true;
+            }
+
+            internal void ScrollByWheel(int delta)
+            {
+                int lines = SystemInformation.MouseWheelScrollLines;
+                int distance = lines < 0 ? clip.Height : lines * scroll.LineHeight;
+                scroll.Offset -= (int)Math.Round(delta * distance / 120d);
+            }
+        }
+
+        private sealed class FormatScrollBar : Control
+        {
+            private int extent, viewportHeight, offset;
+            private int grabOffset = -1;
+            internal int LineHeight { get; set; }
+            internal event Action OffsetChanged;
+
+            internal FormatScrollBar()
+            {
+                Name = "batchFormatScroll";
+                AccessibleName = "单元格格式滚动条";
+                AccessibleRole = AccessibleRole.ScrollBar;
+                TabStop = true;
+                SetStyle(ControlStyles.Selectable | ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                    ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            }
+
+            private int Limit { get { return Math.Max(0, extent - viewportHeight); } }
+            internal int Offset
+            {
+                get { return offset; }
+                set
+                {
+                    int next = Math.Max(0, Math.Min(Limit, value));
+                    if (offset == next) return;
+                    offset = next;
+                    Invalidate();
+                    if (OffsetChanged != null) OffsetChanged();
+                }
+            }
+
+            internal void SetExtent(int fullHeight, int visibleHeight)
+            {
+                if (extent == fullHeight && viewportHeight == visibleHeight) return;
+                extent = fullHeight;
+                viewportHeight = visibleHeight;
+                Offset = offset;
+                Invalidate();
+            }
+
+            private Rectangle Track
+            {
+                get
+                {
+                    int inset = Math.Max(1, Width / 5);
+                    return Rectangle.Inflate(ClientRectangle, -inset, -inset);
+                }
+            }
+
+            private Rectangle Thumb(Rectangle track)
+            {
+                int height = Math.Min(track.Height, Math.Max(Width, (int)((long)track.Height * viewportHeight / Math.Max(1, extent))));
+                int travel = track.Height - height;
+                int top = track.Top + (int)((long)Offset * travel / Math.Max(1, Limit));
+                return new Rectangle(track.Left, top, track.Width, height);
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                var g = e.Graphics;
+                g.Clear(BackColor);
+                Rectangle track = Track;
+                if (track.Width <= 0 || track.Height <= 0) return;
+                bool contrast = SystemInformation.HighContrast;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var path = Ui.RoundRect(track, track.Width / 2f))
+                using (var brush = new SolidBrush(contrast ? SystemColors.Control : Ui.SelectBack)) g.FillPath(brush, path);
+                Rectangle thumb = Thumb(track);
+                if (Limit > 0 && thumb.Height > 0)
+                {
+                    using (var path = Ui.RoundRect(thumb, Math.Min(thumb.Width, thumb.Height) / 2f))
+                    using (var brush = new SolidBrush(contrast ? SystemColors.Highlight : Enabled ? Ui.Blue : SystemColors.GrayText)) g.FillPath(brush, path);
+                }
+                if (Focused) ControlPaint.DrawFocusRectangle(g, ClientRectangle);
+            }
+
+            protected override void OnMouseDown(MouseEventArgs e)
+            {
+                base.OnMouseDown(e);
+                if (e.Button != MouseButtons.Left || Limit == 0) return;
+                Focus();
+                Rectangle thumb = Thumb(Track);
+                if (thumb.Contains(e.Location)) { grabOffset = e.Y - thumb.Top; Capture = true; }
+                else Offset += e.Y < thumb.Top ? -viewportHeight : viewportHeight;
+            }
+
+            protected override void OnMouseMove(MouseEventArgs e)
+            {
+                base.OnMouseMove(e);
+                if (!Capture || grabOffset < 0) return;
+                Rectangle track = Track;
+                int travel = track.Height - Thumb(track).Height;
+                if (travel > 0) Offset = (int)Math.Round((e.Y - track.Top - grabOffset) * (double)Limit / travel);
+            }
+
+            protected override void OnMouseUp(MouseEventArgs e)
+            {
+                base.OnMouseUp(e);
+                if (e.Button == MouseButtons.Left) Capture = false;
+            }
+
+            protected override void OnMouseCaptureChanged(EventArgs e)
+            {
+                if (!Capture) grabOffset = -1;
+                base.OnMouseCaptureChanged(e);
+            }
+
+            protected override bool IsInputKey(Keys keyData)
+            {
+                switch (keyData & Keys.KeyCode)
+                {
+                    case Keys.Up: case Keys.Down: case Keys.PageUp: case Keys.PageDown: case Keys.Home: case Keys.End: return true;
+                    default: return base.IsInputKey(keyData);
+                }
+            }
+
+            protected override void OnKeyDown(KeyEventArgs e)
+            {
+                base.OnKeyDown(e);
+                switch (e.KeyCode)
+                {
+                    case Keys.Up: Offset -= LineHeight; break;
+                    case Keys.Down: Offset += LineHeight; break;
+                    case Keys.PageUp: Offset -= viewportHeight; break;
+                    case Keys.PageDown: Offset += viewportHeight; break;
+                    case Keys.Home: Offset = 0; break;
+                    case Keys.End: Offset = Limit; break;
+                    default: return;
+                }
+                e.Handled = e.SuppressKeyPress = true;
             }
         }
 
@@ -21,30 +374,28 @@ namespace Excel_Iterate
             WorksheetBatchHorizontal.Justify, WorksheetBatchHorizontal.Distributed };
         private static readonly WorksheetBatchVertical?[] VerticalValues =
             { null, WorksheetBatchVertical.Top, WorksheetBatchVertical.Center, WorksheetBatchVertical.Bottom };
+        private static readonly Color ReviewHeaderBack = Color.FromArgb(253, 232, 235);
+        private const TextFormatFlags ReviewText = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+            TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix;
         private readonly TextBox sheet = Input("batchSheetName", "工作表名称", 31);
         private readonly TextBox area = Input("batchSheetRange", "单元格区域", 32767);
         private readonly TextBox find = Input("batchFind", "查找文字", 32767);
         private readonly TextBox replacement = Input("batchReplacement", "替换为", 32767);
-        private readonly ComboBox source = Choice("batchSource", "工作簿来源", "已打开的工作簿", "指定文件夹", "指定多个文件");
-        private readonly ComboBox textStyle = Choice("batchTextStyle", "文本格式", "保持原样", "加粗", "斜体", "下划线", "删除线");
-        private readonly ComboBox fontFamily = InstalledFontChoice();
-        private readonly ComboBox horizontal = Choice("batchHorizontal", "水平对齐", "保持原样", "常规", "左对齐", "居中", "右对齐", "两端对齐", "分散对齐");
-        private readonly ComboBox vertical = Choice("batchVertical", "垂直对齐", "保持原样", "顶端", "居中", "底端");
-        private readonly ComboBox number = Choice("batchNumberFormat", "数字格式", "保持原样", "常规", "千分位 · 整数", "千分位 · 两位小数", "百分比 · 两位小数", "日期 · 年-月-日", "文本");
-        private readonly ComboBox font = Choice("batchFontColor", "字体颜色", "保持原样", "设置颜色");
-        private readonly ComboBox fill = Choice("batchFillColor", "填充颜色", "保持原样", "设置颜色", "无填充");
+        private readonly BatchChoice source = Choice("batchSource", "目标工作簿", "已打开的工作簿", "指定文件夹", "指定多个文件");
+        private readonly BatchChoice textStyle = Choice("batchTextStyle", "文本格式", "保持原样", "加粗", "斜体", "下划线", "删除线");
+        private readonly BatchChoice fontFamily = InstalledFontChoice();
+        private readonly BatchChoice horizontal = Choice("batchHorizontal", "水平对齐", "保持原样", "常规", "左对齐", "居中", "右对齐", "两端对齐", "分散对齐");
+        private readonly BatchChoice vertical = Choice("batchVertical", "垂直对齐", "保持原样", "顶端", "居中", "底端");
+        private readonly BatchChoice number = Choice("batchNumberFormat", "数字格式", "保持原样", "常规", "千分位 · 整数", "千分位 · 两位小数", "百分比 · 两位小数", "日期 · 年-月-日", "文本");
+        private readonly BatchChoice font = Choice("batchFontColor", "字体颜色", "保持原样", "设置颜色");
+        private readonly BatchChoice fill = Choice("batchFillColor", "填充颜色", "保持原样", "设置颜色", "无填充");
         private readonly CheckBox replaceText = new CheckBox { Name = "batchReplaceText", Text = "替换文字", AutoSize = true };
         private readonly CheckBox matchCase = new CheckBox { Name = "batchMatchCase", Text = "区分大小写", AutoSize = true };
         private readonly CheckBox wholeCell = new CheckBox { Name = "batchWholeCell", Text = "匹配整个单元格", AutoSize = true };
         private readonly CheckBox clearFormatting = new CheckBox { Name = "batchClearFormatting", Text = "清除格式", AutoSize = true,
             AccessibleDescription = "重置字体名称、文本样式、字体颜色、填充、数字格式和对齐。" };
         private readonly Label clearHint = ConversionUi.Hint("重置常用格式，保留字号、边框、条件格式和保护设置。");
-        private readonly FormatViewport formatViewport = new FormatViewport
-        {
-            Name = "batchFormatViewport", AccessibleName = "可滚动的单元格格式选项",
-            AutoScroll = true, Dock = DockStyle.Top, Height = 154, Margin = new Padding(0, 0, 0, 4),
-            Padding = new Padding(0, 0, 4, 0), TabStop = false
-        };
+        private readonly FormatViewport formatViewport;
         private readonly Label sourceDetail = ConversionUi.Hint("");
         private readonly Label status = ConversionUi.Hint("设置目标和操作后，先预览。");
         private readonly ListView review = new ListView { Name = "batchReview", AccessibleName = "工作簿预览", View = View.Details,
@@ -59,37 +410,35 @@ namespace Excel_Iterate
         private readonly RoundedButton close = ConversionUi.Button("关闭", 80);
         internal readonly WorksheetUndoButton Undo = new WorksheetUndoButton();
         private readonly TableLayoutPanel root, parameters;
-        private readonly UiCard results;
-        private readonly TableLayoutPanel replaceFields, formatFields;
+        private readonly UiCard targetCard, textCard, formatCard, results;
+        private readonly TableLayoutPanel targetFields, replaceFields, formatFields;
         private Color fontColor = Color.FromArgb(29, 78, 216), fillColor = Color.FromArgb(254, 243, 199);
         private WorksheetBatchReport preview;
         private string folder;
         private string[] files;
-        private bool busy;
+        private bool busy, measuring, layoutDirty;
         internal event Action PickRange;
         internal event Func<WorksheetBatchRequest, WorksheetBatchReport, WorksheetBatchReport> Run;
 
         internal WorksheetBatchForm(string initialSheet = null, string initialRange = null, bool sample = false)
         {
             Text = "工作表批量操作";
+            SuspendLayout();
             DialogSizing.Prepare(this, "conversion.worksheetBatch", "table", Ui.Blue);
             AutoScroll = true;
             root = Table(1);
             root.Dock = DockStyle.Fill; root.AutoSize = false; root.Padding = new Padding(22, 16, 22, 12);
-            Controls.Add(root);
 
             parameters = Table(1);
-            var target = Table(3);
-            target.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 110));
-            target.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            target.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 132));
-            AddFields(target, "来源", source, selectSource);
-            AddRow(target, sourceDetail);
-            AddFields(target, "工作表名称", sheet);
-            AddFields(target, "单元格区域", area, pickRange);
-            var hint = ConversionUi.Hint("可输入 A1:D20，或用逗号分隔多个区域。相同地址将用于各工作簿。");
-            AddRow(target, hint);
-            AddRow(parameters, Card("目标工作簿与区域", target));
+            targetFields = FieldColumn(hasAction: true);
+            AddFields(targetFields, "目标工作簿", source, selectSource);
+            AddRow(targetFields, sourceDetail);
+            AddFields(targetFields, "工作表名称", sheet);
+            AddFields(targetFields, "单元格区域", area, pickRange);
+            AddRow(targetFields, ConversionUi.Hint("可输入 A1:D20，或用逗号分隔多个区域。相同地址将用于各工作簿。"));
+            targetCard = Card("目标与区域", targetFields);
+            targetCard.Name = "batchTargetCard";
+            AddRow(parameters, targetCard);
 
             replaceFields = FieldColumn();
             AddFields(replaceFields, "查找", find);
@@ -110,9 +459,9 @@ namespace Excel_Iterate
             AddFields(formatFields, "字体", fontFamily);
             AddFields(formatFields, "水平对齐", horizontal);
             AddFields(formatFields, "垂直对齐", vertical);
-            foreach (ComboBox choice in new[] { textStyle, number, font, fill, fontFamily, horizontal, vertical })
-                choice.MouseWheel += formatViewport.ScrollFromChoice;
-            formatViewport.Controls.Add(formatFields);
+            formatViewport = new FormatViewport(formatFields);
+            foreach (BatchChoice choice in new[] { textStyle, number, font, fill, fontFamily, horizontal, vertical })
+                choice.ScrollClosed = formatViewport.ScrollByWheel;
             var formatting = Table(1);
             AddRow(formatting, formatViewport);
             AddRow(formatting, clearFormatting);
@@ -120,11 +469,11 @@ namespace Excel_Iterate
 
             var operations = TwoColumns();
             operations.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-            var textCard = Card("文字替换", textOptions);
+            textCard = Card("文字替换", textOptions);
             textCard.Name = "batchTextCard";
             textCard.Margin = new Padding(0, 0, 6, 7);
             textCard.Dock = DockStyle.Fill;
-            var formatCard = Card("单元格格式", formatting);
+            formatCard = Card("单元格格式", formatting);
             formatCard.Name = "batchFormatCard";
             formatCard.Margin = new Padding(6, 0, 0, 7);
             formatCard.Dock = DockStyle.Fill;
@@ -134,11 +483,11 @@ namespace Excel_Iterate
             AddRow(root, parameters);
 
             review.Columns.Add("工作簿", 235);
-            review.Columns.Add("改动格数", 90, HorizontalAlignment.Right);
+            review.Columns.Add("改动格数", 90);
             review.Columns.Add("预览结果", 380);
             review.SizeChanged += delegate { ResizeColumns(); };
             review.DrawColumnHeader += DrawReviewHeader;
-            review.DrawSubItem += delegate(object sender, DrawListViewSubItemEventArgs e) { e.DrawDefault = true; };
+            review.DrawSubItem += DrawReviewCell;
             review.ColumnWidthChanging += delegate(object sender, ColumnWidthChangingEventArgs e)
             {
                 int minimum = MinimumColumn(e.ColumnIndex);
@@ -148,7 +497,6 @@ namespace Excel_Iterate
             results.Margin = new Padding(0, 0, 0, 6);
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
             root.Controls.Add(results, 0, root.RowCount++);
-            Resize += delegate { ResizeColumns(); };
 
             status.Name = "batchStatus";
             AddRow(root, status);
@@ -157,8 +505,10 @@ namespace Excel_Iterate
             apply.Name = "batchApply"; check.Name = "batchCheck"; close.Name = "batchClose";
             actions.Controls.AddRange(new Control[] { apply, Undo, check, close });
             AddRow(root, actions);
+            Controls.Add(root);
             CancelButton = close;
             FormClosing += delegate(object sender, FormClosingEventArgs e) { if (busy && e.CloseReason == CloseReason.UserClosing) e.Cancel = true; };
+            ClientSizeChanged += delegate { RequestLayout(); };
 
             foreach (ComboBox choice in new[] { source, textStyle, fontFamily, horizontal, vertical, number, font, fill })
                 choice.SelectedIndexChanged += delegate { InvalidatePreview(); };
@@ -171,8 +521,6 @@ namespace Excel_Iterate
             check.Click += delegate { RunBatch(false); };
             apply.Click += delegate { RunBatch(true); };
             close.Click += delegate { Close(); };
-            Shown += delegate { UpdateScrollExtent(); };
-            ClientSizeChanged += delegate { UpdateScrollExtent(); };
             sheet.Text = initialSheet ?? "";
             area.Text = initialRange ?? "A1";
             UpdateSwatch(fontSwatch, fontColor, "字体颜色");
@@ -181,6 +529,7 @@ namespace Excel_Iterate
             {
                 replaceText.Checked = true; find.Text = "暂估"; replacement.Text = "已入账";
                 textStyle.SelectedIndex = (int)WorksheetBatchTextStyle.Italic;
+                fontFamily.EnsureItems();
                 fontFamily.SelectedItem = fontFamily.Items.Contains("Times New Roman") ? "Times New Roman" : "保持原样";
                 horizontal.SelectedIndex = Array.IndexOf(HorizontalValues, WorksheetBatchHorizontal.Justify);
                 number.SelectedIndex = 3; fill.SelectedIndex = 1;
@@ -191,22 +540,72 @@ namespace Excel_Iterate
                 ShowReport(sampleReport, false);
             }
             RefreshControls();
+            ResumeLayout(true);
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                // Paint the cards and their native children together on the first frame.
+                const int Composited = 0x02000000;
+                var parameters = base.CreateParams;
+                if (TopLevel) parameters.ExStyle |= Composited;
+                return parameters;
+            }
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            SuspendLayout();
+            try { base.OnLoad(e); RequestLayout(); }
+            finally { ResumeLayout(true); }
+        }
+
+        private void RequestLayout()
+        {
+            if (results == null || measuring) return;
+            layoutDirty = true;
+            PerformLayout();
+        }
+
+        protected override void OnLayout(LayoutEventArgs e)
+        {
+            if (layoutDirty && !measuring)
+            {
+                layoutDirty = false;
+                UpdateScrollExtent();
+            }
+            base.OnLayout(e);
         }
 
         private static TextBox Input(string name, string label, int limit)
         { return new TextBox { Name = name, AccessibleName = label, MaxLength = limit, Width = 120, Margin = Padding.Empty }; }
 
-        private static ComboBox Choice(string name, string label, params string[] choices)
+        private static BatchChoice Choice(string name, string label, params string[] choices)
         {
-            var box = new ComboBox { Name = name, AccessibleName = label, DropDownStyle = ComboBoxStyle.DropDownList,
-                Margin = Padding.Empty, Width = 120 };
+            var box = new BatchChoice { Name = name, AccessibleName = label, Margin = Padding.Empty, Width = 120 };
             box.Items.AddRange(choices); box.SelectedIndex = 0;
             return box;
         }
 
-        private static ComboBox InstalledFontChoice()
+        private static BatchChoice InstalledFontChoice()
         {
             var box = Choice("batchFontFamily", "字体", "保持原样");
+            box.MaxDropDownItems = 8;
+            box.PrepareItems = delegate
+            {
+                box.Items.AddRange(InstalledFonts.Value);
+                box.AutoCompleteSource = AutoCompleteSource.ListItems;
+                box.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+            };
+            return box;
+        }
+
+        private static readonly Lazy<string[]> InstalledFonts = new Lazy<string[]>(GetInstalledFonts);
+
+        private static string[] GetInstalledFonts()
+        {
             var installed = new SortedDictionary<string, string>(StringComparer.CurrentCultureIgnoreCase);
             foreach (FontFamily family in FontFamily.Families)
                 using (family)
@@ -215,16 +614,14 @@ namespace Excel_Iterate
                     string canonical = WorksheetBatchFormat.CanonicalFontName(name);
                     if (!installed.ContainsKey(canonical)) installed.Add(canonical, name);
                 }
+            var choices = new List<string>();
             foreach (var preferred in new[] { "SimSun", "KaiTi", "Times New Roman" })
             {
                 if (!installed.Remove(preferred)) continue;
-                box.Items.Add(preferred == "SimSun" ? "宋体" : preferred == "KaiTi" ? "楷体" : preferred);
+                choices.Add(preferred == "SimSun" ? "宋体" : preferred == "KaiTi" ? "楷体" : preferred);
             }
-            foreach (string name in installed.Values) box.Items.Add(name);
-            box.AutoCompleteSource = AutoCompleteSource.ListItems;
-            box.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-            box.MaxDropDownItems = 12;
-            return box;
+            choices.AddRange(installed.Values);
+            return choices.ToArray();
         }
 
         private static TableLayoutPanel Table(int columns)
@@ -244,9 +641,9 @@ namespace Excel_Iterate
         private static TableLayoutPanel FieldColumn(bool hasAction = false)
         {
             var table = Table(hasAction ? 3 : 2);
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 83));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-            if (hasAction) table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+            if (hasAction) table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute));
             return table;
         }
 
@@ -257,18 +654,25 @@ namespace Excel_Iterate
             if (table.ColumnCount > 1) table.SetColumnSpan(control, table.ColumnCount);
         }
 
-        private static void AddFields(TableLayoutPanel table, string label, Control editor, Control action = null)
+        private void AddFields(TableLayoutPanel table, string label, Control editor, Control action = null)
         {
             int row = table.RowCount++;
-            table.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            table.RowStyles.Add(new RowStyle(SizeType.Absolute, 37));
             var caption = ConversionUi.Label(label);
+            caption.Dock = DockStyle.None;
+            caption.AutoSize = false;
+            caption.UseMnemonic = false;
             caption.Anchor = AnchorStyles.Left;
+            caption.FontChanged += delegate { RequestLayout(); };
+            caption.TextChanged += delegate { RequestLayout(); };
+            editor.FontChanged += delegate { RequestLayout(); };
             table.Controls.Add(caption, 0, row);
             table.Controls.Add(new RoundedEditor(editor, 33) { Dock = DockStyle.Fill, Margin = new Padding(0, 1, 5, 3) }, 1, row);
             if (action != null)
             {
                 action.Anchor = AnchorStyles.Left;
                 action.Margin = new Padding(2, 0, 0, 2);
+                action.FontChanged += delegate { RequestLayout(); };
                 table.Controls.Add(action, 2, row);
             }
             else if (table.ColumnCount == 3) table.SetColumnSpan(table.GetControlFromPosition(1, row), 2);
@@ -302,37 +706,127 @@ namespace Excel_Iterate
 
         private void DrawReviewHeader(object sender, DrawListViewColumnHeaderEventArgs e)
         {
-            Color background = SystemInformation.HighContrast ? SystemColors.Control : Ui.GridHead;
+            Color background = SystemInformation.HighContrast ? SystemColors.Control : ReviewHeaderBack;
             Color ink = SystemInformation.HighContrast ? SystemColors.ControlText : Ui.GridHeadInk;
             using (var fill = new SolidBrush(background)) e.Graphics.FillRectangle(fill, e.Bounds);
             using (var stroke = new Pen(Ui.GridFrame))
                 e.Graphics.DrawLine(stroke, e.Bounds.Left, e.Bounds.Bottom - 1, e.Bounds.Right, e.Bounds.Bottom - 1);
             using (var title = new Font(review.Font, FontStyle.Bold))
-                TextRenderer.DrawText(e.Graphics, e.Header.Text, title, e.Bounds, ink,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine);
+                TextRenderer.DrawText(e.Graphics, e.Header.Text, title, e.Bounds, ink, ReviewText);
         }
 
-        public Size MeasureDefaultClient()
+        private void DrawReviewCell(object sender, DrawListViewSubItemEventArgs e)
         {
-            float scale = DialogSizing.Scale(this);
-            return new Size(900, (int)Math.Ceiling(FixedContentHeight() / scale) + 216);
+            bool selected = e.Item.Selected && (review.Focused || !review.HideSelection);
+            bool contrast = SystemInformation.HighContrast;
+            Color background = selected ? (contrast ? SystemColors.Highlight : Ui.SelectBack) : e.SubItem.BackColor;
+            Color ink = selected ? (contrast ? SystemColors.HighlightText : Ui.SelectInk) : e.SubItem.ForeColor;
+            using (var fill = new SolidBrush(background)) e.Graphics.FillRectangle(fill, e.Bounds);
+            int padding = Math.Min((int)Math.Round(4 * e.Graphics.DpiX / 96f), Math.Max(0, (e.Bounds.Width - 1) / 2));
+            Rectangle textBounds = Rectangle.Inflate(e.Bounds, -padding, 0);
+            TextRenderer.DrawText(e.Graphics, e.SubItem.Text, e.SubItem.Font, textBounds, ink, ReviewText);
+            if (review.Focused && e.Item.Focused && e.ColumnIndex == review.Columns.Count - 1)
+                ControlPaint.DrawFocusRectangle(e.Graphics, e.Item.Bounds, ink, background);
         }
 
-        private int FixedContentHeight()
+        private int FixedContentHeight(int width)
         {
             int content = root.Padding.Vertical;
+            var available = new Size(Math.Max(1, width - root.Padding.Horizontal), 0);
             foreach (Control child in root.Controls)
-                if (child != results) content += child.GetPreferredSize(new Size(Math.Max(1, ClientSize.Width - root.Padding.Horizontal), 0)).Height + child.Margin.Vertical;
+                if (child != results) content += child.GetPreferredSize(available).Height + child.Margin.Vertical;
             return content;
+        }
+
+        private static int MeasureFields(TableLayoutPanel fields, Size minimum, int gap)
+        {
+            int captions = 0, editors = 0, buttons = 0;
+            for (int row = 0; row < fields.RowCount; row++)
+            {
+                var frame = fields.GetControlFromPosition(1, row) as RoundedEditor;
+                if (frame == null) continue;
+                var caption = (Label)fields.GetControlFromPosition(0, row);
+                Size text = TextRenderer.MeasureText(caption.Text, caption.Font, Size.Empty,
+                    TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix) + caption.Padding.Size;
+                Size saved = DialogControlSizing.Resolve(caption, text);
+                Size captionSize = new Size(Math.Max(text.Width, saved.Width), Math.Max(text.Height, saved.Height));
+                if (caption.Size != captionSize) caption.Size = captionSize;
+                captions = Math.Max(captions, captionSize.Width + caption.Margin.Horizontal + gap);
+                Size field = frame.MeasureField(minimum) + frame.Margin.Size;
+                editors = Math.Max(editors, field.Width);
+                int rowHeight = Math.Max(field.Height, captionSize.Height + caption.Margin.Vertical);
+                var button = fields.ColumnCount == 3 ? fields.GetControlFromPosition(2, row) as RoundedButton : null;
+                if (button != null)
+                {
+                    Size preferred = TextRenderer.MeasureText(button.Text, button.Font, Size.Empty,
+                        TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix) + new Size(gap * 2, gap);
+                    Size buttonSize = DialogControlSizing.Resolve(button,
+                        new Size(Math.Max(button.Width, preferred.Width), Math.Max(button.Height, preferred.Height)));
+                    if (button.Size != buttonSize) button.Size = buttonSize;
+                    rowHeight = Math.Max(rowHeight, buttonSize.Height + button.Margin.Vertical);
+                    buttons = Math.Max(buttons, buttonSize.Width + button.Margin.Horizontal);
+                }
+                var style = fields.RowStyles[row];
+                if (style.SizeType != SizeType.Absolute) style.SizeType = SizeType.Absolute;
+                if (style.Height != rowHeight) style.Height = rowHeight;
+            }
+            if (fields.ColumnStyles[0].Width != captions) fields.ColumnStyles[0].Width = captions;
+            if (fields.ColumnCount == 3 && fields.ColumnStyles[2].Width != buttons) fields.ColumnStyles[2].Width = buttons;
+            return captions + editors + buttons;
+        }
+
+        private static void WrapDetails(TableLayoutPanel fields, int width)
+        {
+            foreach (Control item in fields.Controls)
+                if (item is Label && fields.GetColumnSpan(item) > 1)
+                    item.MaximumSize = new Size(Math.Max(1, width - item.Margin.Horizontal), 0);
         }
 
         private void UpdateScrollExtent()
         {
-            if (root == null) return;
-            int cardWidth = (ClientSize.Width - root.Padding.Horizontal) / 2;
-            clearHint.MaximumSize = new Size(Math.Max(100, cardWidth - Ui.Px(this, 48)), 0);
-            int height = FixedContentHeight() + Ui.Px(this, 148);
-            if (height != AutoScrollMinSize.Height) AutoScrollMinSize = new Size(0, height);
+            if (measuring || results == null) return;
+            measuring = true;
+            SuspendLayout();
+            root.SuspendLayout();
+            targetFields.SuspendLayout();
+            replaceFields.SuspendLayout();
+            formatFields.SuspendLayout();
+            try
+            {
+                float scale = DialogSizing.Scale(this);
+                var minimum = new Size((int)Math.Round(96 * scale), (int)Math.Round(33 * scale));
+                int gap = (int)Math.Round(8 * scale), scrollWidth = (int)Math.Round(16 * scale), scrollGap = (int)Math.Round(4 * scale);
+                int targetWidth = MeasureFields(targetFields, minimum, gap) + targetCard.Padding.Horizontal;
+                int textWidth = MeasureFields(replaceFields, minimum, gap) + textCard.Padding.Horizontal + textCard.Margin.Horizontal;
+                int formatWidth = MeasureFields(formatFields, minimum, gap) + formatCard.Padding.Horizontal +
+                    formatCard.Margin.Horizontal + scrollWidth + scrollGap;
+                int minimumWidth = root.Padding.Horizontal + Math.Max(targetWidth, 2 * Math.Max(textWidth, formatWidth));
+                int width = Math.Max(ClientSize.Width, minimumWidth);
+                int contentWidth = width - root.Padding.Horizontal;
+                int cardWidth = contentWidth / 2;
+                WrapDetails(targetFields, contentWidth - targetCard.Padding.Horizontal);
+                WrapDetails(replaceFields, cardWidth - textCard.Padding.Horizontal - textCard.Margin.Horizontal);
+                clearHint.MaximumSize = new Size(Math.Max(1, cardWidth - formatCard.Padding.Horizontal - formatCard.Margin.Horizontal), 0);
+
+                int fullHeight = 0, visibleHeight = 0;
+                for (int row = 0; row < formatFields.RowCount; row++)
+                {
+                    fullHeight += (int)formatFields.RowStyles[row].Height;
+                    if (row < 4) visibleHeight = fullHeight;
+                }
+                formatViewport.SetMetrics(fullHeight, visibleHeight, scrollWidth, scrollGap, (int)Math.Round(14 * scale));
+                var extent = new Size(minimumWidth, FixedContentHeight(width) + (int)Math.Round(148 * scale));
+                if (AutoScrollMinSize != extent) AutoScrollMinSize = extent;
+            }
+            finally
+            {
+                formatFields.ResumeLayout(true);
+                replaceFields.ResumeLayout(true);
+                targetFields.ResumeLayout(true);
+                root.ResumeLayout(true);
+                ResumeLayout(true);
+                measuring = false;
+            }
         }
 
         private WorksheetBatchRequest Request()
@@ -365,8 +859,6 @@ namespace Excel_Iterate
             sourceDetail.Text = inFolder ? folder ?? "扫描所选文件夹的本层文件。" :
                 inFiles ? (files == null ? "可在文件选择器中多选。" : "已选择 " + files.Length + " 个文件") :
                 "仅处理当前 WPS 实例中已打开的工作簿。";
-            sourceDetail.AutoEllipsis = true;
-            sourceDetail.MaximumSize = new Size(Math.Max(200, ClientSize.Width - 84), 0);
             replaceFields.Enabled = replaceText.Checked;
             formatFields.Enabled = !clearFormatting.Checked;
             fontSwatch.Enabled = font.SelectedIndex == 1;
@@ -376,7 +868,7 @@ namespace Excel_Iterate
             Undo.Enabled = !busy && Undo.State != null;
             apply.Enabled = !busy && preview != null && preview.Cells > 0;
             close.Enabled = !busy;
-            if (Visible) UpdateScrollExtent();
+            RequestLayout();
         }
 
         private void InvalidatePreview()

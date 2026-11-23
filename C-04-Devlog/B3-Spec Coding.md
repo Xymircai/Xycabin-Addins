@@ -55,7 +55,7 @@ H-01 冗余清理与 H-02 代码优化是仅有的两项人工专项，不映射
 
 **R-01** C-04-Devlog 恰好六份：B0-Entry、A-UserGuide、B1-Project-Files、B2-DevExperience、B3-Spec Coding、B4-Code Index；三个项目内不得保留文档副本。仓库根 AGENTS.md 只放指向 B0 的指针，B0 只放阅读顺序与按角色分流。
 
-**R-02** 三个项目只保留 AA-Program（配置器、启动器、正式产物）、AB-Graphic（PNG、SVG、README.txt、.gitkeep）、src 与 build；两个加载项另设 AC-Original Code 专门存放按菜单归类的功能源码，lib 保留必要依赖；AP1-程序、AP2-美工、AP3-说明、icons、src/documentation 出现即失败。
+**R-02** 仓库根目录的可见业务目录限于 C-00-Shared、C-01-ExcelIterate、C-02-WordUpdater、C-03-Website·Xycabin、C-04-Devlog，Git 元数据保存在隐藏的 `.git` 中。脚本、临时探针及发布命令均不得创建根级 `build`。各产品的构建中间产物、缓存和验证报告写入各自的 `build`，跨项目构建、发布与验证的本机证据写入 `C-03-Website·Xycabin/build`。发现遗留根级 `build` 时，布局门禁只读提示后继续构建，清理须按 H-01 单独执行。三个项目只保留 AA-Program（配置器、启动器、正式产物）、AB-Graphic（PNG、SVG、README.txt、.gitkeep）、src 与 build；两个加载项另设 AC-Original Code 专门存放按菜单归类的功能源码，lib 保留必要依赖；AP1-程序、AP2-美工、AP3-说明、icons、src/documentation 出现即失败。网站正式产物保存在 AA-Program；发布核验只允许在 `C-03-Website·Xycabin/build/release-audit/<批次>/` 的 `backup/XyCabin.html` 和 `downloaded/XyCabin.html` 保留同名审计副本。
 
 **R-03** 标题最多五级，同级连续编号、新父级重置，编号后一个半角空格；代码围栏内不参与编号。层级为 `# 一.` → `## 1.` → `### (1).` → `#### a.` → `##### i.`，不跳级、不为凑层级拆短句。
 

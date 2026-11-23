@@ -14,7 +14,7 @@ from verify_package import verify
 sys.path.insert(0, str(SITE_ROOT / "src"))
 from build_cache import inputs, key, digest, receipt, save
 from build_report import BuildReport, relay_omissions, write_json
-from tool_catalog import validation
+from tool_catalog import tools, validation
 
 
 def main():
@@ -62,6 +62,7 @@ def validate(args, report):
                    installer=str(args.installer), rendered=str(rendered))
     selected, pending, background_tools = validation(PROJECT, args.background, render_ui, context)
     tests += [(BUILD / (name + '.exe'), arguments) for name, arguments in selected]
+    timeouts = {tool['name']: tool['timeout_seconds'] for tool in tools(PROJECT) if 'timeout_seconds' in tool}
     logs = ['待前台验收（本轮未运行）：' + ', '.join(pending)] if pending else []
     if args.skip_ui:
         logs.append('SKIP: --skip-ui，窗口布局截图未执行')
@@ -88,7 +89,7 @@ def validate(args, report):
             continue
         if cacheable:
             cache.unlink(missing_ok=True)
-        result = run_process([str(exe), *map(str, args)], cwd=ROOT, capture_output=True, timeout=120)
+        result = run_process([str(exe), *map(str, args)], cwd=ROOT, capture_output=True, timeout=timeouts.get(exe.stem, 120))
         codec = 'gbk' if exe.stem == 'ValidateManifest' else 'utf-8'
         output = result.stdout.decode(codec, 'replace') + result.stderr.decode(codec, 'replace')
         relay_omissions(output)

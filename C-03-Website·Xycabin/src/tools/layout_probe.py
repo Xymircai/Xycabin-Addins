@@ -1,6 +1,8 @@
 """Read-only gate for the delivery folders and the single document home."""
 from pathlib import Path
 import argparse
+from contextlib import redirect_stdout
+from io import StringIO
 import re
 import sys
 import tempfile
@@ -40,6 +42,10 @@ def audit_spans(text):
 # rule=R-02
 def verify(parent=ROOT.parent, source_only=False, folders=None, strict_evidence=False):
     count = 0
+    legacy_build = Path(parent) / 'build'
+    if legacy_build.is_dir():
+        print(f'WARN: 发现遗留的仓库根目录 build（{legacy_build}）。'
+              '请将新增构建与验证输出存入各产品的 build，联合证据存入 C-03-Website·Xycabin/build。', flush=True)
     pending_outputs = {(Path(parent) / folder / PROGRAM /
                         (assembly + '_Setup.exe' if assembly else 'XyCabin.html')).resolve()
                        for folder, assembly in PROJECTS.items()}
@@ -76,10 +82,17 @@ def verify(parent=ROOT.parent, source_only=False, folders=None, strict_evidence=
         for file in base.rglob('*'):
             if not file.is_file():
                 continue
-            if source_only and any(part.startswith('stage-') for part in file.relative_to(base).parts):
+            relative = file.relative_to(base)
+            if source_only and any(part.startswith('stage-') for part in relative.parts):
                 continue
             if file.name in unique and file.resolve() != unique[file.name].resolve():
-                raise ValueError('重复维护或交付文件：' + str(file))
+                parts = relative.parts
+                release_copy = (assembly is None and file.name == 'XyCabin.html' and len(parts) == 5
+                                and parts[:2] == ('build', 'release-audit')
+                                and parts[3] in ('backup', 'downloaded')
+                                and not file.is_symlink() and file.resolve() == base.resolve() / relative)
+                if not release_copy:
+                    raise ValueError('重复维护或交付文件：' + str(file))
             if file.name in ('README.md', 'readme_probe.py', 'Configure.py', 'AgentReadme.md',
                              'AgentUserGuide.md', 'AgentHome.html'):
                 raise ValueError('遗留维护副本：' + str(file))
@@ -125,13 +138,13 @@ def verify(parent=ROOT.parent, source_only=False, folders=None, strict_evidence=
 def self_test():
     with tempfile.TemporaryDirectory(prefix='xycabin-layout-中文·') as temporary:
         parent = Path(temporary)
+        launcher = b'@echo off\r\nchcp 65001\r\nset PYTHONUTF8=1\r\nset PYTHONIOENCODING=utf-8\r\n'
         base = parent / 'C-01-ExcelIterate'
         (base / PROGRAM).mkdir(parents=True)
         (base / DESIGN).mkdir()
         (base / PROGRAM / 'C1-Exceliterate_Configure.py').write_text('', encoding='utf-8')
         (base / PROGRAM / 'Excel_Iterate_Setup.exe').write_text('', encoding='utf-8')
-        (base / PROGRAM / '一键重建并打包.bat').write_bytes(
-            b'@echo off\r\nchcp 65001\r\nset PYTHONUTF8=1\r\nset PYTHONIOENCODING=utf-8\r\n')
+        (base / PROGRAM / '一键重建并打包.bat').write_bytes(launcher)
         (base / DESIGN / 'shot.png').write_bytes(b'')
         (base / DESIGN / 'ui.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg"/>', encoding='utf-8')
         (base / DESIGN / 'README.txt').write_text('', encoding='utf-8')
@@ -144,6 +157,7 @@ def self_test():
         (docs / 'B4-Code Index.md').write_text('**代码索引**\n\n# 一. Excel-Iterate\n索引。\n# 二. WordUpdater\n索引。\n', encoding='utf-8')
         (docs / 'A-UserGuide.md').write_text('**使用说明**\n\n概览。\n\n# 一. Excel-Iterate\n[入口](../C-01-ExcelIterate/AA-Program/C1-Exceliterate_Configure.py)\n', encoding='utf-8')
         verify(parent, folders={'C-01-ExcelIterate'})
+        assert not (parent / 'build').exists(), 'Layout gate created a root build directory'
         (base / PROGRAM / 'Excel_Iterate_Setup.exe').unlink()
         verify(parent, source_only=True, folders={'C-01-ExcelIterate'})
         try:
@@ -169,9 +183,7 @@ def self_test():
         else:
             raise AssertionError('输出目录接受了多余文件')
         (base / PROGRAM / 'extra.py').unlink()
-        # New joint-build evidence lives under repository/build as well as
-        # product/build. R-12 still requires it in strict mode and never
-        # exempts links outside delivery-audit sections.
+        # Historic root-build evidence remains optional only in audit sections.
         archive = docs / 'B1-Project-Files.md'
         original_archive = archive.read_text(encoding='utf-8')
         archive.write_text(original_archive + '\n### (1). 本轮交付证据\n[历史报告](../build/history.json)\n', encoding='utf-8')
@@ -244,7 +256,38 @@ def self_test():
             pass
         else:
             raise AssertionError('Accepted a launcher without CRLF/Python UTF-8')
-    print('LayoutProbe self-test: 16 PASS, 0 FAIL', flush=True)
+
+        site = parent / 'C-03-Website·Xycabin'
+        (site / PROGRAM).mkdir(parents=True)
+        (site / DESIGN).mkdir()
+        (site / PROGRAM / CONFIGURE[site.name]).write_text('', encoding='utf-8')
+        (site / PROGRAM / '一键重建并打包.bat').write_bytes(launcher)
+        (site / PROGRAM / 'XyCabin.html').write_text('current', encoding='utf-8')
+        batch = site / 'build' / 'release-audit' / 'release-fixture'
+        for name, content in (('backup', 'previous'), ('downloaded', 'current')):
+            (batch / name).mkdir(parents=True)
+            (batch / name / 'XyCabin.html').write_text(content, encoding='utf-8')
+        verify(parent, folders={site.name})
+
+        unexpected = batch / 'XyCabin.html'
+        unexpected.write_text('unexpected', encoding='utf-8')
+        try:
+            verify(parent, folders={site.name})
+        except ValueError as exc:
+            assert str(exc) == '重复维护或交付文件：' + str(unexpected)
+        else:
+            raise AssertionError('Accepted a duplicate site artifact outside backup/downloaded')
+        unexpected.unlink()
+
+        legacy_build = parent / 'build'
+        legacy_build.mkdir()
+        sentinel = legacy_build / 'old.log'
+        sentinel.write_text('old evidence', encoding='utf-8')
+        with redirect_stdout(StringIO()) as log:
+            verify(parent, folders={site.name})
+        assert 'WARN: 发现遗留的仓库根目录 build' in log.getvalue()
+        assert sentinel.read_text(encoding='utf-8') == 'old evidence'
+    print('LayoutProbe self-test: 20 PASS, 0 FAIL', flush=True)
 
 
 if __name__ == '__main__':

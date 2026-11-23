@@ -39,7 +39,18 @@ def process_options(options=None):
 
 
 def _append(path, value):
-    with Path(path).open('a', encoding='utf-8') as stream:
+    # A Windows file scanner can briefly hold a freshly created trace. Retry
+    # opening only, so a partially written record is never appended twice.
+    deadline = time.monotonic() + 1
+    while True:
+        try:
+            stream = Path(path).open('a', encoding='utf-8')
+            break
+        except PermissionError:
+            if os.name != 'nt' or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.05)
+    with stream:
         stream.write(json.dumps(value, ensure_ascii=False) + '\n')
 
 

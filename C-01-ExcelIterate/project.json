@@ -311,6 +311,7 @@
     {
       "name": "Feature099Probe",
       "source": "@shared/src/testharness/Feature099Probe.cs",
+      "timeout_seconds": 480,
       "references": [
         "@addin",
         "System.Windows.Forms.dll",
@@ -544,6 +545,7 @@
     {
       "name": "ConversionInteractionProbe",
       "source": "src/testharness/ConversionInteractionProbe.cs",
+      "timeout_seconds": 240,
       "references": [
         "@addin",
         "System.Windows.Forms.dll",

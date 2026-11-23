@@ -38,6 +38,7 @@ namespace Excel_Iterate
     // XML envelope with a versioned JSON body. No credentials enter this file.
     internal sealed class LocalCustomization
     {
+        private const string ChangedFileMessage = "配置已被另一窗口修改，请重新打开后再保存。";
         internal readonly string Path;
         private string digest;
         private bool readOnly;
@@ -68,16 +69,44 @@ namespace Excel_Iterate
             if(readOnly)throw new InvalidDataException("配置无法读取或来自较新版本。请先备份并移走配置文件："+Path);
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path));
             using(var guard=new FileStream(Path+".lock",FileMode.OpenOrCreate,FileAccess.ReadWrite,FileShare.None)) {
-                if(CurrentDigest()!=digest)throw new IOException("配置已被另一窗口修改，请重新打开后再保存。");
+                if(CurrentDigest()!=digest)throw new IOException(ChangedFileMessage);
                 string temp=Path+"."+Guid.NewGuid().ToString("N")+".tmp";
                 try {
                     using(var writer=XmlWriter.Create(temp,new XmlWriterSettings {Encoding=new UTF8Encoding(false)})) {
                         writer.WriteStartElement("customization");writer.WriteAttributeString("version","1");writer.WriteString(Convert.ToBase64String(Encode(data)));writer.WriteEndElement();
                     }
-                    if(File.Exists(Path))File.Replace(temp,Path,null);else File.Move(temp,Path);
+                    CommitFile(temp);
                     digest=CurrentDigest();Data=data.Copy();
                 } finally {if(File.Exists(temp))File.Delete(temp);}
             }
+        }
+
+        private void CommitFile(string temporary)
+        {
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    if (attempt > 0 && CurrentDigest() != digest) throw new IOException(ChangedFileMessage);
+                    if (File.Exists(Path)) File.Replace(temporary, Path, null);
+                    else File.Move(temporary, Path);
+                    return;
+                }
+                catch (IOException error)
+                {
+                    if (attempt >= 4 || !IsTransientFileLock(error)) throw;
+                    System.Threading.Thread.Sleep(50 << attempt);
+                }
+            }
+        }
+
+        private static bool IsTransientFileLock(IOException error)
+        {
+            const int SharingViolation = unchecked((int)0x80070020);
+            const int LockViolation = unchecked((int)0x80070021);
+            const int UnableToRemoveReplaced = unchecked((int)0x80070497);
+            return error.HResult == SharingViolation || error.HResult == LockViolation ||
+                error.HResult == UnableToRemoveReplaced;
         }
     }
     internal static class RibbonCustomization

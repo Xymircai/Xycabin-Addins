@@ -14,7 +14,128 @@ namespace Excel_Iterate
         {
             [DllImport("user32.dll", EntryPoint = "SendMessageW")]
             private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
+            [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+            private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, out NativeRect bounds);
+            [DllImport("user32.dll")]
+            private static extern bool GetComboBoxInfo(IntPtr window, ref ComboBoxInfo info);
+
+            [StructLayout(LayoutKind.Sequential)]
+            private struct NativeRect
+            {
+                internal int Left, Top, Right, Bottom;
+
+                internal bool Contains(Point point)
+                { return point.X >= Left && point.X < Right && point.Y >= Top && point.Y < Bottom; }
+            }
+
+            [StructLayout(LayoutKind.Sequential)]
+            private struct ComboBoxInfo
+            {
+                internal int Size;
+                internal NativeRect Item, Button;
+                internal int ButtonState;
+                internal IntPtr Combo, Edit, List;
+            }
+
+            private sealed class ChoiceList : NativeWindow
+            {
+                [DllImport("user32.dll")]
+                private static extern bool GetClientRect(IntPtr window, out NativeRect bounds);
+                [DllImport("user32.dll")]
+                private static extern bool TrackMouseEvent(ref MouseTracking tracking);
+                [DllImport("user32.dll")]
+                private static extern bool InvalidateRect(IntPtr window, ref NativeRect rect, bool erase);
+
+                [StructLayout(LayoutKind.Sequential)]
+                private struct MouseTracking
+                {
+                    internal int Size, Flags;
+                    internal IntPtr Window;
+                    internal int HoverTime;
+                }
+
+                private Point? pointer;
+                private bool tracking;
+                private int hoveredRow = -1;
+
+                internal bool IsOver(int index) { return hoveredRow == index; }
+
+                internal void UpdateHover()
+                {
+                    if (Handle == IntPtr.Zero) return;
+                    int next = RowAtPointer();
+                    if (hoveredRow == next) return;
+                    int previous = hoveredRow;
+                    hoveredRow = next;
+                    InvalidateRow(previous);
+                    InvalidateRow(next);
+                }
+
+                private int RowAtPointer()
+                {
+                    if (!pointer.HasValue) return -1;
+                    Point point = pointer.Value;
+                    const int ItemFromPoint = 0x01a9;
+                    int hit = SendMessage(Handle, ItemFromPoint, IntPtr.Zero, (IntPtr)((point.Y << 16) | (point.X & 0xffff))).ToInt32();
+                    int row = hit & 0xffff;
+                    NativeRect bounds;
+                    return (hit >> 16) == 0 && TryGetRowBounds(row, out bounds) && bounds.Contains(point) ? row : -1;
+                }
+
+                private bool TryGetRowBounds(int row, out NativeRect bounds)
+                {
+                    const int GetItemRect = 0x0198;
+                    return SendMessage(Handle, GetItemRect, (IntPtr)row, out bounds).ToInt64() != -1;
+                }
+
+                private void InvalidateRow(int row)
+                {
+                    NativeRect bounds;
+                    if (row >= 0 && TryGetRowBounds(row, out bounds))
+                        InvalidateRect(Handle, ref bounds, false);
+                }
+
+                internal void Detach()
+                {
+                    pointer = null;
+                    tracking = false;
+                    hoveredRow = -1;
+                    if (Handle != IntPtr.Zero) ReleaseHandle();
+                }
+
+                protected override void WndProc(ref Message message)
+                {
+                    const int MouseMove = 0x0200, MouseLeave = 0x02a3, NonClientMouseMove = 0x00a0;
+                    const int MouseWheel = 0x020a, VerticalScroll = 0x0115, Destroy = 0x0082;
+                    if (message.Msg == MouseMove)
+                    {
+                        long location = message.LParam.ToInt64();
+                        var point = new Point(unchecked((short)location), unchecked((short)(location >> 16)));
+                        NativeRect client;
+                        pointer = GetClientRect(Handle, out client) && client.Contains(point) ? point : (Point?)null;
+                        if (pointer.HasValue && !tracking)
+                        {
+                            const int TrackLeave = 2;
+                            var request = new MouseTracking { Size = Marshal.SizeOf(typeof(MouseTracking)), Flags = TrackLeave, Window = Handle };
+                            tracking = TrackMouseEvent(ref request);
+                        }
+                        UpdateHover();
+                    }
+                    else if (message.Msg == MouseLeave || message.Msg == NonClientMouseMove)
+                    {
+                        pointer = null;
+                        tracking = false;
+                        UpdateHover();
+                    }
+                    else if (message.Msg == Destroy) { pointer = null; tracking = false; hoveredRow = -1; }
+
+                    base.WndProc(ref message);
+                    if (message.Msg == MouseWheel || message.Msg == VerticalScroll) UpdateHover();
+                }
+            }
+
             private const int SetItemHeight = 0x0153;
+            private readonly ChoiceList list = new ChoiceList();
             private bool hovered;
             internal Action<int> ScrollClosed;
             internal Action PrepareItems;
@@ -58,21 +179,21 @@ namespace Excel_Iterate
                 var bounds = e.Bounds;
                 bool contrast = SystemInformation.HighContrast;
                 bool inList = (e.State & DrawItemState.ComboBoxEdit) == 0;
-                bool current = inList && e.Index >= 0 && e.Index == SelectedIndex;
-                bool highlighted = inList && (e.State & DrawItemState.Selected) != 0;
+                bool highlighted = inList && e.Index >= 0 && list.IsOver(e.Index);
                 Color background = contrast ? SystemColors.Window : BackColor;
                 if (contrast && highlighted) background = SystemColors.Highlight;
-                Color ink = contrast ? (highlighted ? SystemColors.HighlightText : SystemColors.WindowText) : current ? Ui.Blue : ForeColor;
+                Color ink = contrast ? (highlighted ? SystemColors.HighlightText : SystemColors.WindowText)
+                    : highlighted ? Ui.SelectInk : ForeColor;
                 using (var brush = new SolidBrush(background)) graphics.FillRectangle(brush, bounds);
                 float scale = graphics.DpiX / 96f;
-                if (!contrast && (current || highlighted) && bounds.Width > 8 * scale && bounds.Height > 4 * scale)
+                if (!contrast && highlighted && bounds.Width > 8 * scale && bounds.Height > 4 * scale)
                 {
                     var pill = new RectangleF(bounds.X + 4 * scale, bounds.Y + 2 * scale,
                         bounds.Width - 8 * scale, bounds.Height - 4 * scale);
                     var smoothing = graphics.SmoothingMode;
                     graphics.SmoothingMode = SmoothingMode.AntiAlias;
                     using (var path = Ui.RoundRect(pill, 6 * scale))
-                    using (var brush = new SolidBrush(current ? Ui.SelectBack : Ui.GridHead)) graphics.FillPath(brush, path);
+                    using (var brush = new SolidBrush(Ui.SelectBack)) graphics.FillPath(brush, path);
                     graphics.SmoothingMode = smoothing;
                 }
                 int inset = (int)Math.Round((inList ? 16 : 3) * scale);
@@ -80,12 +201,12 @@ namespace Excel_Iterate
                     TextRenderer.DrawText(graphics, GetItemText(Items[e.Index]), Font, Rectangle.Inflate(bounds, -inset, 0), ink,
                         TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
                         TextFormatFlags.NoPrefix | TextFormatFlags.PreserveGraphicsClipping);
-                if (contrast && inList) e.DrawFocusRectangle();
+                if (inList) e.DrawFocusRectangle();
             }
 
             protected override void WndProc(ref Message message)
             {
-                const int LeftButtonDown = 0x0201, KeyDown = 0x0100, SystemKeyDown = 0x0104, ShowDropDown = 0x014f;
+                const int LeftButtonDown = 0x0201, KeyDown = 0x0100, Character = 0x0102, SystemKeyDown = 0x0104, ShowDropDown = 0x014f;
                 if (message.Msg == LeftButtonDown || message.Msg == KeyDown || message.Msg == SystemKeyDown ||
                     (message.Msg == ShowDropDown && message.WParam != IntPtr.Zero))
                     EnsureItems();
@@ -97,6 +218,8 @@ namespace Excel_Iterate
                     return;
                 }
                 base.WndProc(ref message);
+                if (message.Msg == KeyDown || message.Msg == SystemKeyDown || message.Msg == Character || message.Msg == MouseWheel)
+                    list.UpdateHover();
             }
 
             protected override void OnPaint(PaintEventArgs e)
@@ -136,9 +259,39 @@ namespace Excel_Iterate
 
             protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); hovered = true; Invalidate(); }
             protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); hovered = false; Invalidate(); }
-            protected override void OnDropDown(EventArgs e) { EnsureItems(); MeasureList(); base.OnDropDown(e); Invalidate(); }
-            protected override void OnDropDownClosed(EventArgs e) { base.OnDropDownClosed(e); Invalidate(); }
-            protected override void OnSelectedIndexChanged(EventArgs e) { base.OnSelectedIndexChanged(e); Invalidate(); }
+            protected override void OnDropDown(EventArgs e)
+            {
+                EnsureItems();
+                MeasureList();
+                var info = new ComboBoxInfo { Size = Marshal.SizeOf(typeof(ComboBoxInfo)) };
+                if (GetComboBoxInfo(Handle, ref info) && info.List != IntPtr.Zero && list.Handle != info.List)
+                {
+                    list.Detach();
+                    list.AssignHandle(info.List);
+                }
+                base.OnDropDown(e);
+                Invalidate();
+            }
+
+            protected override void OnDropDownClosed(EventArgs e)
+            {
+                list.Detach();
+                base.OnDropDownClosed(e);
+                Invalidate();
+            }
+
+            protected override void OnHandleDestroyed(EventArgs e)
+            {
+                list.Detach();
+                base.OnHandleDestroyed(e);
+            }
+
+            protected override void OnSelectedIndexChanged(EventArgs e)
+            {
+                base.OnSelectedIndexChanged(e);
+                list.UpdateHover();
+                Invalidate();
+            }
 
             internal void EnsureItems()
             {
@@ -368,7 +521,7 @@ namespace Excel_Iterate
             }
         }
 
-        private static readonly string[] NumberFormats = { null, "General", "#,##0", "#,##0.00", "0.00%", "yyyy-mm-dd", "@" };
+        private static readonly string[] NumberFormats = { null, "General", "@", "#,##0.00", "0.00%", "yyyy-mm-dd" };
         private static readonly WorksheetBatchHorizontal?[] HorizontalValues = { null, WorksheetBatchHorizontal.General,
             WorksheetBatchHorizontal.Left, WorksheetBatchHorizontal.Center, WorksheetBatchHorizontal.Right,
             WorksheetBatchHorizontal.Justify, WorksheetBatchHorizontal.Distributed };
@@ -386,15 +539,17 @@ namespace Excel_Iterate
         private readonly BatchChoice fontFamily = InstalledFontChoice();
         private readonly BatchChoice horizontal = Choice("batchHorizontal", "水平对齐", "保持原样", "常规", "左对齐", "居中", "右对齐", "两端对齐", "分散对齐");
         private readonly BatchChoice vertical = Choice("batchVertical", "垂直对齐", "保持原样", "顶端", "居中", "底端");
-        private readonly BatchChoice number = Choice("batchNumberFormat", "数字格式", "保持原样", "常规", "千分位 · 整数", "千分位 · 两位小数", "百分比 · 两位小数", "日期 · 年-月-日", "文本");
+        private readonly BatchChoice number = Choice("batchNumberFormat", "数字格式", "保持原样", "常规格式", "文本格式", "千分位 · 两位小数", "百分比 · 两位小数", "日期 · 年-月-日");
         private readonly BatchChoice font = Choice("batchFontColor", "字体颜色", "保持原样", "设置颜色");
         private readonly BatchChoice fill = Choice("batchFillColor", "填充颜色", "保持原样", "设置颜色", "无填充");
         private readonly CheckBox replaceText = new CheckBox { Name = "batchReplaceText", Text = "替换文字", AutoSize = true };
         private readonly CheckBox matchCase = new CheckBox { Name = "batchMatchCase", Text = "区分大小写", AutoSize = true };
         private readonly CheckBox wholeCell = new CheckBox { Name = "batchWholeCell", Text = "匹配整个单元格", AutoSize = true };
-        private readonly CheckBox clearFormatting = new CheckBox { Name = "batchClearFormatting", Text = "清除格式", AutoSize = true,
-            AccessibleDescription = "重置字体名称、文本样式、字体颜色、填充、数字格式和对齐。" };
-        private readonly Label clearHint = ConversionUi.Hint("重置常用格式，保留字号、边框、条件格式和保护设置。");
+        private readonly CheckBox clearFormatting = new CheckBox
+        {
+            Name = "batchClearFormatting", Text = "清除格式（重置常用格式，保留字号、边框、条件格式）", AutoSize = true,
+            AccessibleDescription = "重置字体名称、文本样式、字体颜色、填充、数字格式和对齐。保留保护设置。"
+        };
         private readonly FormatViewport formatViewport;
         private readonly Label sourceDetail = ConversionUi.Hint("");
         private readonly Label status = ConversionUi.Hint("设置目标和操作后，先预览。");
@@ -407,9 +562,9 @@ namespace Excel_Iterate
         private readonly RoundedButton fillSwatch = ConversionUi.Button("", 96);
         private readonly RoundedButton check = ConversionUi.Button("预览", 96);
         private readonly RoundedButton apply = ConversionUi.Button("应用批量操作", 136, true);
-        private readonly RoundedButton close = ConversionUi.Button("关闭", 80);
         internal readonly WorksheetUndoButton Undo = new WorksheetUndoButton();
-        private readonly TableLayoutPanel root, parameters;
+        private readonly TableLayoutPanel root, parameters, operations;
+        private readonly List<Control> layoutContainers = new List<Control>();
         private readonly UiCard targetCard, textCard, formatCard, results;
         private readonly TableLayoutPanel targetFields, replaceFields, formatFields;
         private Color fontColor = Color.FromArgb(29, 78, 216), fillColor = Color.FromArgb(254, 243, 199);
@@ -465,9 +620,12 @@ namespace Excel_Iterate
             var formatting = Table(1);
             AddRow(formatting, formatViewport);
             AddRow(formatting, clearFormatting);
-            AddRow(formatting, clearHint);
+            clearFormatting.FontChanged += delegate { RequestLayout(); };
+            clearFormatting.TextChanged += delegate { RequestLayout(); };
 
-            var operations = TwoColumns();
+            operations = Table(2);
+            operations.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            operations.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute));
             operations.RowStyles.Add(new RowStyle(SizeType.AutoSize));
             textCard = Card("文字替换", textOptions);
             textCard.Name = "batchTextCard";
@@ -502,11 +660,15 @@ namespace Excel_Iterate
             AddRow(root, status);
             var actions = Ui.ActionBar();
             actions.FlowDirection = FlowDirection.RightToLeft;
-            apply.Name = "batchApply"; check.Name = "batchCheck"; close.Name = "batchClose";
-            actions.Controls.AddRange(new Control[] { apply, Undo, check, close });
+            apply.Name = "batchApply"; check.Name = "batchCheck";
+            actions.Controls.AddRange(new Control[] { apply, Undo, check });
             AddRow(root, actions);
             Controls.Add(root);
-            CancelButton = close;
+
+            sheet.Text = initialSheet ?? "";
+            area.Text = initialRange ?? "A1";
+            UpdateSwatch(fontSwatch, fontColor, "字体颜色");
+            UpdateSwatch(fillSwatch, fillColor, "填充颜色");
             FormClosing += delegate(object sender, FormClosingEventArgs e) { if (busy && e.CloseReason == CloseReason.UserClosing) e.Cancel = true; };
             ClientSizeChanged += delegate { RequestLayout(); };
 
@@ -520,11 +682,6 @@ namespace Excel_Iterate
             fillSwatch.Click += delegate { ChooseColor(true); };
             check.Click += delegate { RunBatch(false); };
             apply.Click += delegate { RunBatch(true); };
-            close.Click += delegate { Close(); };
-            sheet.Text = initialSheet ?? "";
-            area.Text = initialRange ?? "A1";
-            UpdateSwatch(fontSwatch, fontColor, "字体颜色");
-            UpdateSwatch(fillSwatch, fillColor, "填充颜色");
             if (sample)
             {
                 replaceText.Checked = true; find.Text = "暂估"; replacement.Text = "已入账";
@@ -540,6 +697,7 @@ namespace Excel_Iterate
                 ShowReport(sampleReport, false);
             }
             RefreshControls();
+            ResumeContainers();
             ResumeLayout(true);
         }
 
@@ -558,8 +716,28 @@ namespace Excel_Iterate
         protected override void OnLoad(EventArgs e)
         {
             SuspendLayout();
+            foreach (Control container in layoutContainers) container.SuspendLayout();
             try { base.OnLoad(e); RequestLayout(); }
-            finally { ResumeLayout(true); }
+            finally
+            {
+                ResumeContainers();
+                ResumeLayout(true);
+            }
+        }
+
+        private void ResumeContainers()
+        {
+            // The form measures the final widths and heights before laying out its children.
+            foreach (Control container in layoutContainers) container.ResumeLayout(false);
+        }
+
+        protected override bool ProcessDialogKey(Keys keyData)
+        {
+            var choice = ActiveControl as ComboBox;
+            if (keyData != Keys.Escape || (choice != null && choice.DroppedDown))
+                return base.ProcessDialogKey(keyData);
+            if (!busy) Close();
+            return true;
         }
 
         private void RequestLayout()
@@ -624,21 +802,17 @@ namespace Excel_Iterate
             return choices.ToArray();
         }
 
-        private static TableLayoutPanel Table(int columns)
+        private TableLayoutPanel Table(int columns)
         {
-            return new TableLayoutPanel { ColumnCount = columns, Dock = DockStyle.Top, AutoSize = true,
+            var table = new TableLayoutPanel { ColumnCount = columns, Dock = DockStyle.Top, AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = Padding.Empty };
-        }
-
-        private static TableLayoutPanel TwoColumns()
-        {
-            var table = Table(2);
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            table.SuspendLayout();
+            layoutContainers.Add(table);
+            if (columns == 1) table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             return table;
         }
 
-        private static TableLayoutPanel FieldColumn(bool hasAction = false)
+        private TableLayoutPanel FieldColumn(bool hasAction = false)
         {
             var table = Table(hasAction ? 3 : 2);
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute));
@@ -678,10 +852,12 @@ namespace Excel_Iterate
             else if (table.ColumnCount == 3) table.SetColumnSpan(table.GetControlFromPosition(1, row), 2);
         }
 
-        private static UiCard Card(string title, Control content)
+        private UiCard Card(string title, Control content)
         {
             var card = new UiCard { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Top,
                 Margin = new Padding(0, 0, 0, 7), Padding = new Padding(13, 7, 13, 9) };
+            card.SuspendLayout();
+            layoutContainers.Add(card);
             var table = Table(1);
             AddRow(table, ConversionUi.Label(title, 10, true));
             AddRow(table, content);
@@ -788,6 +964,7 @@ namespace Excel_Iterate
             measuring = true;
             SuspendLayout();
             root.SuspendLayout();
+            operations.SuspendLayout();
             targetFields.SuspendLayout();
             replaceFields.SuspendLayout();
             formatFields.SuspendLayout();
@@ -798,15 +975,21 @@ namespace Excel_Iterate
                 int gap = (int)Math.Round(8 * scale), scrollWidth = (int)Math.Round(16 * scale), scrollGap = (int)Math.Round(4 * scale);
                 int targetWidth = MeasureFields(targetFields, minimum, gap) + targetCard.Padding.Horizontal;
                 int textWidth = MeasureFields(replaceFields, minimum, gap) + textCard.Padding.Horizontal + textCard.Margin.Horizontal;
-                int formatWidth = MeasureFields(formatFields, minimum, gap) + formatCard.Padding.Horizontal +
-                    formatCard.Margin.Horizontal + scrollWidth + scrollGap;
-                int minimumWidth = root.Padding.Horizontal + Math.Max(targetWidth, 2 * Math.Max(textWidth, formatWidth));
+                int formatChrome = formatCard.Padding.Horizontal + formatCard.Margin.Horizontal;
+                int formatRowsWidth = MeasureFields(formatFields, minimum, gap) + scrollWidth + scrollGap;
+                int clearCaptionWidth = clearFormatting.GetPreferredSize(Size.Empty).Width;
+                if (DialogControlSizing.HasWidth(clearFormatting) && clearFormatting.MinimumSize.Width < clearCaptionWidth)
+                    clearFormatting.MinimumSize = new Size(clearCaptionWidth, clearFormatting.MinimumSize.Height);
+                int clearWidth = clearCaptionWidth + clearFormatting.Margin.Horizontal;
+                int formatWidth = Math.Max(formatRowsWidth, clearWidth) + formatChrome;
+                int minimumWidth = root.Padding.Horizontal + Math.Max(targetWidth, textWidth + formatWidth);
                 int width = Math.Max(ClientSize.Width, minimumWidth);
                 int contentWidth = width - root.Padding.Horizontal;
-                int cardWidth = contentWidth / 2;
+                int formatColumnWidth = Math.Min(contentWidth - textWidth, Math.Max((contentWidth + 1) / 2, formatWidth));
+                if (operations.ColumnStyles[1].Width != formatColumnWidth)
+                    operations.ColumnStyles[1].Width = formatColumnWidth;
                 WrapDetails(targetFields, contentWidth - targetCard.Padding.Horizontal);
-                WrapDetails(replaceFields, cardWidth - textCard.Padding.Horizontal - textCard.Margin.Horizontal);
-                clearHint.MaximumSize = new Size(Math.Max(1, cardWidth - formatCard.Padding.Horizontal - formatCard.Margin.Horizontal), 0);
+                WrapDetails(replaceFields, contentWidth - formatColumnWidth - textCard.Padding.Horizontal - textCard.Margin.Horizontal);
 
                 int fullHeight = 0, visibleHeight = 0;
                 for (int row = 0; row < formatFields.RowCount; row++)
@@ -823,6 +1006,7 @@ namespace Excel_Iterate
                 formatFields.ResumeLayout(true);
                 replaceFields.ResumeLayout(true);
                 targetFields.ResumeLayout(true);
+                operations.ResumeLayout(true);
                 root.ResumeLayout(true);
                 ResumeLayout(true);
                 measuring = false;
@@ -867,7 +1051,6 @@ namespace Excel_Iterate
             check.Enabled = !busy;
             Undo.Enabled = !busy && Undo.State != null;
             apply.Enabled = !busy && preview != null && preview.Cells > 0;
-            close.Enabled = !busy;
             RequestLayout();
         }
 

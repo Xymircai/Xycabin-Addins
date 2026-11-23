@@ -393,12 +393,25 @@ internal static class ConversionInteractionProbe
                     new DrawItemEventArgs(graphics, textStyle.Font, bounds, selected, DrawItemState.Selected)
                 });
                 Check(bitmap.GetPixel(0, 0).ToArgb() == textStyle.BackColor.ToArgb() &&
-                    bitmap.GetPixel(153, bitmap.Height / 2).ToArgb() == Ui.SelectBack.ToArgb(),
-                    "the selected drop-down row uses a pale-blue rounded highlight with a white inset");
+                    bitmap.GetPixel(153, bitmap.Height / 2).ToArgb() == textStyle.BackColor.ToArgb(),
+                    "native selection does not paint a blue background without a pointer over the row");
             }
         }
         using (var form = new WorksheetBatchForm("Notes", "A1"))
         {
+            var number = (ComboBox)form.Controls.Find("batchNumberFormat", true)[0];
+            Check(number.Items.Cast<string>().SequenceEqual(new[]
+            {
+                "保持原样", "常规格式", "文本格式", "千分位 · 两位小数", "百分比 · 两位小数", "日期 · 年-月-日"
+            }), "number format choices have the requested labels and order");
+            var formats = new[] { null, "General", "@", "#,##0.00", "0.00%", "yyyy-mm-dd" };
+            var request = typeof(WorksheetBatchForm).GetMethod("Request", BindingFlags.Instance | BindingFlags.NonPublic);
+            for (int i = 0; i < formats.Length; i++)
+            {
+                number.SelectedIndex = i;
+                Check(((WorksheetBatchRequest)request.Invoke(form, null)).NumberFormat == formats[i],
+                    "number format choice maps to the workbook format " + number.Text);
+            }
             var fonts = (ComboBox)form.Controls.Find("batchFontFamily", true)[0];
             Check(fonts.Items.Count == 1, "opening the working dialog defers the installed font scan");
             fonts.GetType().GetMethod("EnsureItems", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public).Invoke(fonts, null);
@@ -425,6 +438,12 @@ internal static class ConversionInteractionProbe
             var source = (ComboBox)form.Controls.Find("batchSource", true)[0];
             var replaceCard = (UiCard)form.Controls.Find("batchTextCard", true)[0];
             var formatCard = (UiCard)form.Controls.Find("batchFormatCard", true)[0];
+            Check(clear.Text == "清除格式（重置常用格式，保留字号、边框、条件格式）" &&
+                !Descendants(formatCard).OfType<Label>().Any(label => label.Text.StartsWith("重置常用格式")),
+                "clear formatting has one checkbox caption with the full inline explanation");
+            Check(apply.Parent.Controls.Cast<Control>().Select(button => button.Name)
+                .SequenceEqual(new[] { "batchApply", "worksheetUndo", "batchCheck" }),
+                "the footer has three actions and the window chrome provides close");
             Check(replaceCard.Parent == formatCard.Parent &&
                 replaceCard.Top == formatCard.Top && replaceCard.Right < formatCard.Left,
                 "text replacement and formatting are side-by-side");
@@ -551,13 +570,7 @@ internal static class ConversionInteractionProbe
                             Check(label.Width >= line.Width && label.Height == line.Height,
                                 "format label fits on one line " + caption + " " + size);
                         }
-                        foreach (string name in new[] { "batchTextStyle", "batchNumberFormat", "batchFontColor", "batchFillColor" })
-                        {
-                            Control editor = form.Controls.Find(name, true)[0];
-                            var clip = editor.Parent.Parent.Parent;
-                            Check(clip.ClientRectangle.Contains(In(clip, editor.Parent)) && editor.Parent.ClientRectangle.Contains(In(editor.Parent, editor)),
-                                "a complete format row is visible without clipping " + name + " " + size);
-                        }
+                        CheckBatchBounds(form, size);
                         if (renderFolder != null && factor == 1.5f && width == 900)
                             RenderForm(form, Path.Combine(renderFolder, "conversion.worksheetBatch.scaled.png"));
                     }
@@ -566,6 +579,258 @@ internal static class ConversionInteractionProbe
             finally { foreach (var font in fonts) font.Dispose(); }
         }
     }
+
+    private static void CheckBatchBounds(Form form, string size)
+    {
+        var card = form.Controls.Find("batchFormatCard", true)[0];
+        var viewport = form.Controls.Find("batchFormatViewport", true)[0];
+        var scroll = form.Controls.Find("batchFormatScroll", true)[0];
+        var clear = (CheckBox)form.Controls.Find("batchClearFormatting", true)[0];
+        Rectangle content = card.ClientRectangle;
+        content.Width -= card.Padding.Right;
+        Check(content.Contains(In(card, viewport)) && content.Contains(In(card, scroll)) &&
+            content.Contains(In(card, clear)) && clear.Width >= clear.GetPreferredSize(Size.Empty).Width,
+            "the viewport, scrollbar and full clear caption fit the format card " + size);
+        foreach (string name in new[] { "batchTextStyle", "batchNumberFormat", "batchFontColor", "batchFillColor" })
+        {
+            Control editor = form.Controls.Find(name, true)[0];
+            var fields = (TableLayoutPanel)editor.Parent.Parent;
+            var clip = fields.Parent;
+            var swatch = fields.GetControlFromPosition(2, fields.GetRow(editor.Parent));
+            Check(clip.ClientRectangle.Contains(In(clip, editor.Parent)) &&
+                editor.Parent.ClientRectangle.Contains(In(editor.Parent, editor)) &&
+                (swatch == null || swatch == editor.Parent || clip.ClientRectangle.Contains(In(clip, swatch))),
+                "the complete format row, including the color button, fits " + name + " " + size);
+        }
+        var textCard = form.Controls.Find("batchTextCard", true)[0];
+        var find = form.Controls.Find("batchFind", true)[0];
+        Check(In(textCard, find.Parent).Right <= textCard.ClientSize.Width - textCard.Padding.Right,
+            "the entire find editor fits the text replacement card " + size);
+    }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateDesktop(string name, IntPtr device, IntPtr mode, uint flags, uint access, IntPtr attributes);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetThreadDesktop(IntPtr desktop);
+    [DllImport("user32.dll")]
+    private static extern bool CloseDesktop(IntPtr desktop);
+    [DllImport("user32.dll")]
+    private static extern bool SetProcessDPIAware();
+    [DllImport("user32.dll")]
+    private static extern bool GetComboBoxInfo(IntPtr combo, ref ComboWindowInfo info);
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr keys, ref NativeRect rectangle);
+    [DllImport("user32.dll")]
+    private static extern bool ValidateRect(IntPtr window, IntPtr rect);
+    [DllImport("user32.dll")]
+    private static extern bool GetUpdateRect(IntPtr window, out NativeRect rect, bool erase);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        internal int Left, Top, Right, Bottom;
+
+        internal Rectangle Bounds { get { return Rectangle.FromLTRB(Left, Top, Right, Bottom); } }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ComboWindowInfo
+    {
+        internal int Size;
+        internal NativeRect Item, Button;
+        internal int ButtonState;
+        internal IntPtr Combo, Edit, List;
+    }
+
+    private static void PressNativeKey(Control control, Keys key)
+    {
+        const int KeyDown = 0x0100;
+        var message = Message.Create(control.Handle, KeyDown, (IntPtr)key, IntPtr.Zero);
+        if (!control.PreProcessMessage(ref message))
+            SendMessage(control.Handle, KeyDown, (IntPtr)key, IntPtr.Zero);
+    }
+
+    private static Rectangle ListItemBounds(IntPtr list, int index)
+    {
+        const int GetItemRect = 0x0198;
+        NativeRect rect = new NativeRect();
+        if (SendMessage(list, GetItemRect, (IntPtr)index, ref rect).ToInt64() == -1)
+            throw new InvalidOperationException("Could not read native list item " + index);
+        return rect.Bounds;
+    }
+
+    private static int ListTopIndex(IntPtr list)
+    {
+        const int GetTopIndex = 0x018e;
+        return SendMessage(list, GetTopIndex, IntPtr.Zero, IntPtr.Zero).ToInt32();
+    }
+
+    private static void MoveOverListItem(IntPtr list, int index, int offset = 0)
+    {
+        Rectangle row = ListItemBounds(list, index);
+        const int MouseMove = 0x0200;
+        SendMessage(list, MouseMove, IntPtr.Zero, (IntPtr)(((row.Top + row.Height / 2) << 16) | (row.Left + row.Width / 2 + offset)));
+    }
+
+    private static void CheckListPaint(ComboBox choice, IntPtr list, int expectedRow, int visibleRows)
+    {
+        const int PrintClient = 0x0318, PrintClientArea = 4;
+        int top = ListTopIndex(list);
+        var bounds = ListItemBounds(list, top + visibleRows - 1);
+        using (var bitmap = new Bitmap(bounds.Right, bounds.Bottom))
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            IntPtr dc = graphics.GetHdc();
+            try { SendMessage(list, PrintClient, dc, (IntPtr)PrintClientArea); }
+            finally { graphics.ReleaseHdc(dc); }
+            Color plain = SystemInformation.HighContrast ? SystemColors.Window : choice.BackColor;
+            Color blue = SystemInformation.HighContrast ? SystemColors.Highlight : Ui.SelectBack;
+            for (int index = top; index < top + visibleRows; index++)
+            {
+                Rectangle row = ListItemBounds(list, index);
+                Color pixel = bitmap.GetPixel(row.Right - 14, row.Top + row.Height / 2);
+                Check(pixel.ToArgb() == (index == expectedRow ? blue : plain).ToArgb(),
+                    choice.Name + " native list row " + index + " expects hover on " + expectedRow + ", painted " + pixel);
+            }
+        }
+    }
+
+    private static IntPtr OpenNativeList(ComboBox choice)
+    {
+        choice.Focus();
+        PressNativeKey(choice, Keys.F4);
+        var info = new ComboWindowInfo { Size = Marshal.SizeOf(typeof(ComboWindowInfo)) };
+        Check(choice.DroppedDown && GetComboBoxInfo(choice.Handle, ref info) && info.List != IntPtr.Zero,
+            choice.Name + " opens its native list from the keyboard");
+        return info.List;
+    }
+
+    private static void CheckNativeChoice(Form form, string name)
+    {
+        var choice = (ComboBox)form.Controls.Find(name, true)[0];
+        int commits = 0;
+        choice.SelectionChangeCommitted += delegate { commits++; };
+        IntPtr list = OpenNativeList(choice);
+        int visible = Math.Min(choice.Items.Count, choice.MaxDropDownItems);
+        CheckListPaint(choice, list, -1, visible);
+        MoveOverListItem(list, 1);
+        CheckListPaint(choice, list, 1, visible);
+        ValidateRect(list, IntPtr.Zero);
+        MoveOverListItem(list, 1, 5);
+        MoveOverListItem(list, 1, -5);
+        NativeRect update;
+        Check(!GetUpdateRect(list, out update, false), name + " moving within the highlighted row schedules no repaint");
+        MoveOverListItem(list, 2);
+        Check(!GetUpdateRect(list, out update, false) ||
+            Rectangle.Union(ListItemBounds(list, 1), ListItemBounds(list, 2)).Contains(update.Bounds),
+            name + " crossing into a new row repaints only the two affected rows");
+        CheckListPaint(choice, list, 2, visible);
+        const int MouseLeave = 0x02a3;
+        SendMessage(list, MouseLeave, IntPtr.Zero, IntPtr.Zero);
+        CheckListPaint(choice, list, -1, visible);
+        Check(commits == 0, name + " mouse movement does not commit a choice");
+        PressNativeKey(choice, Keys.Escape);
+        Check(!choice.DroppedDown && !form.IsDisposed, name + " Esc closes only the drop-down");
+        int selected = choice.SelectedIndex;
+        list = OpenNativeList(choice);
+        CheckListPaint(choice, list, -1, visible);
+        PressNativeKey(choice, Keys.Down);
+        CheckListPaint(choice, list, -1, visible);
+        PressNativeKey(choice, Keys.Enter);
+        Check(!choice.DroppedDown && choice.SelectedIndex == selected + 1, name + " commits its keyboard selection");
+    }
+
+    private static void CheckNativeFontList(Form form)
+    {
+        var fonts = (ComboBox)form.Controls.Find("batchFontFamily", true)[0];
+        IntPtr list = OpenNativeList(fonts);
+        Check(fonts.AutoCompleteSource == AutoCompleteSource.ListItems && fonts.Items.Count > fonts.MaxDropDownItems,
+            "installed fonts load on first open, with type-ahead and additional scrollable rows");
+        int first = ListTopIndex(list);
+        MoveOverListItem(list, first + 1);
+        CheckListPaint(fonts, list, first + 1, fonts.MaxDropDownItems);
+        const int VerticalScroll = 0x0115, LineDown = 1;
+        SendMessage(list, VerticalScroll, (IntPtr)LineDown, IntPtr.Zero);
+        int next = ListTopIndex(list);
+        Check(next > first, "the native font list scrolls");
+        CheckListPaint(fonts, list, next + 1, fonts.MaxDropDownItems);
+        PressNativeKey(fonts, Keys.Escape);
+        Check(!fonts.DroppedDown && !form.IsDisposed, "Esc dismisses the font list");
+    }
+
+    private static void WorksheetBatchNative()
+    {
+        SetProcessDPIAware();
+        IntPtr desktop = CreateDesktop("worksheet-batch-probe-" + Guid.NewGuid().ToString("N"), IntPtr.Zero, IntPtr.Zero,
+            0, 0x000F01FF, IntPtr.Zero);
+        if (desktop == IntPtr.Zero) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        Exception failure = null;
+        try
+        {
+            var thread = new Thread(delegate()
+            {
+                try
+                {
+                    if (!SetThreadDesktop(desktop)) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+                    Application.EnableVisualStyles();
+                    using (var form = new WorksheetBatchForm("Sheet1", "V14"))
+                    {
+                        form.Show();
+                        Application.DoEvents();
+                        float scale = DialogSizing.Scale(form);
+                        Console.WriteLine("Worksheet batch window at " + scale.ToString("P0") + " DPI scaling");
+                        CheckBatchBounds(form, "native default window");
+                        Check(!form.HorizontalScroll.Visible, "the default window fits both cards without horizontal scrolling");
+                        CheckNativeChoice(form, "batchSource");
+                        CheckNativeChoice(form, "batchTextStyle");
+                        CheckNativeChoice(form, "batchNumberFormat");
+                        int frameWidth = form.Width - form.ClientSize.Width, frameHeight = form.Height - form.ClientSize.Height;
+                        form.Size = new Size((int)Math.Round(760 * scale) + frameWidth, (int)Math.Round(620 * scale) + frameHeight);
+                        Application.DoEvents();
+                        CheckBatchBounds(form, "native compact window with vertical scrolling");
+                        Check(form.VerticalScroll.Visible && !form.HorizontalScroll.Visible,
+                            "the short compact window fits the width and scrolls vertically");
+                        var apply = form.Controls.Find("batchApply", true)[0];
+                        form.ScrollControlIntoView(apply);
+                        Check(form.ClientRectangle.Contains(In(form, apply)), "the footer is reachable in the short window");
+                        CheckNativeFontList(form);
+                        PressNativeKey(form.ActiveControl ?? form, Keys.Escape);
+                        Check(form.IsDisposed, "Esc closes the idle window");
+                    }
+                    using (var form = new WorksheetBatchForm("Sheet1", "A1"))
+                    {
+                        var settings = new CustomizationData();
+                        settings.Formats.Add("conversion.worksheetBatch::batchClearFormatting.1", new FormatRule { Width96 = 95 });
+                        form.Load += delegate { DialogFormatting.Apply(form, "conversion.worksheetBatch", settings); };
+                        form.Show();
+                        CheckBatchBounds(form, "saved checkbox width from before the longer caption");
+                        const int SystemCommand = 0x0112, CloseCommand = 0xf060;
+                        bool ran = false;
+                        form.Run += delegate
+                        {
+                            ran = true;
+                            PressNativeKey(form, Keys.Escape);
+                            SendMessage(form.Handle, SystemCommand, (IntPtr)CloseCommand, IntPtr.Zero);
+                            Check(!form.IsDisposed, "Esc and title-bar close respect the busy state");
+                            return new WorksheetBatchReport();
+                        };
+                        ((Button)form.Controls.Find("batchCheck", true)[0]).PerformClick();
+                        Check(ran, "the preview action runs from the footer");
+                        SendMessage(form.Handle, SystemCommand, (IntPtr)CloseCommand, IntPtr.Zero);
+                        Check(form.IsDisposed, "the native title-bar close command closes the window");
+                    }
+                }
+                catch (Exception error) { failure = error; }
+            });
+            thread.IsBackground = true;
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
+            if (!thread.Join(TimeSpan.FromSeconds(45))) throw new TimeoutException("Native worksheet batch probe did not finish");
+            if (failure != null) throw new InvalidOperationException("Native worksheet batch probe", failure);
+        }
+        finally { CloseDesktop(desktop); }
+    }
+
     private static IEnumerable<Control> Descendants(Control root)
     { foreach (Control item in root.Controls) { yield return item; foreach (Control child in Descendants(item)) yield return child; } }
 
@@ -686,6 +951,12 @@ internal static class ConversionInteractionProbe
         FormatSession.SourceOverride = Path.Combine(settings, "Customization.xml");
         try
         {
+            if (args.Length == 1 && args[0] == "--worksheet-batch-native")
+            {
+                WorksheetBatchNative();
+                Console.WriteLine("PASS WorksheetBatchNative: " + checks + " assertions; private desktop, native list and top-level layout");
+                return 0;
+            }
             string renderFolder = args.Length == 2 && args[0] == "--render" ? args[1] : null;
             if (renderFolder != null) Directory.CreateDirectory(renderFolder);
             InteractionChecks();

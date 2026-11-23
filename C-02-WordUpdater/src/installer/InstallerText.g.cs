@@ -4,7 +4,7 @@
 //   改安装器顶部色带的功能说明 / 底部版权行 -> 编辑 配置器脚本
 //   的「安装程序界面配置区」，然后重跑配置脚本并重新打包安装器。
 //
-// 生成时间：2026-11-23 17:07:33
+// 生成时间：2026-11-23 17:40:31
 // =====================================================================
 
 namespace WordUpdaterSetup
@@ -19,7 +19,7 @@ namespace WordUpdaterSetup
         internal const string Title = "WordUpdater";
 
         /// <summary>顶部色带副标题（小字，主标题下方）。</summary>
-        internal const string Subtitle = "WPS 文字加载项 · WordUpdater";
+        internal const string Subtitle = "为互联与效率而生";
 
         /// <summary>顶部色带里的功能说明；空串 = 不显示该 label。</summary>
         internal const string FeatureText = "扩展：Agent扩展切换 Agent-Evo，提供 AI 网站与离线文档阅读。\n「链接Excel」将 WPS 表格区域逐格粘贴为表格链接；\r\n「更新/查看链接」批量更新、总览全文链接并定位；「其他」全选表格、问题反馈等。";

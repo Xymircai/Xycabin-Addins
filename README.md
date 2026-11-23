@@ -19,6 +19,17 @@
 
 ## 技术栈
 
+### 安装包图标
+
+| Excel-Iterate | WordUpdater |
+| --- | --- |
+| <img src="C-01-ExcelIterate/AB-Graphic/installer-icon.svg" width="64" alt="翡翠绿表格页与安装箭头"> | <img src="C-02-WordUpdater/AB-Graphic/installer-icon.svg" width="64" alt="蓝色文稿页与安装箭头"> |
+| `Excel_Iterate_Setup.exe` | `WordUpdater_Setup.exe` |
+
+两个 EXE 内嵌从 16 到 256 像素的透明图标，供 Windows 资源管理器按显示尺寸选择。图稿位于各产品的 `AB-Graphic/installer-icon.svg`，打包用的多尺寸 ICO 位于 `src/installer/Setup.ico`。修改图案后同步更新 ICO，重新打包即可生效。
+
+### 构建环境
+
 - **加载项**：C# 5（由 .NET Framework 自带的 `csc.exe` 编译），VSTO vstov4 清单，无 Visual Studio 工程文件；独立 PDF 工具按锁定版本和 SHA-256 恢复依赖。
 - **构建与验证**：Python 3，仅使用标准库（无 `requirements.txt`）。
 - **站点**：由 Python 模板渲染为单个 HTML 文件，内嵌 CSS、JavaScript 与图片资源，可离线打开。

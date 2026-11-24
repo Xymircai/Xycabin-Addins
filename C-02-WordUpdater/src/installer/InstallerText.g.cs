@@ -4,7 +4,7 @@
 //   改安装器顶部色带的功能说明 / 底部版权行 -> 编辑 配置器脚本
 //   的「安装程序界面配置区」，然后重跑配置脚本并重新打包安装器。
 //
-// 生成时间：2026-11-23 23:38:39
+// 生成时间：2026-11-25 01:58:32
 // =====================================================================
 
 namespace WordUpdaterSetup
@@ -25,6 +25,6 @@ namespace WordUpdaterSetup
         internal const string FeatureText = "扩展：Agent扩展切换 Agent-Evo，提供 AI 网站与离线文档阅读。\n「链接Excel」将 WPS 表格区域逐格粘贴为表格链接；\r\n「更新/查看链接」批量更新、总览全文链接并定位；「其他」全选表格、问题反馈等。";
 
         /// <summary>窗口底部居中的版权行（Version：版本，文案）；空串 = 不显示。</summary>
-        internal const string Copyright = "Wordupdater Version：0.9.9.3，Xymircai Initial Development";
+        internal const string Copyright = "Wordupdater Version：0.9.9.8，Xymircai Initial Development";
     }
 }

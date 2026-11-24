@@ -358,7 +358,7 @@ INSTALLER_FEATURE_TEXT = (
     "「更新/查看链接」批量更新、总览全文链接并定位；"
     "「其他」全选表格、问题反馈等。"
 )
-INSTALLER_VERSION = "0.9.9.3"
+INSTALLER_VERSION = "0.9.9.8"
 
 # --- 项目统一签名证书（指纹，不含私钥）---
 # 两产品共用 C-00-Shared/signing/ 内的共享 PFX，主题 CN=Xymircai WPS Addins Dev。

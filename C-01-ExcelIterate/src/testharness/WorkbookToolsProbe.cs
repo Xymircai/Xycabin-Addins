@@ -178,6 +178,68 @@ partial class WorkbookToolsProbe {
             reopened.Batch.Confirm(File.Delete);
         }
     }
+    static void ClosedCheckpointSharingViolation(string folder)
+    {
+        string source = Path.Combine(folder, "checkpoint-source.xlsx");
+        string destination = Path.Combine(folder, "checkpoint-missing.xlsx");
+        string outside = Path.Combine(folder, "checkpoint-outside.xlsx");
+        Package(outside, Path.Combine(folder, "concurrent-source.xlsx"));
+        string outsideHash = XlsxLinkPackage.Hash(outside);
+        foreach (bool concurrentEdit in new[] { false, true })
+        {
+            string owner = Path.Combine(folder, "checkpoint-owner-" + concurrentEdit + ".xlsx");
+            string report = Path.Combine(folder, "checkpoint-report-" + concurrentEdit + ".xlsx");
+            Package(owner, source); Package(report);
+            string before = XlsxLinkPackage.Hash(owner);
+            var session = JournalSession(report, new[] { owner }, source, destination, false);
+            var app = (LinkFakeApp)session.App;
+            app.Workbooks.SupportReopen = true;
+            session.Scan(new[] { owner });
+            ((LinkFakeBook)app.ActiveWorkbook).Sheet.Values[1, 2] = destination;
+
+            FileStream held = null;
+            int commitRetries = 0, restoreRetries = 0;
+            session.Operations.DiagnosticLineAdded += line =>
+            {
+                if (line.Contains("暂存提交暂时占用"))
+                {
+                    commitRetries++;
+                    held.Dispose(); held = null;
+                    if (concurrentEdit) File.Copy(outside, owner, true);
+                }
+                else if (line.Contains("整簿恢复提交暂时占用"))
+                {
+                    restoreRetries++;
+                    held.Dispose(); held = null;
+                }
+            };
+            try
+            {
+                foreach (string step in session.Steps(false, () => false))
+                    if (step.StartsWith("已处理暂存副本"))
+                        held = File.Open(owner, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                Check(commitRetries == 1, "checkpoint commit retries a real sharing violation once");
+                if (concurrentEdit)
+                {
+                    var checkpoint = session.Batch.Checkpoints.Single();
+                    Check(session.LastResult.Contains("失败1条") && XlsxLinkPackage.Hash(owner) == outsideHash,
+                        "commit and automatic recovery both protect a concurrent edit made before retry");
+                    Check(checkpoint.NeedsRestore && XlsxLinkPackage.Hash(checkpoint.Backup) == before,
+                        "concurrent edit leaves the original backup and pending verification");
+                    continue;
+                }
+                Check(session.LastResult.Contains("成功1条") && XlsxLinkPackage.Hash(owner) != before,
+                    "released share lock allows the validated missing-target replacement");
+
+                held = File.Open(owner, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                foreach (string step in session.Steps(true, () => false)) { }
+                Check(restoreRetries == 1 && XlsxLinkPackage.Hash(owner) == before,
+                    "checkpoint undo retries a share lock and restores the exact bytes");
+                session.Batch.Confirm(File.Delete);
+            }
+            finally { if (held != null) held.Dispose(); }
+        }
+    }
     static LinkFakeSheet OutputFixture(bool nullHidden)
     {
         var sheet=new LinkFakeSheet{HiddenHeightNull=nullHidden,Values=new object[4,6]};
@@ -387,6 +449,7 @@ partial class WorkbookToolsProbe {
             JournalChecks(folder,a,b,c);
             ResultChecks(folder,a,b,c);
             MissingDestinations(folder);
+            ClosedCheckpointSharingViolation(folder);
             BreakLinkChecks(folder,a,b,c);
             NameLinkChecks(folder,a,b,c);
             Console.WriteLine("WorkbookToolsProbe "+checks+" PASS, 0 FAIL");return 0;

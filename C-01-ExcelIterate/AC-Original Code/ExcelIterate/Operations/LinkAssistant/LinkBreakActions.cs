@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace Excel_Iterate
 {
@@ -79,6 +80,33 @@ namespace Excel_Iterate
             if (!expected.SetEquals(saved.Select(SavedSourceIdentity)))
                 throw new IOException("保存后未能确认新路径及其余链接，恢复备份已保留。");
         }
+        private void ReplaceCheckpointFile(string stage, string stageHash, string owner, string ownerHash, string phase)
+        {
+            const int SharingViolation = unchecked((int)0x80070020);
+            const int LockViolation = unchecked((int)0x80070021);
+            const int UnableToRemoveReplaced = unchecked((int)0x80070497);
+            const int MaxAttempts = 5;
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    if (XlsxLinkPackage.Hash(owner) != ownerHash || XlsxLinkPackage.Hash(stage) != stageHash)
+                        throw new IOException(phase + "前摘要变化，已停止并保留备份。");
+                    File.Replace(stage, owner, null);
+                    return;
+                }
+                catch (IOException error)
+                {
+                    bool occupied = error.HResult == SharingViolation || error.HResult == LockViolation ||
+                        error.HResult == UnableToRemoveReplaced;
+                    bool retry = occupied && attempt < MaxAttempts && File.Exists(owner) && File.Exists(stage);
+                    Operations.Trace(phase + (retry ? "暂时占用" : "失败"), owner + "，第 " + attempt +
+                        " 次，HRESULT=0x" + error.HResult.ToString("X8") + "，" + error.Message);
+                    if (!retry) throw;
+                    Thread.Sleep(50 << (attempt - 1));
+                }
+            }
+        }
         private void RestoreCheckpoint(LinkWorkbookCheckpoint checkpoint)
         {
             if (checkpoint == null) return;
@@ -96,8 +124,7 @@ namespace Excel_Iterate
                 try
                 {
                     File.Copy(checkpoint.Backup, stage, false);
-                    if (XlsxLinkPackage.Hash(stage) != checkpoint.BeforeHash || XlsxLinkPackage.Hash(checkpoint.Owner) != current) throw new IOException("恢复提交前摘要变化，未覆盖原文件。");
-                    File.Replace(stage, checkpoint.Owner, null);
+                    ReplaceCheckpointFile(stage, checkpoint.BeforeHash, checkpoint.Owner, current, "整簿恢复提交");
                     if (XlsxLinkPackage.Hash(checkpoint.Owner) != checkpoint.BeforeHash) throw new IOException("恢复后摘要核对失败，备份已保留。");
                 }
                 finally { if (File.Exists(stage)) File.Delete(stage); }
@@ -262,9 +289,10 @@ namespace Excel_Iterate
                                 {preserveCopy=true;throw new IOException("暂存副本提交前出现新增编辑，已保留副本且未提交原文件："+stage);}
                                 ((dynamic)work).Close(false); ownCopy = false;
                                 GuardCheckpoint(snapshot, null);
-                                snapshot.PreparedHash = XlsxLinkPackage.Hash(stage); snapshot.CommitIntent = true;
+                                snapshot.PreparedHash = stageHash; snapshot.CommitIntent = true;
                                 foreach (var c in ordered) c.Intent = true; Batch.Persist();
-                                File.Replace(stage, owner, null); stage = null;
+                                ReplaceCheckpointFile(stage, snapshot.PreparedHash, owner, snapshot.LastHash, "暂存提交");
+                                stage = null;
                                 if (XlsxLinkPackage.Hash(owner) != snapshot.PreparedHash) throw new IOException("暂存提交后摘要核对失败。");
                                 snapshot.LastHash = snapshot.PreparedHash; snapshot.CommitIntent = false; snapshot.Applied = true;
                                 foreach (var c in ordered) { c.Applied = c.EverApplied = true; c.Intent = false; }

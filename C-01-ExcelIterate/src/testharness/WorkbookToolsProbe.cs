@@ -145,25 +145,38 @@ partial class WorkbookToolsProbe {
         Package(t);session=JournalSession(c,new[]{t},a,b,true);session.Scan(new[]{t});Check(session.Operations.Text.Contains("未发现可替换链接")&&!session.Operations.Text.Contains("再点击「执行替换」"),"zero-link scan omits replacement suggestion");session.Batch.Confirm(RecycleFiles.Send);
     }
     static void MissingDestinations(string folder) {
-        string a=Path.Combine(folder,"skip-A.xlsx"),b=Path.Combine(folder,"skip-B.xlsx"),c=Path.Combine(folder,"skip-C.xlsx"),d=Path.Combine(folder,"skip-D.xlsx"),missing=Path.Combine(folder,"not-present.xlsx");
-        Package(a);Package(b);Package(c);Package(d);
-        foreach(bool live in new[]{false,true})foreach(bool race in new[]{false,true}) {
-            string owner=Path.Combine(folder,"skip-owner-"+live+race+".xlsx"),report=Path.Combine(folder,"skip-report-"+live+race+".xlsx");Package(owner,a,c);Package(report);Package(b);
-            var session=JournalSession(report,new[]{owner},a,b,live);session.Scan(new[]{owner});var sheet=((LinkFakeApp)session.App).Workbooks.Items[0].Sheet;
-            for(int r=1;r<sheet.Values.GetLength(0);r++)sheet.Values[r,2]=sheet.Values[r,1].ToString()==a?b:(race?d:missing);
-            bool removed=false;foreach(string step in session.Steps(false,()=>false))if(race&&!removed&&step.StartsWith("替换：")){File.Delete(b);removed=true;}
-            string skipped=race?a:c,kept=race?c:a,replacement=race?d:b;
-            Check(session.LastResult.Contains("成功1条，跳过1条，失败0条"),"missing destination does not stop valid mappings live="+live+" race="+race+": "+session.LastResult);
-            Check(new HashSet<string>(XlsxLinkPackage.Scan(owner).Select(l=>l.SourcePath)).SetEquals(new[]{skipped,replacement}),"only valid source replaced");
-            Check(session.Links.Single(l=>l.SourcePath==skipped).Status==LinkAssistantSession.MissingStatus,"skipped mapping has exact status");
-            Check(session.Batch.Rows.Single(r=>r.Source==skipped).Status==LinkAssistantSession.MissingStatus,"skipped status persisted");
-            var reopened=new LinkAssistantSession(session.App);Check(reopened.Links.Single(l=>l.SourcePath==skipped).Status==LinkAssistantSession.MissingStatus,"reopened report retains missing status");
-            foreach(string step in session.Steps(true,()=>false)){}
-            Check(new HashSet<string>(XlsxLinkPackage.Scan(owner).Select(l=>l.SourcePath)).SetEquals(new[]{a,c}),"undo changes only successful mappings");session.Batch.Confirm(RecycleFiles.Send);
+        string[] originals = Enumerable.Range(0, 14).Select(i => Path.Combine(folder, "source-" + i + ".xlsx")).ToArray();
+        string present = Path.Combine(folder, "available.xlsx");
+        string[] missing = Enumerable.Range(0, 12).Select(i => Path.Combine(folder, i % 2 == 0 ? "future" : "", "new-" + i + ".xlsx")).ToArray();
+        foreach (bool live in new[] { false, true })
+        {
+            string owner = Path.Combine(folder, "target-" + live + ".xlsx"), report = Path.Combine(folder, "report-" + live + ".xlsx");
+            Package(owner, originals); Package(report); Package(present);
+            string before = XlsxLinkPackage.Hash(owner);
+            var session = JournalSession(report, new[] { owner }, originals[0], present, live);
+            var app = (LinkFakeApp)session.App; app.Workbooks.SupportReopen = true;
+            session.Scan(new[] { owner });
+            var sheet = ((LinkFakeBook)app.ActiveWorkbook).Sheet;
+            for (int i = 0; i < 12; i++) sheet.Values[i + 1, 2] = Path.GetDirectoryName(missing[i]) + @"\\[" + Path.GetFileName(missing[i]) + "]";
+            sheet.Values[13, 2] = present;
+            var original = live ? app.Workbooks.Items[1] : null;
+            foreach (string step in session.Steps(false, () => false))
+                if (live && step.StartsWith("备份及链接预检完成")) File.Delete(present);
+            int missingCount = live ? 13 : 12;
+            Check(session.LastResult.Contains("成功13条，跳过1条，失败0条") && session.LastResult.Contains("目标文件当前缺失" + missingCount + "条"),
+                "batch applies entered missing destinations and reports their count: " + session.LastResult);
+            var saved = XlsxLinkPackage.ScanReportParts(owner);
+            Check(new HashSet<string>(saved.Select(l => l.SourcePath ?? XlsxLinkPackage.AbsoluteFileTarget(l.RawTarget))).SetEquals(missing.Concat(new[] { present, originals[13] })),
+                "readback proves all normalized targets and the untouched source");
+            Check(saved.Count(l => l.IsMissingPath) == missingCount && !Directory.Exists(Path.GetDirectoryName(missing[0]))
+                && missing.All(path => !File.Exists(path)), "replacement creates no target files or directories");
+            var reopened = new LinkAssistantSession(app);
+            Check(reopened.Links.Count(l => l.Status == LinkAssistantSession.MissingStatus) == missingCount, "reopen reads the committed missing status");
+            if (original != null) { Check(original.CloseCount == 0, "original workbook stays open"); original.Close(false); }
+            foreach (string step in reopened.Steps(true, () => false)) { }
+            Check(XlsxLinkPackage.Hash(owner) == before, "checkpoint cancellation restores exact XLSX bytes");
+            reopened.Batch.Confirm(File.Delete);
         }
-        string all=Path.Combine(folder,"all-missing.xlsx"),output=Path.Combine(folder,"all-missing-report.xlsx");Package(all,a,c);Package(output);
-        var empty=JournalSession(output,new[]{all},a,missing,false);empty.Scan(new[]{all});var values=((LinkFakeApp)empty.App).Workbooks.Items[0].Sheet.Values;for(int r=1;r<values.GetLength(0);r++)values[r,2]=missing;
-        Check(empty.Execute(null).Contains("成功0条，跳过2条，失败0条")&&empty.Batch.Changes.Count==0,"all missing makes no changes");Check(XlsxLinkPackage.Scan(all).Select(l=>l.SourcePath).SequenceEqual(new[]{a,c}),"all missing preserves original bytes/links");empty.Batch.Confirm(RecycleFiles.Send);
     }
     static LinkFakeSheet OutputFixture(bool nullHidden)
     {
@@ -353,7 +366,9 @@ partial class WorkbookToolsProbe {
             fakeBook.Saved=false;Check(session.ReadMappings().Count==1&&fakeBook.SaveCount==1,"unsaved report automatically saved");
             fakeBook.ReadOnly=true;Reject(()=>session.ReadMappings(),"read-only report refused");fakeBook.ReadOnly=false;
             report[1,0]=b;Reject(()=>session.ReadMappings(),"edited source owner refused");report[1,0]=a;
-            report[1,2]=Path.Combine(folder,"missing.xlsx");Check(session.ReadMappings().Count==0&&session.Links[0].Status==LinkAssistantSession.MissingStatus,"missing new source skipped with explicit status");report[1,2]=c;
+            report[1,2]=Path.Combine(folder,"missing.xlsx");Check(session.ReadMappings().Count==1&&session.Links[0].DestinationMissing,"missing destination remains an actionable mapping");report[1,2]=c;
+            string directory = Path.Combine(folder, "folder.xlsx"); Directory.CreateDirectory(directory);
+            report[1,2]=directory;Reject(()=>session.ReadMappings(),"existing directory is refused");report[1,2]=c;
             report[1,2]="relative.xlsx";Reject(()=>session.ReadMappings(),"relative user new path refused");report[1,2]=c;
             string targetHash=XlsxLinkPackage.Hash(a);target.RefuseChange=true;
             Check(session.Execute(_=>{}).Contains("失败1条"),"unsupported open target reports failure");Check(target.SaveCount>0&&target.CloseCount==0&&XlsxLinkPackage.Hash(a)==targetHash,"dirty target saved without close or overwrite");session.Batch.Confirm(RecycleFiles.Send);session.Batch=null;target.RefuseChange=false;
@@ -390,8 +405,8 @@ public class LinkFakeBooks {public LinkFakeBook[] Items;public bool SupportReope
 public partial class LinkFakeBook {
     public bool RefuseChange,RetainHistorical,FailSaveAfterChange,NoChange;public string SourceStyle;public int CloseCount,FailOnChange,ChangeCount;private bool failSave;
     private readonly List<string> history=new List<string>();
-    public object LinkSources(int type){var paths=XlsxLinkPackage.Scan(FullName).Where(l=>l.SourcePath!=null).Select(l=>l.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();if(RetainHistorical){foreach(string p in paths)if(!history.Contains(p))history.Add(p);paths=history.ToList();}Array raw=Array.CreateInstance(typeof(object),new[]{paths.Count},new[]{1});for(int i=0;i<paths.Count;i++)raw.SetValue(SourceStyle=="uri"?new Uri(paths[i]).AbsoluteUri:paths[i],i+1);return raw;}
-    public void ChangeLink(string oldPath,string newPath,int type){if(RefuseChange||++ChangeCount==FailOnChange)throw new IOException("宿主不支持本次链接修改");if(SourceStyle=="uri")oldPath=new Uri(oldPath).LocalPath;if(!NoChange){string stage=XlsxLinkPackage.Prepare(FullName,new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{oldPath,newPath}});File.Replace(stage,FullName,null);}Saved=false;failSave=FailSaveAfterChange;FailSaveAfterChange=false;}
+    public object LinkSources(int type){var paths=XlsxLinkPackage.Scan(FullName).Where(l=>l.SourcePath!=null).Select(l=>l.SourcePath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();if(RetainHistorical){foreach(string p in paths)if(!history.Contains(p))history.Add(p);paths=history.ToList();}var names=paths.Select(p=>SourceStyle=="uri"?new Uri(p).AbsoluteUri:p).Concat(MissingHostLinks().Select(NativeMissingName)).ToList();Array raw=Array.CreateInstance(typeof(object),new[]{names.Count},new[]{1});for(int i=0;i<names.Count;i++)raw.SetValue(names[i],i+1);return raw;}
+    public void ChangeLink(string oldPath,string newPath,int type){if(RefuseChange||++ChangeCount==FailOnChange)throw new IOException("宿主不支持本次链接修改");if(SourceStyle=="uri")oldPath=new Uri(oldPath).LocalPath;if(!NoChange&&!ChangeMissingHostLink(oldPath,newPath)){string stage=XlsxLinkPackage.Prepare(FullName,new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase){{oldPath,newPath}});File.Replace(stage,FullName,null);}Saved=false;failSave=FailSaveAfterChange;FailSaveAfterChange=false;}
     public string FullName;public bool Saved=true,ReadOnly,ProtectStructure;public int SaveCount;private LinkFakeSheet sheet;
     public readonly List<LinkFakeSheet> SheetItems=new List<LinkFakeSheet>();public readonly Dictionary<string,LinkFakeName> NamedRanges=new Dictionary<string,LinkFakeName>();
     public readonly List<string> SavedReports=new List<string>();public readonly List<string> SavedHashes=new List<string>();

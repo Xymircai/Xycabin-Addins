@@ -11,14 +11,22 @@ namespace Excel_Iterate
     public sealed class LinkRowRecord
     {
         public string Owner, Source, Raw, Status;
-        internal ExternalLinkInfo Link(){return new ExternalLinkInfo {OwnerPath=Owner,SourcePath=Source,RawTarget=Raw,Status=Status??"待填写新链接"};}
+        public bool IsMissingPath;
+        internal static LinkRowRecord FromLink(ExternalLinkInfo link)
+        {
+            return new LinkRowRecord { Owner=link.OwnerPath, Source=link.SourcePath, Raw=link.RawTarget, Status=link.Status, IsMissingPath=link.IsMissingPath };
+        }
+        internal ExternalLinkInfo Link(){return new ExternalLinkInfo {OwnerPath=Owner,SourcePath=Source,RawTarget=Raw,Status=Status??"待填写新链接",IsMissingPath=IsMissingPath};}
     }
     public enum LinkAction { Replace = 0, Break = 1 }
     public sealed class LinkChange
     {
         public string Owner, Old, New;
+        public string ReportSource;
         public string FailureReason;
         public bool Applied, Intent, IntentReverse, EverApplied;
+        public bool IsMissingPath, DestinationMissing;
+        internal string ReportSourceId { get { return ReportSource ?? Old; } }
         public LinkAction Action;
     }
     public sealed class LinkWorkbookCheckpoint

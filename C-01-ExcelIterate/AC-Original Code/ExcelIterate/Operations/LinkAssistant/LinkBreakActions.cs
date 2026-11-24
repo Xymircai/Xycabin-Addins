@@ -16,24 +16,69 @@ namespace Excel_Iterate
         private LinkWorkbookCheckpoint Checkpoint(string owner) { return Batch.Checkpoints.FirstOrDefault(c => string.Equals(c.Owner, owner, StringComparison.OrdinalIgnoreCase)); }
         private void GuardCheckpoint(LinkWorkbookCheckpoint checkpoint, object book)
         {
-            if (book != null && !ComFormulaHost.Boolean(((dynamic)book).Saved, "Saved")) throw new IOException("断链备份后工作簿有新编辑，已停止；请保留备份并核对，不会自动覆盖新编辑。");
-            if (XlsxLinkPackage.Hash(checkpoint.Owner) != checkpoint.LastHash) throw new IOException("断链备份后文件已变化，已停止并保留备份。");
+            if (book != null && !ComFormulaHost.Boolean(((dynamic)book).Saved, "Saved")) throw new IOException("链接备份后工作簿有新编辑，已停止；请保留备份并核对。");
+            if (XlsxLinkPackage.Hash(checkpoint.Owner) != checkpoint.LastHash) throw new IOException("链接备份后文件已变化，已停止并保留备份。");
         }
         private LinkWorkbookCheckpoint CreateCheckpoint(string owner)
         {
             var checkpoint = Checkpoint(owner); if (checkpoint != null) { Batch.ValidateBackup(checkpoint); return checkpoint; }
-            if ((File.GetAttributes(owner) & (FileAttributes.ReadOnly | FileAttributes.ReparsePoint)) != 0) throw new IOException("断链目标为只读文件或重解析点，未修改：" + owner);
+            if ((File.GetAttributes(owner) & (FileAttributes.ReadOnly | FileAttributes.ReparsePoint)) != 0) throw new IOException("目标为只读文件或重解析点，未修改：" + owner);
             string hash = XlsxLinkPackage.Hash(owner);
             checkpoint = new LinkWorkbookCheckpoint { Owner = owner, BeforeHash = hash, LastHash = hash,
                 Backup = Path.Combine(Path.GetDirectoryName(owner), ".EI_LinkBackup_" + Batch.Id + "_" + Guid.NewGuid().ToString("N") + ".xlsx") };
             File.Copy(owner, checkpoint.Backup, false);
             Batch.Checkpoints.Add(checkpoint); Batch.Persist();
             Batch.ValidateBackup(checkpoint); GuardCheckpoint(checkpoint, null);
-            Operations.Record("断链备份", owner + "\r\n" + checkpoint.Backup);
+            Operations.Record("链接备份", owner + "\r\n" + checkpoint.Backup);
             return checkpoint;
         }
         private static HashSet<string> SavedSources(string path)
         { return new HashSet<string>(XlsxLinkPackage.Scan(path).Where(l => l.SourcePath != null).Select(l => l.SourcePath), StringComparer.OrdinalIgnoreCase); }
+        private static ExternalLinkInfo MissingSource(List<ExternalLinkInfo> links, string raw)
+        {
+            var matches = links.Where(link => link.IsMissingPath && string.Equals(link.RawTarget, raw, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (matches.Count != 1) throw new IOException("已保存的待替换来源无法唯一识别，请重新扫描或在 WPS 编辑链接中核对：" + raw);
+            return matches[0];
+        }
+        private static string SavedSourceIdentity(ExternalLinkInfo link)
+        {
+            return link.SourcePath ?? (link.IsMissingPath ? XlsxLinkPackage.AbsoluteFileTarget(link.RawTarget) : null) ?? link.RawTarget;
+        }
+        internal static string MatchMissingHostName(object rawNames, ExternalLinkInfo source, List<ExternalLinkInfo> links)
+        {
+            string absolute = XlsxLinkPackage.AbsoluteFileTarget(source.RawTarget);
+            string recorded = Uri.UnescapeDataString(source.RawTarget).Replace('/', '\\');
+            if (absolute == null && (string.IsNullOrWhiteSpace(recorded) || recorded.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0))
+                throw new IOException("待替换来源缺少可核对的完整路径或文件名：" + source.RawTarget);
+            if (absolute != null && links.Count(link => string.Equals(SavedSourceIdentity(link), absolute, StringComparison.OrdinalIgnoreCase)) != 1)
+                throw new IOException("已保存工作簿含多个同路径来源，无法唯一匹配：" + source.RawTarget);
+            string leaf = Path.GetFileName(absolute ?? recorded);
+            bool uniqueLeaf = links.Count(link => string.Equals(LinkLeaf(link), leaf, StringComparison.OrdinalIgnoreCase)) == 1;
+            var matches = HostLinkNames(rawNames).Distinct(StringComparer.Ordinal).Where(name =>
+            {
+                string nativePath = XlsxLinkPackage.AbsoluteFileTarget(name);
+                if (absolute != null && nativePath != null) return string.Equals(absolute, nativePath, StringComparison.OrdinalIgnoreCase);
+                return uniqueLeaf && string.Equals(leaf, nativePath == null ? name : Path.GetFileName(nativePath), StringComparison.OrdinalIgnoreCase);
+            }).ToList();
+            if (matches.Count != 1) throw new IOException("WPS 没有提供唯一的待替换来源，请在「编辑链接」中核对：" + source.RawTarget);
+            return matches[0];
+        }
+        private static string LinkLeaf(ExternalLinkInfo link)
+        {
+            string decoded = (link.SourcePath ?? XlsxLinkPackage.AbsoluteFileTarget(link.RawTarget)
+                ?? Uri.UnescapeDataString(link.RawTarget)).Replace('/', '\\');
+            return decoded.Substring(decoded.LastIndexOf('\\') + 1);
+        }
+        private static void VerifySavedSources(string path, LinkChange change, HashSet<string> expected)
+        {
+            var saved = XlsxLinkPackage.ScanReportParts(path);
+            if (change.Action == LinkAction.Replace && !saved.Any(link =>
+                string.Equals(link.SourcePath ?? (change.DestinationMissing && link.IsMissingPath
+                    ? XlsxLinkPackage.AbsoluteFileTarget(link.RawTarget) : null), change.New, StringComparison.OrdinalIgnoreCase)))
+                throw new IOException("保存后新路径无法核对，恢复备份已保留。");
+            if (!expected.SetEquals(saved.Select(SavedSourceIdentity)))
+                throw new IOException("保存后未能确认新路径及其余链接，恢复备份已保留。");
+        }
         private void RestoreCheckpoint(LinkWorkbookCheckpoint checkpoint)
         {
             if (checkpoint == null) return;
@@ -44,7 +89,7 @@ namespace Excel_Iterate
             string current = XlsxLinkPackage.Hash(checkpoint.Owner);
             if (checkpoint.CommitIntent && current == checkpoint.PreparedHash)
             { checkpoint.LastHash = current; checkpoint.Applied = true; foreach (var c in Batch.Changes.Where(c => c.Owner == checkpoint.Owner)) c.EverApplied = true; }
-            if (current != checkpoint.LastHash) throw new IOException("断链后工作簿有新增改动或提交状态不明确，未覆盖；请保留备份核对：" + checkpoint.Backup);
+            if (current != checkpoint.LastHash) throw new IOException("处理链接后工作簿有新增改动或提交状态不明确，已停止并保留备份：" + checkpoint.Backup);
             if (current != checkpoint.BeforeHash)
             {
                 string stage = Path.Combine(Path.GetDirectoryName(checkpoint.Owner), ".EI_LinkStage_" + Guid.NewGuid().ToString("N") + ".xlsx");
@@ -67,14 +112,14 @@ namespace Excel_Iterate
                 try
                 {
                     var checkpoint = Checkpoint(owner);
-                    if (checkpoint == null && Batch.Changes.Any(c => c.Owner == owner && (c.Applied || c.Intent))) throw new IOException("断链恢复记录缺少整簿备份，请保留证据人工核对。");
+                    if (checkpoint == null && Batch.Changes.Any(c => c.Owner == owner && (c.Applied || c.Intent))) throw new IOException("链接恢复记录缺少整簿备份，请保留证据人工核对。");
                     var restored = Batch.Changes.Where(c => c.Owner == owner && (c.Applied || c.Intent || c.EverApplied)).ToList();
                     RestoreCheckpoint(checkpoint);
                     foreach (var c in restored) Pair(c, true, true, null);
                     outcome.Success = restored.Count;
                 }
                 catch (Exception error) { outcome.Error = error; }
-                yield return outcome.Error == null ? "已核对整簿恢复：" + Path.GetFileName(owner) : "断链备份已保留：" + Path.GetFileName(owner);
+                yield return outcome.Error == null ? "已核对整簿恢复：" + Path.GetFileName(owner) : "链接备份已保留：" + Path.GetFileName(owner);
                 yield break;
             }
             LinkWorkbookCheckpoint snapshot = null; List<LinkChange> ordered = null;
@@ -83,17 +128,27 @@ namespace Excel_Iterate
                 using (var bag = new ComBag()) { var open = bag.Own(FindBook(App, owner)); if (open != null) RequireSaved(open); }
                 var actual = SavedSources(owner);
                 var changes = Batch.Changes.Where(c => c.Owner == owner).ToList();
-                foreach (var c in changes.Where(c => c.Action == LinkAction.Replace).ToArray()) if (MissingTarget(c.New)) { SkipMissing(c); changes.Remove(c); }
-                if (changes.Any(c => !actual.Contains(c.Old))) throw new IOException("链接来源已变化，未断开：" + owner);
+                foreach (var change in changes.Where(c => c.Action == LinkAction.Replace))
+                    change.DestinationMissing = ValidateReplacementTarget(change.New);
+                if (changes.Any(c => c.IsMissingPath))
+                {
+                    var reportLinks = XlsxLinkPackage.ScanReportParts(owner);
+                    foreach (var change in changes.Where(c => c.IsMissingPath)) MissingSource(reportLinks, change.Old);
+                    actual.UnionWith(reportLinks.Where(link => link.IsMissingPath).Select(link => link.RawTarget));
+                }
+                if (changes.Any(c => !actual.Contains(c.Old))) throw new IOException("链接来源已变化，请重新扫描：" + owner);
                 ordered = LinkBatch.Order(changes.Where(c => c.Action == LinkAction.Replace), actual, false);
                 ordered.AddRange(changes.Where(c => c.Action == LinkAction.Break));
-                var names = LinkNameAnalysis.Read(owner);
-                foreach (var change in changes.Where(c => c.Action == LinkAction.Break)) names.Plan(change.Old);
-                snapshot = CreateCheckpoint(owner);
+                if (changes.Any(c => c.Action == LinkAction.Break))
+                {
+                    var names = LinkNameAnalysis.Read(owner);
+                    foreach (var change in changes.Where(c => c.Action == LinkAction.Break)) names.Plan(change.Old);
+                }
+                if (ordered.Count > 0) snapshot = CreateCheckpoint(owner);
             }
             catch (Exception error) { outcome.Error = error; }
-            if(outcome.Error!=null)yield break;
-            yield return "备份及断链预检完成：" + Path.GetFileName(owner);
+            if(outcome.Error!=null || ordered.Count == 0)yield break;
+            yield return "备份及链接预检完成：" + Path.GetFileName(owner);
             if (cancelled()) { outcome.Cancelled = true; yield break; }
             using (var bag = new ComBag())
             {
@@ -127,11 +182,31 @@ namespace Excel_Iterate
                             if(original==null&&(!ComFormulaHost.Boolean(((dynamic)work).Saved,"Saved")||XlsxLinkPackage.Hash(stage)!=stageHash))
                             {preserveCopy=true;throw new IOException("暂存副本有新增编辑，已保留副本且未提交原文件："+stage);}
                             string path = original == null ? stage : owner;
-                            var sources = ActiveHostSources(work, path, s => Operations.Trace("断链宿主来源", s));
-                            var expected = new HashSet<string>(sources.Select(s => s.Path), StringComparer.OrdinalIgnoreCase);
-                            var source = sources.SingleOrDefault(s => string.Equals(s.Path, change.Old, StringComparison.OrdinalIgnoreCase));
-                            if (source == null) throw new IOException("不能唯一定位待处理来源：" + change.Old);
-                            if (change.Action == LinkAction.Replace && (expected.Contains(change.New) || MissingTarget(change.New))) throw new IOException("执行期间替换目标变化，已停止该工作簿。");
+                            var saved = XlsxLinkPackage.ScanReportParts(path);
+                            var expected = new HashSet<string>(saved.Select(SavedSourceIdentity), StringComparer.OrdinalIgnoreCase);
+                            string sourceName;
+                            string formulaSource = change.Old;
+                            if (change.IsMissingPath)
+                            {
+                                var old = MissingSource(saved, change.Old);
+                                sourceName = MatchMissingHostName((object)((dynamic)work).LinkSources(1), old, saved);
+                                expected.Remove(SavedSourceIdentity(old));
+                                formulaSource = XlsxLinkPackage.Resolve(path, old.RawTarget);
+                            }
+                            else
+                            {
+                                var sources = ActiveHostSources(work, path, s => Operations.Trace("宿主来源", s));
+                                var source = sources.SingleOrDefault(s => string.Equals(s.Path, change.Old, StringComparison.OrdinalIgnoreCase));
+                                if (source == null) throw new IOException("不能唯一定位待处理来源：" + change.Old);
+                                sourceName = source.Name;
+                                expected.Remove(change.Old);
+                            }
+                            if (change.Action == LinkAction.Replace)
+                            {
+                                change.DestinationMissing = ValidateReplacementTarget(change.New);
+                                if (!expected.Add(change.New)) throw new IOException("新链接与另一来源冲突，已停止该工作簿：" + change.New);
+                            }
+                            var formulaCheck = change.DestinationMissing ? LinkNameAnalysis.Read(path) : null;
                             LinkNameAnalysis nameAnalysis = null; List<LinkDefinedName> namePlan = null;
                             List<object> nativeNames = null;
                             using (var nameReferences = new ComBag())
@@ -158,13 +233,17 @@ namespace Excel_Iterate
                                         if (current.Count > 1) throw new IOException("清理名称后宿主来源不唯一，备份已保留。");
                                         if (current.Count == 1) { Operations.Trace("调用BreakLink", "Name=" + current[0].Name + "；Type=1"); ((dynamic)work).BreakLink(current[0].Name, 1); }
                                     }
-                                    else ((dynamic)work).ChangeLink(source.Name, change.New, 1);
+                                    else
+                                    {
+                                        Operations.Trace("调用ChangeLink", "Name=" + sourceName + "；NewName=" + change.New + "；Type=1");
+                                        ((dynamic)work).ChangeLink(sourceName, change.New, 1);
+                                    }
                                     WorkbookSaving.Save(work, true);
                                 }
                                 if (original != null) { snapshot.LastHash = XlsxLinkPackage.Hash(owner); snapshot.Applied = true; snapshot.Uncertain = false; change.EverApplied |= snapshot.LastHash != snapshot.BeforeHash; Batch.Persist(); }
                                 else stageHash=XlsxLinkPackage.Hash(stage);
-                                expected.Remove(change.Old); if (change.Action == LinkAction.Replace) expected.Add(change.New);
-                                if (!expected.SetEquals(SavedSources(path))) throw new IOException("保存后断链或剩余来源核对失败，备份已保留。");
+                                VerifySavedSources(path, change, expected);
+                                if (formulaCheck != null) formulaCheck.VerifyReplacement(LinkNameAnalysis.Read(path), formulaSource, change.New);
                                 if (nameAnalysis != null) nameAnalysis.Verify(LinkNameAnalysis.Read(path), change.Old, namePlan);
                                 if (original != null) { change.Applied = change.EverApplied = true; change.Intent = false; Batch.Persist(); outcome.Success++; Pair(change, false, true, null); }
                             }

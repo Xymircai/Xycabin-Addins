@@ -35,6 +35,7 @@ partial class WorkbookToolsProbe
     private static void NameLinkChecks(string folder, string a, string b, string report)
     {
         AddressNameChecks(folder, a, b, report);
+        MissingPathReportChecks(folder, a, b, report);
         string target = Path.Combine(folder, "names.xlsx");
         NamePackage(target, a, b, "\"Unused\"&UnusedMore");
         var analysis = LinkNameAnalysis.Read(target); var plan = analysis.Plan(a);
@@ -115,6 +116,76 @@ partial class WorkbookToolsProbe
         noopBook.Close(false); foreach (string step in noop.Steps(true, () => false)) { }
         Check(File.ReadAllBytes(target).SequenceEqual(noopBefore), "silent no-op failure still supports exact backup recovery"); noop.Batch.Confirm(File.Delete);
     }
+    private static void MissingPathReportChecks(string folder, string source, string replacement, string report)
+    {
+        string workbook = Path.Combine(folder, "missing-path-report.xlsx");
+        foreach (string target in new[] { XlsxLinkPackage.WpsFileUri(replacement), "未定位来源.xlsx" })
+        {
+            NamePackage(workbook, source, target, "[2]Data!A1", missing: true);
+            string before = XlsxLinkPackage.Hash(workbook);
+            var session = JournalSession(report, new[] { workbook }, source, replacement, true);
+            Check(session.Scan(new[] { workbook }) == 2, "report includes ordinary and xlPathMissing relationships");
+            var app = (LinkFakeApp)session.App;
+            var reopened = new LinkAssistantSession(app);
+            var missing = reopened.Links.Single(link => link.IsMissingPath);
+            var sheet = ((LinkFakeBook)app.ActiveWorkbook).Sheet;
+            int missingRow = reopened.Links.IndexOf(missing) + 1;
+            int normalRow = reopened.Links.FindIndex(link => link.SourcePath == source) + 1;
+            Check(missing.SourcePath == null && (string)sheet.Values[missingRow, 1] == target
+                && ((string)sheet.Values[missingRow, 3]).Contains("可填写新链接"), "missing source keeps its original target and report status after reopen");
+            sheet.Values[normalRow, 2] = report;
+            sheet.Values[missingRow, 2] = LinkAssistantSession.BreakCommand;
+            Reject(() => reopened.Execute(null), "editing an unverified source is stopped before applying any mapping");
+            Check(XlsxLinkPackage.Hash(workbook) == before, "rejected missing-source edit leaves the workbook intact");
+            sheet.Values[missingRow, 2] = "";
+            reopened.Execute(null);
+            Check(XlsxLinkPackage.Scan(workbook).Single().SourcePath == report
+                && XlsxLinkPackage.ScanReport(workbook).Single(link => link.IsMissingPath).RawTarget == target,
+                "a blank missing-source row allows ordinary replacement and preserves the missing relationship");
+            foreach (string step in reopened.Steps(true, () => false)) { }
+            Check(XlsxLinkPackage.Scan(workbook).Single().SourcePath == source, "ordinary replacement can still be undone");
+            reopened.Batch.Confirm(File.Delete);
+
+            session.Scan(new[] { workbook });
+            missingRow = session.Links.FindIndex(link => link.IsMissingPath) + 1;
+            sheet.Values[missingRow, 2] = Path.GetDirectoryName(replacement) + @"\\[" + Path.GetFileName(replacement) + "]";
+            before = XlsxLinkPackage.Hash(workbook);
+            var book = app.Workbooks.Items[1];
+            Check(session.Execute(null).Contains("成功1条") && book.CloseCount == 0,
+                "native replacement accepts formula-style paths and keeps the open workbook open");
+            Check(XlsxLinkPackage.Scan(workbook).Select(l => l.SourcePath).SequenceEqual(new[] { source, replacement })
+                && !XlsxLinkPackage.ScanReport(workbook).Any(l => l.IsMissingPath),
+                "only the selected missing path is rebound to an ordinary external source");
+            book.Close(false);
+            foreach (string step in session.Steps(true, () => false)) { }
+            Check(XlsxLinkPackage.Hash(workbook) == before, "missing-source cancellation restores the original relationship and file bytes");
+            session.Batch.Confirm(File.Delete);
+        }
+        NamePackage(workbook, Path.Combine(folder, "另一目录", "同名.xlsx"), "同名.xlsx", "[2]Data!A1", missing: true);
+        var links = XlsxLinkPackage.ScanReportParts(workbook);
+        Reject(() => LinkAssistantSession.MatchMissingHostName(new[] { "同名.xlsx" }, links.Single(l => l.IsMissingPath), links),
+            "a host basename cannot select a missing relationship when another saved source uses the same filename");
+        const string normalizedTarget = "保存后改写.xlsx";
+        foreach (string target in new[] { XlsxLinkPackage.WpsFileUri(Path.Combine(folder, normalizedTarget)), normalizedTarget })
+        {
+            NamePackage(workbook, source, target, "[2]Data!A1", missing: true);
+            var session = JournalSession(report, new[] { workbook }, source, replacement, true);
+            session.Scan(new[] { workbook });
+            var app = (LinkFakeApp)session.App;
+            int row = session.Links.FindIndex(link => link.IsMissingPath) + 1;
+            var sheet = ((LinkFakeBook)app.ActiveWorkbook).Sheet;
+            sheet.Values[row, 2] = replacement;
+            NamePackage(workbook, source, normalizedTarget, "[2]Data!A1");
+            string before = XlsxLinkPackage.Hash(workbook);
+            session.Execute(null);
+            Check(session.Batch.Changes.Single().Applied && ((string)sheet.Values[row, 3]).Contains("已替换"),
+                "equivalent WPS save normalization preserves the report row and applies its replacement");
+            app.Workbooks.Items[1].Close(false);
+            foreach (string step in session.Steps(true, () => false)) { }
+            Check(XlsxLinkPackage.Hash(workbook) == before, "undo restores the actual saved pre-replacement identity");
+            session.Batch.Confirm(File.Delete);
+        }
+    }
     private static void AddressNameChecks(string folder, string a, string b, string report)
     {
         string target = Path.Combine(folder, "address-names.xlsx");
@@ -147,6 +218,39 @@ partial class WorkbookToolsProbe
         Check(after.Names.Any(n => n.Name == "_xlnm._FilterDatabase" && n.Formula == "S2!$A$8:$Y$271"), "filter-name definition itself is preserved");
         book.Close(false); foreach (string step in engine.Steps(true, () => false)) { }
         Check(File.ReadAllBytes(target).SequenceEqual(before), "address-name regression still supports byte-exact cancellation"); engine.Batch.Confirm(File.Delete);
+    }
+}
+public partial class LinkFakeBook
+{
+    private IEnumerable<ExternalLinkInfo> MissingHostLinks()
+    {
+        return XlsxLinkPackage.ScanReportParts(FullName).Where(link => link.IsMissingPath);
+    }
+    private static string NativeMissingName(ExternalLinkInfo link)
+    {
+        return XlsxLinkPackage.AbsoluteFileTarget(link.RawTarget) ?? Uri.UnescapeDataString(link.RawTarget);
+    }
+    private bool ChangeMissingHostLink(string name, string replacement)
+    {
+        bool missing = !File.Exists(replacement);
+        var source = XlsxLinkPackage.ScanReportParts(FullName).SingleOrDefault(link =>
+            link.IsMissingPath ? NativeMissingName(link) == name : missing && link.SourcePath == name);
+        if (source == null) return false;
+        using (var stream = File.Open(FullName, FileMode.Open, FileAccess.ReadWrite))
+        using (var zip = new ZipArchive(stream, ZipArchiveMode.Update))
+        {
+            var entry = zip.GetEntry(source.Part);
+            XmlDocument xml;
+            using (var input = entry.Open()) xml = XlsxLinkPackage.Load(input);
+            var relationship = xml.DocumentElement.ChildNodes.OfType<XmlElement>().Single(item => item.GetAttribute("Id") == source.Relationship);
+            relationship.SetAttribute("Type", missing
+                ? "http://schemas.microsoft.com/office/2006/relationships" + XlsxLinkPackage.MissingPathSuffix
+                : "http://schemas.openxmlformats.org/officeDocument/2006/relationships/externalLinkPath");
+            relationship.SetAttribute("Target", XlsxLinkPackage.WpsFileUri(replacement));
+            entry.Delete();
+            using (var output = zip.CreateEntry(source.Part).Open()) xml.Save(output);
+        }
+        return true;
     }
 }
 

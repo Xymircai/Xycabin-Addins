@@ -97,13 +97,21 @@ namespace Excel_Iterate
         }
         internal string Semantic(string formula)
         {
+            return NormalizeFormula(formula, null, null);
+        }
+        private string NormalizeFormula(string formula, string previous, string replacement)
+        {
             formula = (formula ?? "").Trim(); if (formula.StartsWith("=")) formula = formula.Substring(1);
             var result = new StringBuilder(formula);
             foreach (Match match in Prefix.Matches(MaskStrings(formula)).Cast<Match>().Reverse())
             {
                 string path, sheet;
                 if (SourcePrefix(formula.Substring(match.Index, match.Length), out path, out sheet))
-                { result.Remove(match.Index, match.Length); result.Insert(match.Index, "'[" + NormalPath(path) + "]" + sheet.ToUpperInvariant().Replace("'", "''") + "'!"); }
+                {
+                    if (string.Equals(path, previous, StringComparison.OrdinalIgnoreCase)) path = replacement;
+                    result.Remove(match.Index, match.Length);
+                    result.Insert(match.Index, "'[" + NormalPath(path) + "]" + sheet.ToUpperInvariant().Replace("'", "''") + "'!");
+                }
             }
             return result.ToString();
         }
@@ -136,7 +144,7 @@ namespace Excel_Iterate
                         string linkId = RelId(book);
                         var target = Document(zip, relPart).DocumentElement.ChildNodes.OfType<XmlElement>()
                             .SingleOrDefault(r => r.GetAttribute("Id") == linkId && (r.GetAttribute("Type").EndsWith("/externalLinkPath", StringComparison.Ordinal)
-                                || r.GetAttribute("Type").EndsWith("/xlExternalLinkPath/xlPathMissing", StringComparison.Ordinal)));
+                                || r.GetAttribute("Type").EndsWith(XlsxLinkPackage.MissingPathSuffix, StringComparison.Ordinal)));
                         if (target == null) throw new IOException("名称的外部工作簿路径无法读取。");
                         path = XlsxLinkPackage.Resolve(file, target.GetAttribute("Target"));
                     }
@@ -299,6 +307,24 @@ namespace Excel_Iterate
                 FormulaUse current;
                 if (!cells.TryGetValue(before.Key, out current) || Semantic(before.Text) != after.Semantic(current.Text)) throw new IOException("保存后其他单元格的公式映射发生变化：" + before.Key);
             }
+        }
+        internal void VerifyReplacement(LinkNameAnalysis after, string source, string destination)
+        {
+            var saved = after.formulas.Where(UsesCellOrName).ToLookup(FormulaIdentity, StringComparer.OrdinalIgnoreCase);
+            foreach (var before in formulas.Where(formula => UsesCellOrName(formula) && formula.Sources.Contains(source)))
+            {
+                string expected = NormalizeFormula(before.Text, source, destination);
+                if (saved[FormulaIdentity(before)].Count(formula => after.Semantic(formula.Text) == expected) != 1)
+                    throw new IOException("保存后无法核对外链公式，恢复备份已保留：" + FormulaIdentity(before));
+            }
+        }
+        private static bool UsesCellOrName(FormulaUse formula)
+        {
+            return formula.Cell || formula.Key.StartsWith("name:", StringComparison.Ordinal);
+        }
+        private static string FormulaIdentity(FormulaUse formula)
+        {
+            return formula.Cell ? formula.Sheet + "!" + formula.Key.Substring(formula.Key.LastIndexOf(':') + 1) : formula.Key;
         }
     }
 }

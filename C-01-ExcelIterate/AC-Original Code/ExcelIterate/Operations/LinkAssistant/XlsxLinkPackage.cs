@@ -12,12 +12,39 @@ namespace Excel_Iterate
     {
         internal string OwnerPath, SourcePath, RawTarget, Part, Relationship;
         internal string NewPath, Status = "待填写新链接";
-        internal bool BreakRequested;
-        internal string Key { get { return OwnerPath + "\n" + (SourcePath ?? RawTarget); } }
+        internal bool BreakRequested, IsMissingPath;
+        internal bool DestinationMissing;
+        internal ExternalLinkInfo ValidatedSource;
+        internal string SourceId { get { return SourcePath ?? RawTarget; } }
+        internal string Key { get { return OwnerPath + "\n" + SourceId; } }
+        internal string UnavailableReason
+        {
+            get
+            {
+                return SourcePath == null && !IsMissingPath ? "不支持的网页或非文件链接" : null;
+            }
+        }
     }
     internal static class XlsxLinkPackage
     {
         private const string Relationships = "http://schemas.openxmlformats.org/package/2006/relationships";
+        internal const string MissingPathSuffix = "/xlExternalLinkPath/xlPathMissing";
+        private const string MissingPathStatus = "来源路径待核对（xlPathMissing），可填写新链接";
+        internal static bool IsFullWindowsPath(string path)
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(path, @"^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)");
+        }
+        internal static string AbsoluteFileTarget(string target)
+        {
+            if (string.IsNullOrWhiteSpace(target)) return null;
+            Uri uri;
+            if (target.StartsWith("file:", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Uri.TryCreate(target, UriKind.Absolute, out uri) || !uri.IsFile) return null;
+                target = uri.LocalPath;
+            }
+            return IsFullWindowsPath(target) ? Path.GetFullPath(target) : null;
+        }
         internal static string WpsFileUri(string file)
         {
             string escaped = new Uri(Path.GetFullPath(file)).AbsoluteUri;
@@ -61,6 +88,21 @@ namespace Excel_Iterate
         }
         internal static List<ExternalLinkInfo> Scan(string file)
         {
+            return ScanRelationships(file, false);
+        }
+        internal static List<ExternalLinkInfo> ScanReport(string file)
+        {
+            return ScanReportParts(file)
+                .GroupBy(link => link.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.FirstOrDefault(link => !link.IsMissingPath) ?? group.First())
+                .ToList();
+        }
+        internal static List<ExternalLinkInfo> ScanReportParts(string file)
+        {
+            return ScanRelationships(file, true);
+        }
+        private static List<ExternalLinkInfo> ScanRelationships(string file, bool includeMissingPaths)
+        {
             string owner = Path.GetFullPath(file);
             if (!string.Equals(Path.GetExtension(owner), ".xlsx", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("本轮仅支持 .xlsx 工作簿。");
             List<ExternalLinkInfo> result = new List<ExternalLinkInfo>();
@@ -75,10 +117,22 @@ namespace Excel_Iterate
                     XmlDocument xml; using (Stream input = entry.Open()) xml = Load(input);
                     foreach (XmlElement rel in xml.DocumentElement.ChildNodes.OfType<XmlElement>())
                     {
-                        if (!rel.GetAttribute("Type").EndsWith("/externalLinkPath", StringComparison.Ordinal)) continue;
+                        string type = rel.GetAttribute("Type");
+                        bool missingPath = includeMissingPaths && type.EndsWith(MissingPathSuffix, StringComparison.Ordinal);
+                        if (!missingPath && !type.EndsWith("/externalLinkPath", StringComparison.Ordinal)) continue;
                         string target = rel.GetAttribute("Target");
-                        string source = Resolve(owner, target);
-                        result.Add(new ExternalLinkInfo { OwnerPath = owner, SourcePath = source, RawTarget = target, Part = entry.FullName, Relationship = rel.GetAttribute("Id"), Status = source == null ? "不支持的网页或非文件链接" : "待填写新链接" });
+                        // xlPathMissing supplies no base path. Preserve the recorded target for display.
+                        var link = new ExternalLinkInfo
+                        {
+                            OwnerPath = owner,
+                            SourcePath = missingPath ? null : Resolve(owner, target),
+                            RawTarget = target,
+                            Part = entry.FullName,
+                            Relationship = rel.GetAttribute("Id"),
+                            IsMissingPath = missingPath
+                        };
+                        link.Status = missingPath ? MissingPathStatus : link.UnavailableReason ?? link.Status;
+                        result.Add(link);
                     }
                 }
             }

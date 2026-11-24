@@ -115,7 +115,7 @@ namespace Excel_Iterate
             {
                 Owner(item);
                 using (ComBag one = new ComBag()) { object open = one.Own(FindBook(App, item)); if (open != null) RequireSaved(open); }
-                var found = XlsxLinkPackage.Scan(item);
+                var found = XlsxLinkPackage.ScanReport(item);
                 LinkNameAnalysis.Describe(item, found);
                 int previous = collected.Count;
                 foreach (ExternalLinkInfo link in found)
@@ -168,12 +168,12 @@ namespace Excel_Iterate
                 reportSaved=true;
             }
             var previousBatch=Batch;
-            Batch=new LinkBatch {ReportBook=ReportBookPath,Anchor=ReportAnchor,ReportName=ReportName,ScopeFolder=ScanFolder,Owners=targets.ToList(),Rows=Links.Select(l=>new LinkRowRecord {Owner=l.OwnerPath,Source=l.SourcePath,Raw=l.RawTarget,Status=l.Status}).ToList()};
+            Batch=new LinkBatch {ReportBook=ReportBookPath,Anchor=ReportAnchor,ReportName=ReportName,ScopeFolder=ScanFolder,Owners=targets.ToList(),Rows=Links.Select(LinkRowRecord.FromLink).ToList()};
             Batch.LogDirectories=ScanFolder!=null?new List<string>{ScanFolder}:targets.Select(Path.GetDirectoryName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if(previousBatch!=null){Batch.Id=previousBatch.Id;Batch.LogDirectories=Batch.LogDirectories.Concat(previousBatch.LogDirectories).Distinct(StringComparer.OrdinalIgnoreCase).ToList();}
             Batch.Persist();FlushDiagnostics();
             Operations.Trace("导出清单", ReportBookPath + "；工作表「" + ReportName + "」");
-            LastResult=Links.Any(l=>l.SourcePath!=null)?"扫描完成。在「外部链接」第三列填完整新路径，或填「断开链接」，再点击「执行替换」。":"扫描完成，未发现可处理链接。";
+            LastResult=Links.Any(l=>l.UnavailableReason==null)?"扫描完成。在「外部链接」第三列填完整新路径，或对普通链接填「断开链接」，再点击「执行替换」。":"扫描完成，未发现可处理链接。";
             SaveSummary();
             return Links.Count;
         }
@@ -183,11 +183,35 @@ namespace Excel_Iterate
             dynamic names = bag.Own(((dynamic)book).Names), name = bag.Own(names.Item(ReportAnchor)), range = bag.Own(name.RefersToRange);
             return bag.Own(range.Worksheet);
         }
-        internal const string MissingStatus="新链接不存在，暂已跳过，请排查原因";
+        internal const string MissingStatus="链接已替换，目标文件当前缺失";
         internal const string BreakCommand="断开链接";
         internal static bool MissingTarget(string path) {
             try { if((File.GetAttributes(path)&FileAttributes.Directory)!=0)throw new IOException("新链接指向文件夹，请填写 xlsx 文件路径。");return false; }
             catch(FileNotFoundException){return true;}catch(DirectoryNotFoundException){return true;}
+        }
+        private static bool ValidateReplacementTarget(string path)
+        {
+            if (MissingTarget(path)) return true;
+            try { XlsxLinkPackage.Scan(path); }
+            catch (FileNotFoundException) { return true; }
+            catch (DirectoryNotFoundException) { return true; }
+            return false;
+        }
+        private static void RequireAvailableReplacementTarget(string path)
+        {
+            if (MissingTarget(path)) throw new IOException("目标文件于替换预检后变为缺失。请重新扫描并执行换链：" + path);
+        }
+        private static string ReplacementPath(string input)
+        {
+            string path = input.Replace('/', '\\');
+            int start = path.LastIndexOf('\\') + 1;
+            if (start > 0 && path.Length > start + 2 && path[start] == '[' && path[path.Length - 1] == ']')
+                path = path.Substring(0, start) + path.Substring(start + 1, path.Length - start - 2);
+            if (!XlsxLinkPackage.IsFullWindowsPath(path)) throw new InvalidOperationException("新链接请填写完整文件路径：" + input);
+            path = Path.GetFullPath(path);
+            if (!string.Equals(Path.GetExtension(path), ".xlsx", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("新链接需要填写 xlsx 完整路径：" + input);
+            return path;
         }
         internal Dictionary<string, string> ReadMappings()
         {
@@ -212,23 +236,30 @@ namespace Excel_Iterate
                     ExternalLinkInfo link;
                     if (!known.TryGetValue(key, out link) || !seen.Add(key)) throw new InvalidOperationException("文档路径或外部链接已变化，或有重复行；请重新扫描。");
                     string input = Convert.ToString(values.GetValue(r0 + r, c0 + 2)).Trim();
+                    var source = link.ValidatedSource ?? link;
                     link.NewPath = null;
+                    link.DestinationMissing = false;
                     link.BreakRequested=false;
-                    if (input.Length == 0) { link.Status = link.SourcePath == null ? "不支持的网页或非文件链接" : "未填新链接，跳过"; Operations.Trace("跳过链接", link.Key + "；" + link.Status); continue; }
+                    if (input.Length == 0) { link.Status = link.UnavailableReason ?? "未填新链接，跳过"; Operations.Trace("跳过链接", link.Key + "；" + link.Status); continue; }
                     try {
-                    if (link.SourcePath == null) throw new InvalidOperationException("不能替换非文件外部链接：" + link.RawTarget);
+                    if (link.UnavailableReason != null) throw new InvalidOperationException("不能替换非文件外部链接：" + link.RawTarget);
+                    if ((link.IsMissingPath || source.IsMissingPath) && input == BreakCommand) throw new InvalidOperationException("来源路径待核对，请填写完整新路径替换：" + link.RawTarget);
                     if(input==BreakCommand){link.BreakRequested=true;link.Status="待断开，将处理相关公式及未使用的名称引用";Operations.Trace("待断开链接",link.Key);continue;}
                     if(input=="请断开该链接")throw new InvalidOperationException("断链指令已改为「断开链接」，请修改清单后重试。");
-                    string path = Path.GetFullPath(input);
-                    if (!System.Text.RegularExpressions.Regex.IsMatch(input, @"^(?:[A-Za-z]:[\\/]|\\\\)")) throw new InvalidOperationException("新链接请填写完整文件路径：" + input);
-                    if (Path.GetExtension(path).ToLowerInvariant() != ".xlsx") throw new InvalidOperationException("新链接需要填写 xlsx 完整路径：" + input);
-                    if (MissingTarget(path)) { link.Status = MissingStatus; Operations.Record("跳过", link.OwnerPath+"\r\n"+input+"\r\n"+MissingStatus); continue; }
+                    string path = ReplacementPath(input);
                     if (string.Equals(path, link.OwnerPath, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("新链接不能指向目标工作簿自身。");
-                    XlsxLinkPackage.Scan(path);
-                    if (string.Equals(path, link.SourcePath, StringComparison.OrdinalIgnoreCase)) { link.Status = "链接相同，无需替换"; Operations.Trace("跳过链接", link.Key + "；" + link.Status); continue; }
+                    link.DestinationMissing = ValidateReplacementTarget(path);
+                    string currentPath = source.SourcePath ?? (link.DestinationMissing ? XlsxLinkPackage.AbsoluteFileTarget(source.RawTarget) : null);
+                    if (string.Equals(path, currentPath, StringComparison.OrdinalIgnoreCase))
+                    {
+                        link.Status = link.DestinationMissing ? "链接路径已一致，目标文件当前缺失" : "链接相同，无需替换";
+                        Operations.Trace("路径已核对", link.Key + "；" + link.Status);
+                        continue;
+                    }
+                    if (link.DestinationMissing) link.Status = "待替换，目标文件当前缺失";
                     link.NewPath = path; result.Add(key, path);
                     Operations.Trace("待替换链接", link.Key + "；新链接：" + path);
-                    } catch(Exception ex){reportedError=ex;Operations.Trace("映射预检异常",ex.ToString());Pair(new LinkChange{Owner=link.OwnerPath,Old=link.SourcePath??link.RawTarget,New=input},false,false,ex);Operations.Record("","预检未通过，尚未修改链接。");throw;}
+                    } catch(Exception ex){reportedError=ex;Operations.Trace("映射预检异常",ex.ToString());Pair(new LinkChange{Owner=link.OwnerPath,Old=link.SourceId,New=input},false,false,ex);Operations.Record("","预检未通过，尚未修改链接。");throw;}
                 }
                 return result;
             }
@@ -236,17 +267,21 @@ namespace Excel_Iterate
         internal string Execute(Action<string> progress)
         { foreach(string step in Steps(false,()=>false))if(progress!=null)progress(step);return LastResult; }
         internal string LastResult;
-        internal static List<HostLinkSource> ParseHostSources(object raw,string owner,IEnumerable<ExternalLinkInfo> package)
+        private static IEnumerable<string> HostLinkNames(object raw)
         {
-            var known=package.Where(l=>l.SourcePath!=null).ToList();var result=new List<HostLinkSource>();
-            if(raw==null||raw==DBNull.Value)return result;
+            if(raw==null||raw==DBNull.Value)return Enumerable.Empty<string>();
             Array array=raw as Array;
             if(array!=null&&array.Rank!=1)throw new IOException("宿主链接来源不是一维数组，无法可靠匹配。");
             if(array==null&&!(raw is string))throw new IOException("无法识别宿主链接来源类型："+raw.GetType().FullName);
             IEnumerable<object> values=array==null?new object[]{raw}:array.Cast<object>();
-            foreach(object value in values)
+            return values.Select(value => Convert.ToString(value)).Where(name => !string.IsNullOrWhiteSpace(name));
+        }
+        internal static List<HostLinkSource> ParseHostSources(object raw,string owner,IEnumerable<ExternalLinkInfo> package)
+        {
+            var known=package.Where(l=>l.SourcePath!=null).ToList();var result=new List<HostLinkSource>();
+            foreach(string name in HostLinkNames(raw))
             {
-                string name=Convert.ToString(value);if(string.IsNullOrWhiteSpace(name))continue;string resolved=null;
+                string resolved=null;
                 // Host names are Windows filenames, not OOXML URI references.
                 // Preserve literal %20/%23 in filenames and the exact call token.
                 if(System.Text.RegularExpressions.Regex.IsMatch(name,@"^(?:[A-Za-z]:[\\/]|\\\\)"))resolved=System.IO.Path.GetFullPath(name.Replace('/', '\\'));
@@ -296,13 +331,52 @@ namespace Excel_Iterate
         {
             var rows=new List<ExternalLinkInfo>();
             foreach(string path in owners)
-            {using(var bag=new ComBag()){object book=bag.Own(FindBook(App,path));if(book!=null)RequireSaved(book);}var found=XlsxLinkPackage.Scan(path);LinkNameAnalysis.Describe(path,found);foreach(var link in found)if(!rows.Any(r=>string.Equals(r.Key,link.Key,StringComparison.OrdinalIgnoreCase)))rows.Add(link);}
+            {using(var bag=new ComBag()){object book=bag.Own(FindBook(App,path));if(book!=null)RequireSaved(book);}var found=XlsxLinkPackage.ScanReport(path);LinkNameAnalysis.Describe(path,found);foreach(var link in found)if(!rows.Any(r=>string.Equals(r.Key,link.Key,StringComparison.OrdinalIgnoreCase)))rows.Add(link);}
             return rows;
+        }
+        private static bool SameReportSource(ExternalLinkInfo previous, ExternalLinkInfo current)
+        {
+            if (!string.Equals(previous.OwnerPath, current.OwnerPath, StringComparison.OrdinalIgnoreCase)) return false;
+            if (previous.IsMissingPath == current.IsMissingPath && string.Equals(previous.SourceId, current.SourceId, StringComparison.OrdinalIgnoreCase)) return true;
+            if (!previous.IsMissingPath && !current.IsMissingPath) return false;
+            string previousPath = previous.SourcePath ?? XlsxLinkPackage.AbsoluteFileTarget(previous.RawTarget);
+            string currentPath = current.SourcePath ?? XlsxLinkPackage.AbsoluteFileTarget(current.RawTarget);
+            if (previousPath != null && currentPath != null) return string.Equals(previousPath, currentPath, StringComparison.OrdinalIgnoreCase);
+            // Saving the report can turn an unqualified missing target into an
+            // ordinary relative target. Only accept the same recorded filename.
+            string filename = Uri.UnescapeDataString(previous.RawTarget ?? string.Empty);
+            return filename.Length > 0 && filename.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
+                && string.Equals(filename, Uri.UnescapeDataString(current.RawTarget ?? string.Empty), StringComparison.OrdinalIgnoreCase);
         }
         private void Rescan()
         {
-            if(Batch==null)return;var fresh=Fresh(Batch.Candidates());
-            if(!new HashSet<string>(Links.Select(l=>l.Key),StringComparer.OrdinalIgnoreCase).SetEquals(fresh.Select(l=>l.Key)))throw new InvalidOperationException("当前链接与原扫描清单不一致，暂停执行；请重新扫描。第三列输入未被覆盖。");
+            if (Batch == null) return;
+            var fresh = Fresh(Batch.Candidates());
+            const string changed = "当前链接与原扫描清单不一致，暂停执行；请重新扫描。第三列输入未被覆盖。";
+            if (fresh.Count != Links.Count) throw new InvalidOperationException(changed);
+            var used = new HashSet<ExternalLinkInfo>();
+            foreach (var link in Links)
+            {
+                var matches = fresh.Where(current => SameReportSource(link, current)).ToList();
+                if (matches.Count != 1 || !used.Add(matches[0])) throw new InvalidOperationException(changed);
+                link.ValidatedSource = matches[0];
+            }
+        }
+        private static LinkChange ToChange(ExternalLinkInfo link)
+        {
+            var source = link.ValidatedSource ?? link;
+            bool reclassified = source.IsMissingPath != link.IsMissingPath
+                || !string.Equals(source.SourceId, link.SourceId, StringComparison.OrdinalIgnoreCase);
+            return new LinkChange
+            {
+                Owner = link.OwnerPath,
+                Old = source.SourceId,
+                ReportSource = reclassified ? link.SourceId : null,
+                New = link.NewPath,
+                DestinationMissing = link.DestinationMissing,
+                IsMissingPath = source.IsMissingPath,
+                Action = link.BreakRequested ? LinkAction.Break : LinkAction.Replace
+            };
         }
         private void ClosedChange(string owner,List<LinkChange> changes,bool reverse)
         {
@@ -347,9 +421,9 @@ namespace Excel_Iterate
                 if(Batch!=null&&Batch.Pending)throw new InvalidOperationException("请先取消还原或确认上一批操作。");
                 try{Rescan();ReadMappings();}catch(Exception ex){ReportStopped(ex);throw;}
                 if(Batch==null) // Offline seam; production scans always have a persisted identity.
-                {Batch=new LinkBatch {ReportBook=ReportBookPath,Anchor=ReportAnchor,ReportName=ReportName,Owners=Links.Select(l=>l.OwnerPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),Rows=Links.Select(l=>new LinkRowRecord{Owner=l.OwnerPath,Source=l.SourcePath,Raw=l.RawTarget}).ToList(),LogDirectories=new List<string>{Path.GetDirectoryName(ReportBookPath)}};}
+                {Batch=new LinkBatch {ReportBook=ReportBookPath,Anchor=ReportAnchor,ReportName=ReportName,Owners=Links.Select(l=>l.OwnerPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),Rows=Links.Select(LinkRowRecord.FromLink).ToList(),LogDirectories=new List<string>{Path.GetDirectoryName(ReportBookPath)}};}
                 foreach(var row in Batch.Rows){var link=Links.FirstOrDefault(l=>l.Key==row.Owner+"\n"+(row.Source??row.Raw));if(link!=null)row.Status=link.Status;}
-                Batch.Changes=Links.Where(l=>l.NewPath!=null||l.BreakRequested).Select(l=>new LinkChange {Owner=l.OwnerPath,Old=l.SourcePath,New=l.NewPath,Action=l.BreakRequested?LinkAction.Break:LinkAction.Replace}).ToList();Batch.Skipped=Links.Count-Batch.Changes.Count;Batch.State="Active";Batch.Persist();FlushDiagnostics();
+                Batch.Changes=Links.Where(l=>l.NewPath!=null||l.BreakRequested).Select(ToChange).ToList();Batch.Skipped=Links.Count-Batch.Changes.Count;Batch.State="Active";Batch.Persist();FlushDiagnostics();
                 Operations.Record(Batch.Changes.Any(c=>c.Action==LinkAction.Break)?"开始链接处理":"开始替换",Batch.Changes.Count+"条链接。");
             }
             else {if(Batch.State=="Cleaning")throw new InvalidOperationException("已开始清理，不能还原。");Operations.Record("开始还原","核对本批改动。");}
@@ -357,7 +431,24 @@ namespace Excel_Iterate
             foreach(string owner in Batch.Changes.Select(c=>c.Owner).Distinct(StringComparer.OrdinalIgnoreCase).ToArray())
             {
                 if(!undo&&cancelled()){abort=true;break;}
-                if(Batch.Changes.Any(c=>c.Owner==owner&&c.Action==LinkAction.Break))
+                var ownerChanges = Batch.Changes.Where(c => c.Owner == owner).ToList();
+                if (!undo)
+                {
+                    try
+                    {
+                        foreach (var replacement in ownerChanges.Where(c => c.Action == LinkAction.Replace))
+                            replacement.DestinationMissing = MissingTarget(replacement.New);
+                    }
+                    catch (Exception preflightError)
+                    {
+                        foreach (var change in ownerChanges)
+                        {
+                            change.FailureReason = Reason(preflightError); failures.Add(change); Pair(change, false, false, preflightError);
+                        }
+                        continue;
+                    }
+                }
+                if (Checkpoint(owner) != null || ownerChanges.Any(c => c.Action == LinkAction.Break || c.IsMissingPath || c.ReportSource != null || c.DestinationMissing))
                 {
                     var outcome=new CheckpointOutcome();
                     foreach(string step in CheckpointSteps(owner,undo,cancelled,outcome))yield return step;
@@ -370,7 +461,6 @@ namespace Excel_Iterate
                 {
                     ReconcileIntent(owner);
                     var changes=Batch.Changes.Where(c=>c.Owner==owner&&(undo?c.Applied:!c.Applied)).ToList();
-                    if(!undo)foreach(var c in changes.ToArray())if(!c.Intent&&MissingTarget(c.New)){SkipMissing(c);changes.Remove(c);}
                     if(changes.Count==0)continue;
                     using(var bag=new ComBag())
                     {object book=bag.Own(FindBook(App,owner));if(book!=null)RequireSaved(book);
@@ -393,7 +483,7 @@ namespace Excel_Iterate
                             using(var bag=new ComBag())
                             {
                                 object book=bag.Own(FindBook(App,owner));if(book==null)throw new IOException("目标工作簿已关闭；本步骤停止。");
-                                if(!undo&&MissingTarget(c.New)){SkipMissing(c);continue;}
+                                if (!undo) RequireAvailableReplacementTarget(c.New);
                                 RequireSaved(book);var sourceNames=ActiveHostSources(book,owner,s=>Operations.Trace("宿主来源",s));var before=sourceNames.Select(s=>s.Path).ToList();string from=undo?c.New:c.Old,to=undo?c.Old:c.New;
                                 if(!before.Contains(from,StringComparer.OrdinalIgnoreCase)||before.Contains(to,StringComparer.OrdinalIgnoreCase))throw new IOException("执行期间链接来源发生变化，暂停处理。");
                                 c.Intent=true;c.IntentReverse=undo;Batch.Persist();
@@ -417,7 +507,7 @@ namespace Excel_Iterate
                     // Closed package work stays off the host STA; the iterator
                     // yields while it runs so the UI can accept cancellation.
                     Exception workerError=null;var done=new System.Threading.ManualResetEvent(false);
-                    var worker=new System.Threading.Thread(delegate(){try{if(!undo)foreach(var change in ordered.ToArray())if(MissingTarget(change.New)){SkipMissing(change);ordered.Remove(change);}if(ordered.Count>0)ClosedChange(owner,ordered,undo);}catch(Exception ex){workerError=ex;}finally{done.Set();}});
+                    var worker=new System.Threading.Thread(delegate(){try{if(ordered.Count>0)ClosedChange(owner,ordered,undo);}catch(Exception ex){workerError=ex;}finally{done.Set();}});
                     worker.SetApartmentState(System.Threading.ApartmentState.STA);worker.IsBackground=true;worker.Start();
                     while(!done.WaitOne(0))yield return (undo?"正在还原文件：":"正在核对文件：")+Path.GetFileName(owner);
                     done.Dispose();error=workerError;
@@ -442,19 +532,19 @@ namespace Excel_Iterate
             int left=PendingChanges();
             LastResult=undo?"还原完成：成功"+success+"条，仍有"+left+"条改动或待核对步骤。"+(automatic?"":"\r\n"+(left>0?"请重试「取消操作」；当前禁止确认清理。":"本批链接已恢复原状。请点击「确认操作」清理记录。")):
                 (Batch.Changes.Any(c=>c.Action==LinkAction.Break)?"链接处理完成（替换/断开）：成功":"替换完成：成功")+success+"条，跳过"+Batch.Skipped+"条，失败0条。\r\n"+(success>0?"结果已自动保存。保留本次结果，请点击「确认操作」；需要还原，请点击「取消操作」。":"没有修改链接。请点击「确认操作」清理本批记录。");
+            int missing = Batch.Changes.Count(c => c.Applied && c.DestinationMissing);
+            if (!undo && missing > 0) LastResult += "\r\n已替换的链接中，目标文件当前缺失" + missing + "条。";
             SaveSummary();
-        }
-        private void SkipMissing(LinkChange change) {
-            Batch.Changes.Remove(change);Batch.Skipped++;
-            var row=Batch.Rows.FirstOrDefault(r=>r.Owner==change.Owner&&string.Equals(r.Source,change.Old,StringComparison.OrdinalIgnoreCase));if(row!=null)row.Status=MissingStatus;
-            var link=Links.FirstOrDefault(l=>l.OwnerPath==change.Owner&&string.Equals(l.SourcePath,change.Old,StringComparison.OrdinalIgnoreCase));if(link!=null){link.Status=MissingStatus;link.NewPath=null;}
-            Operations.Record("跳过",change.Owner+"\r\n"+change.New+"\r\n"+MissingStatus);Batch.Persist();
         }
         private void RefreshStatuses(bool undo)
         {
-            foreach(var l in Links){var c=Batch.Changes.FirstOrDefault(x=>string.Equals(x.Owner,l.OwnerPath,StringComparison.OrdinalIgnoreCase)&&string.Equals(x.Old,l.SourcePath,StringComparison.OrdinalIgnoreCase));if(c==null)continue;
+            foreach(var l in Links){var c=Batch.Changes.FirstOrDefault(x=>string.Equals(x.Owner,l.OwnerPath,StringComparison.OrdinalIgnoreCase)&&string.Equals(x.ReportSourceId,l.SourceId,StringComparison.OrdinalIgnoreCase));if(c==null)continue;
                 var checkpoint=Checkpoint(c.Owner);
-                l.Status=c.Intent?(checkpoint!=null&&checkpoint.Applied?"已保存，但处理结果尚未核对；请重试取消":"处理结果待核对，备份已保留；请重试取消"):c.Applied?c.Action==LinkAction.Break?"链接已断开；结果已保存":"链接已替换，结果已保存":undo&&c.EverApplied?"本批处理已还原":c.FailureReason==null?"未执行":checkpoint!=null&&checkpoint.Restored?"已核对备份状态；此前失败："+c.FailureReason:"未执行；失败："+c.FailureReason;}
+                l.Status=c.Intent?(checkpoint!=null&&checkpoint.Applied?"已保存，但处理结果尚未核对；请重试取消":"处理结果待核对，备份已保留；请重试取消"):c.Applied?c.Action==LinkAction.Break?"链接已断开；结果已保存":c.DestinationMissing?MissingStatus:"链接已替换，结果已保存":undo&&c.EverApplied?"本批处理已还原":c.FailureReason==null?"未执行":checkpoint!=null&&checkpoint.Restored?"已核对备份状态；此前失败："+c.FailureReason:"未执行；失败："+c.FailureReason;
+                var row = Batch.Rows.FirstOrDefault(r => string.Equals(r.Owner, l.OwnerPath, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(r.Source ?? r.Raw, l.SourceId, StringComparison.OrdinalIgnoreCase));
+                if (row != null) row.Status = l.Status;
+            }
         }
         private void SaveSummary()
         {Operations.Record("",LastResult);Batch.LastSummary=LastResult;Batch.UserLog=Operations.Text;Batch.Persist();}

@@ -35,7 +35,7 @@ Agent 修改后的正式成果生成入口、完整验证方式及交付证据�
 
 ## 4. 项目状态维护
 
-每次修改都以最新状态覆写各产品的接手摘要、交付回执和下一阶段目标。接手摘要按【现场基线】【目标与验收】【执行规范】【起手动作】四节组织，每个产品 600～1,000 字。只保留推进下一步所需的源码、配置和最新回执入口，把计数范围写进指标名。正式构建前固定接手正文，取得结果后按 R-17 回填三处「本轮交付证据」，替换前一轮回执。版本表按版本维护公开摘要。
+每次修改都以最新状态覆写各产品的接手摘要、交付回执和下一阶段目标。接手摘要按【现场基线】【目标与验收】【执行规范】【起手动作】四节组织，每个产品 600～1,000 字。只保留推进下一步所需的源码、配置和最新回执入口，把计数范围写进指标名。正式构建前固定接手正文，取得结果后按 R-17 回填本次实际构建项目的「本轮交付证据」。版本表按版本维护公开摘要。
 
 # 二. Excel-Iterate 项目档案
 
@@ -97,7 +97,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 批量迁移数据位于审计工具箱，支持选择源区域、批量添加文件或文件夹、勾选目标、逐项预检及输出校验后的独立副本。入口及专属实现位于 `C-01-ExcelIterate/AC-Original Code/ExcelIterate/Data/AuditToolbox/DataMigration/`，验证入口为 DataMigrationProbe 与 DataMigrationLiveProbe；详细规则见 A 与 B2。 内部分为配置快照/纯计划、文件名索引、预设编解码、工作表快照与恢复实现，窗体不再维护这些实现。
 
 
-单项目：运行 python rebuild.py --background --mode full，再运行 python validate.py --background。源码结构迁移验证使用 --installer-output 将候选包写入 build，并通过 validate.py 的 --installer 指定候选包。联合交付仍使用 Website 入口。
+单项目交付运行本产品 AA-Program 下的「一键重建并打包.bat」。源码诊断可运行 python rebuild.py --background --mode full，再运行 python validate.py --background --site-html build/site-embedded.snapshot.html。候选包使用 --installer-output 写入 build，并通过 validate.py 的 --installer 指定。
 
 ## 5. 当前状态与交付
 
@@ -113,7 +113,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 #### c. 【执行规范】
 
-构建使用 Windows、Python 3.10 以上、.NET Framework 4.8 和 C# 5。改动源码或内嵌文档后运行网站联合 BAT 选项 2。用 `WorkbookToolsProbe` 检查映射、文件占用重试和恢复，实机用独立 WPS 处理临时样本。按扫描来源数、填写映射行数、匹配现存目标行数、成功写入缺失目标行数、跳过行数、失败行数、恢复工作簿数记录，附包摘要和运行标识。常规工程边界默认静默执行，遇阻或需决策时再说明。
+构建使用 Windows、Python 3.10 以上、.NET Framework 4.8 和 C# 5。改动本产品源码或专属说明后运行 Excel BAT，核对 G-11／G-12。用 `WorkbookToolsProbe` 检查映射、文件占用重试和恢复，实机用独立 WPS 处理临时样本。按扫描来源数、填写映射行数、匹配现存目标行数、成功写入缺失目标行数、跳过行数、失败行数、恢复工作簿数记录，附包摘要和运行标识。常规工程边界默认静默执行，遇阻或需决策时再说明。
 
 #### d. 【起手动作】
 
@@ -179,7 +179,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 | 构建与验证 | 根目录构建脚本；src/installer、src/pdf、src/tools、src/testharness；父目录 verify_shared.py |
 | 依赖与证据 | lib 为必要编译依赖；build 为中间物、候选包、缓存与验证证据 |
 
-单项目：运行 python rebuild.py --background --mode full，再运行 python validate.py --background。源码结构迁移验证使用 --installer-output 将候选包写入 build，并通过 validate.py 的 --installer 指定候选包。联合交付仍使用 Website 入口。
+单项目交付运行本产品 AA-Program 下的「一键重建并打包.bat」。源码诊断可运行 python rebuild.py --background --mode full，再运行 python validate.py --background --site-html build/site-embedded.snapshot.html。候选包使用 --installer-output 写入 build，并通过 validate.py 的 --installer 指定。
 
 链接来源模型与语法统一由 Links/_Shared/LinkFieldCode 解析，WordComCollection 提供 COM 集合适配；查看与粘贴不再调用更新引擎的内部辅助方法。跨产品纯坐标实现位于 C-00-Shared/src/addin/CellAddress，构建工具统一由 tool_catalog 与 project.json 登记。
 
@@ -197,7 +197,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 #### c. 【执行规范】
 
-使用 .NET Framework 4.8、C# 5 和 Python 3.10 以上，正式产物经网站联合 BAT 选项 2 更新。后台验证和 Word LINK 探针使用隔离样本。现场记录 Windows 与 WPS 版本、安装器 SHA-256、目标表选择范围、粘贴生成字段数、更新成功字段数、定位结果以及文档保存重开结果。按后台回执和现场记录归档各自的运行标识。常规工程边界默认静默执行，遇阻或需决策时再说明。
+使用 .NET Framework 4.8、C# 5 和 Python 3.10 以上，正式产物经 Word BAT 更新，核对 G-14／G-15。后台验证和 Word LINK 探针使用隔离样本。现场记录 Windows 与 WPS 版本、安装器 SHA-256、目标表选择范围、粘贴生成字段数、更新成功字段数、定位结果以及文档保存重开结果。按后台回执和现场记录归档各自的运行标识。常规工程边界默认静默执行，遇阻或需决策时再说明。
 
 #### d. 【起手动作】
 
@@ -248,7 +248,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 #### c. 【执行规范】
 
-Windows 上使用 Python 3.10 以上和 Node.js。正式交付用 `AA-Program/一键重建并打包.bat` 选项 2，冻结正文和签名配置，按退出码、18 个构建关口和 G-23 核对结果。回填三处交付证据后运行 `src/tools/layout_probe.py --strict-evidence`，复核剔除审计节后的正文摘要。记录浏览器版本、本地 HTML 摘要、各下载文件大小与 SHA-256。常规工程边界默认静默执行，遇阻或需决策时再说明。
+Windows 上使用 Python 3.10 以上和 Node.js。收到用户明确的联合打包要求后，用 `AA-Program/一键重建并打包.bat` 选项 2，冻结正文和签名配置，按退出码、18 个构建关口和 G-23 核对结果。回填三处交付证据后运行 `src/tools/layout_probe.py --strict-evidence`，复核剔除审计节后的正文摘要。记录浏览器版本、本地 HTML 摘要、各下载文件大小与 SHA-256。常规工程边界默认静默执行，遇阻或需决策时再说明。
 
 #### d. 【起手动作】
 

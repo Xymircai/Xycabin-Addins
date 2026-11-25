@@ -88,19 +88,16 @@ python C-02-WordUpdater/build.py
 
 ### 完整重建
 
-```bash
-python C-01-ExcelIterate/rebuild.py --background --mode full
-python C-02-WordUpdater/rebuild.py --background --mode full
-python "C-03-Website·Xycabin/rebuild.py" --background --mode full
-```
+| 改动范围 | 重建入口 |
+|---|---|
+| Excel-Iterate | [Excel 一键重建并打包](C-01-ExcelIterate/AA-Program/一键重建并打包.bat) |
+| WordUpdater | [Word 一键重建并打包](C-02-WordUpdater/AA-Program/一键重建并打包.bat) |
+| 两款加载项，含影响两款的公共构建改动 | 分别运行上述两条产品 BAT |
+| 用户明确要求网站联合重建 | [XyCabin 一键重建并打包](C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择「2. 完整验证」 |
 
-或双击各项目 `AA-Program/` 下的 `一键重建并打包.bat`。
+单项目入口默认完整重建，生成配置、编译、签名、封装安装包，再用该产品 `build/site-embedded.snapshot.html` 执行后台验证。联合入口同轮生成两个安装包与下载网页，并核对网页内嵌包的字节。规则与关口见 [B3 Spec](<C-04-Devlog/B3-Spec Coding.md#2-重建签名与交付>)。
 
-完整重建依次执行：写入配置 → 编译 → 生成并签名清单 → 封装安装包 → 校验。`--mode incremental` 会复用 `build/incremental-cache/` 中的编译缓存。
-
-仓库根目录的可见文件夹为 C-00 至 C-04。各产品的构建输出存放在各自的 `build/`，联合构建及发布审计存放在 `C-03-Website·Xycabin/build/`。构建发现遗留的根级 `build/` 时会提示并继续，清理需单独执行。
-
-`C-03-Website·Xycabin/rebuild.py` 是唯一的联合交付入口：它先构建并验证两个加载项，再把两个安装包内嵌进单文件网页，最后事务发布三件产物。只发布其中一个产品时，仍应走联合入口，否则网页内嵌的安装包会与独立附件不一致。单独运行 `AA-Program/C3-XycabinSite_Configure.py` 只会在同目录生成不含安装包的预览页，不能作为发布附件。
+各产品的中间产物与验证证据存放在各自的 `build/`。联合构建及发布审计存放在 `C-03-Website·Xycabin/build/`。构建发现遗留的根级 `build/` 时会提示，清理需单独执行。
 
 ### 关于代码签名
 
@@ -188,7 +185,7 @@ Invoke-Checked -Program $TaskPython -Arguments @("C-03-Website·Xycabin/src/tool
 
 清单生成后，源输入或候选内容发生变化必须重新核验、盘点。程序会复核绝对路径、重解析点、引用和摘要；出现失败须保留报告，不能改用递归删除绕过。共享 PFX、口令、必要依赖、当前三件产物、实机证据及未完成恢复资料始终保留。移动到项目内其他目录不算释放空间。
 
-清理完成后运行网站的一键批处理，选择 **2（完整验证）**，它会依次重建两个 EXE 和内嵌同一两包的 HTML，并执行收尾独立验证：
+清理完成后按受影响的项目执行重建。任务明确要求网站联合打包时，运行下面的 BAT 并选择 **2（完整验证）**。
 
 ```powershell
 & ".\C-03-Website·Xycabin\AA-Program\一键重建并打包.bat"
@@ -197,7 +194,7 @@ if ($LASTEXITCODE -ne 0) { throw "联合重建或收尾验证失败，停止提�
 
 默认联合流程执行 19 个 G，完整模式中 Excel／Word 业务回归各一轮，G-23 只核对正式产物。开发机制自检单独运行 `python "C-03-Website·Xycabin/validate.py" --background --developer-checks`，输出 development-run-summary.json。三个 BAT 可追加 --verbose 查看详情。后台子进程默认无控制台且关闭标准输入；前台窗口切换仅记录于各运行目录的 focus-events.jsonl，记录不主动切换焦点。
 
-核对 `cleanup-report.json` 的实际删除/失败状态，以及网站 `build/last-run-summary.json`、`build/validate-run-summary.json` 均成功。按后文提交、推送源码和更新 Release 三附件；清理的忽略文件本身不会出现在 Git 提交中，应在 B1 交付审计区记录类别、路径、实际释放字节与保留原因。
+核对 `cleanup-report.json` 的实际删除与失败状态，在 B1 交付审计区记录类别、路径、实际释放字节与保留原因。核对实际运行的构建摘要后按本次任务要求提交、推送或发布。
 
 ### 新增或调整功能
 
@@ -220,16 +217,11 @@ Invoke-Checked -Program $TaskPython -Arguments @("verify_shared.py")
 
 核验 Word 时将 --project-root 换为 C-02-WordUpdater。独立产品只核对自身和 B4 对应章节；重写整份 B4 需要两个产品完整源码。构建只读检查，不代替开发者修目录或索引。R-30 在单项目 rebuild/build/validate、联合构建和验证、批处理调用链中强制执行，完整与增量模式均不跳过。
 
-### 联合重建与验证
+### 重建与验证
 
-先固定源码和非审计文档，再运行统一 BAT 并选择「2. 完整验证」。所有门禁通过后提交和发布。联合流程使用同一网页快照构建两个加载项，一并交付两个 EXE 与内含相同两包的 HTML。
+先固定源码和非审计文档，然后运行本次涉及的产品 BAT。Excel 核对 G-11／G-12，Word 核对 G-14／G-15。用户明确要求网站联合重建时，运行 XyCabin BAT 并选择「2. 完整验证」，核对 18 个构建关口和 G-23。
 
-```powershell
-& ".\C-03-Website·Xycabin\AA-Program\一键重建并打包.bat"
-if ($LASTEXITCODE -ne 0) { throw "联合构建或收尾验证失败" }
-```
-
-重建期间不要编辑文档、共享源码或内嵌资源；发现变化应等待本轮结束、修正后重跑。后台回归、签名、五载荷、内嵌资源及网页中的两包均须通过。实际 WPS 点击与安装效果单列验收，构建不自动安装或关闭宿主。
+在 B1 的交付证据节记录各入口的退出码、运行标识、日志与产物 SHA-256。构建期间保持业务输入固定。安装与前台 WPS 点击单列验收。
 
 ### 分批提交和推送
 

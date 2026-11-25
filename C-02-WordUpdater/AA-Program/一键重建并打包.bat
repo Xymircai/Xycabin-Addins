@@ -24,7 +24,7 @@ set "PYTHONUTF8=1"
 
 if errorlevel 1 goto fail
 
-"%WPS_TASK_PYTHON%" validate.py --background %*
+"%WPS_TASK_PYTHON%" validate.py --background --site-html "build\site-embedded.snapshot.html" %*
 
 if errorlevel 1 goto validatefail
 

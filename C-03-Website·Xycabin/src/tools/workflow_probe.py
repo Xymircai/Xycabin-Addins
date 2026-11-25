@@ -175,7 +175,9 @@ def main():
                 elif outcome=='rebuild':
                     check(not validate_args,'rebuild failure skips the closing validation')
                 else:
-                    check([json.loads(a) for a in validate_args]==[['--background']+(['--verbose'] if verbose else [])],'addin validate background '+outcome)
+                    expected = ['--background', '--site-html', r'build\site-embedded.snapshot.html']
+                    check([json.loads(a) for a in validate_args] == [expected + (['--verbose'] if verbose else [])],
+                          'addin validates its own embedded snapshot '+outcome)
                 check(result.returncode==(0 if outcome=='ok' else 1), 'CMD preserves rebuild/validate status '+str(index)+' '+outcome)
                 expected={'ok':('安装包已经生成' if is_addin else '两个安装包已同步更新'),'rebuild':'构建失败','validate':'收尾验证失败'}[outcome]
                 check(expected in output and '\ufffd' not in output,'CMD Chinese final prompt '+str(index)+' '+outcome)

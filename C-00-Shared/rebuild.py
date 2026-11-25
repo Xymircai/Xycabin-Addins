@@ -3,6 +3,7 @@ import os
 import argparse
 import subprocess
 import sys
+from pathlib import Path
 sys.dont_write_bytecode = True
 from project_support import ROOT, OUT, PROJECT, CONFIGURE_NAME, load_site, verify_layout, verify_features
 from build_report import BuildReport, run_command, write_json
@@ -50,8 +51,11 @@ def rebuild(args, report):
         if script == 'build_installer.py' and args.installer_output:
             command += ['--output', args.installer_output]
         run_command(command, ROOT, report.directory / (str(index) + '-' + script.split('/')[-1] + '.log'))
-    verify_layout(source_only=bool(args.installer_output))
-    print('完成：' + str(args.installer_output or (OUT / (PROJECT['assembly'] + '_Setup.exe'))))
+    verify_layout(source_only=True)
+    output = Path(args.installer_output) if args.installer_output else OUT / (PROJECT['assembly'] + '_Setup.exe')
+    if not output.is_file():
+        raise FileNotFoundError('安装包未生成：' + str(output))
+    print('完成：' + str(output))
 
 
 if __name__ == '__main__':

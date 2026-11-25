@@ -87,7 +87,13 @@ H-01 冗余清理与 H-02 代码优化是仅有的两项人工专项，不映射
 
 ## 2. 重建、签名与交付
 
-**R-17** 正式交付的统一外层入口为 [C-03 网站统一重建批处理](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)。Agent 修改三项目的业务源码、共享实现、配置器、构建门禁或内嵌文档与资源后，交付前必须固定非审计正文并实际运行该 BAT，选择“2. 完整验证”，统一生成 Excel_Iterate_Setup.exe、WordUpdater_Setup.exe 和 XyCabin.html；构建期间不修改正式输入。内部链路为配置器（C1-Exceliterate_Configure.py、C2-Wordupdater_Configure.py）→build.py→resign.py→build_installer.py，随后执行后台验证与联合收尾核对。两产品沿用同指纹和同发布者 CN=Xymircai WPS Addins Dev。公开的 C-00-Shared/signing/signing.json 记录主题、指纹、PFX 文件名和摘要，支持独立源码检查。PFX 与口令文件 signing.local.json 留在本机并由 Git 忽略。resign.py 先检查配置器指纹、证书库中的固定证书及其私钥。证书缺失时，校验本机 PFX 摘要，通过标准输入传送口令，导入当前用户个人证书库并完整复检。证书缺失且本机材料不全时停止签名。签名配置与全部正文须在构建前定稿，构建期间零写入以免触发 G-19。每次编译后必须重签，csc 的新 MVID 会改变 DLL 摘要。独立 Python 命令、编译器或单产品入口可用于诊断，其结果不能替代本次 BAT 正式交付证据；不得通过参数改为增量模式或跳过必需后台回归与门禁。BAT 必须退出 0，18 个构建关口及独立 G-23 全部通过，两个产品后台回归各执行一轮；既定前台未执行项继续单列验收。构建后只回填被剔除的交付证据节并核对正文摘要不变，其他正式输入再改动须重新运行该 BAT。B1 三处交付证据节链接真实 BAT 日志与摘要，记录入口路径、模式、起止时间、退出码、重建及收尾运行标识、成果大小与 SHA-256；文档静态检查不代表已实际运行。
+**R-17** 修改后按受影响的加载项选择重建入口。只改 Excel-Iterate 时运行 [Excel 一键重建并打包](../C-01-ExcelIterate/AA-Program/一键重建并打包.bat)，只改 WordUpdater 时运行 [Word 一键重建并打包](../C-02-WordUpdater/AA-Program/一键重建并打包.bat)，二者同时修改时分别运行两条产品 BAT。影响两款加载项的公共实现或构建改动也执行两条 BAT。随功能更新的说明与专属测试按对应产品归属。单项目 BAT 默认完整重建，按本产品生成的内嵌网站快照执行后台验证，以 Excel 的 G-11／G-12 或 Word 的 G-14／G-15 及退出码 0 为交付依据。单项目交付只要求本产品安装包，站点源码仍用于内嵌资源。
+
+用户明确要求运行 [网站联合重建并打包](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat) 时，选择「2. 完整验证」，同轮生成 Excel_Iterate_Setup.exe、WordUpdater_Setup.exe 和 XyCabin.html。联合交付要求退出码 0、18 个构建关口及独立 G-23 通过，两个产品后台回归各执行一轮。现场验收单列记录。
+
+产品构建链为配置器 → build.py → resign.py → build_installer.py → 后台验证。两产品沿用同指纹和同发布者 CN=Xymircai WPS Addins Dev。公开的 C-00-Shared/signing/signing.json 记录主题、指纹、PFX 文件名和摘要。PFX 与口令文件 signing.local.json 留在本机，由 Git 忽略。resign.py 先核对配置器指纹、固定证书及私钥。证书缺失时校验本机 PFX 摘要，通过标准输入传送口令，导入当前用户个人证书库并复检。缺少签名材料时停止签名。每次编译后重签两份清单，csc 的新 MVID 会改变 DLL 摘要。
+
+构建前固定签名配置和全部非审计输入。正式交付使用对应 BAT 的完整模式，Python 单步运行用于诊断。B1 对应项目的「本轮交付证据」记录实际执行的入口、模式、起止时间、退出码、关口与运行标识、成果大小和 SHA-256，并链接日志与摘要。回填证据后核对非审计正文摘要。正式输入再次变化时按影响范围重建。
 
 **R-18** 安装器内嵌主 DLL、Utilities、Office.Core、应用清单、部署清单共五载荷，版本与 DLL、清单一致。
 
@@ -160,4 +166,4 @@ H-01 冗余清理与 H-02 代码优化是仅有的两项人工专项，不映射
 
 ## 3. 统一交付与失败恢复
 
-**R-24** 两 DLL 内嵌 WpsShared.Agent.Home.html 必须逐字节相同，移除独立页 installer-assets 后比较网页正文；两个 DLL 含不同宿主业务，不要求 DLL 字节相同。编译只接受空包数据区，防安装包包含自身；网站产品按独立身份映射，不将 Excel 宿主等同 Excel-Iterate 产品。
+**R-24** 联合交付同轮生成的两 DLL 内嵌 WpsShared.Agent.Home.html 必须逐字节相同，移除独立页 installer-assets 后比较网页正文；两个 DLL 含不同宿主业务，不要求 DLL 字节相同。编译只接受空包数据区，防安装包包含自身；网站产品按独立身份映射，不将 Excel 宿主等同 Excel-Iterate 产品。

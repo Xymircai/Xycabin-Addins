@@ -59,7 +59,7 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 | 0.9.9.1 | 1. 合并抵消改净额法取数：资产端=债权方资产−负债、负债端=债务方负债−资产，债权方按净额较大方动态判定，净额保留真实符号；2. 公司对按实际往来自动配对，对方单位精确匹配，取消前缀匹配与别名归一；3. 差异表扩至15列，展示四类原始余额与净额过程，结果表跨表引用抵消金额；4. 修复未勾写数值时结果表金额引用错行。                                      |
 | 0.9.9.2 | 1. 文档收敛为 C-04-Devlog 五份（B0 入口、A 使用说明、B1 档案、B2 经验、B3 门禁），项目内不留副本；2. 目录重构为 AA-Program/AB-Graphic，配置器更名 C1；3. 内嵌文档改按 C-04-Devlog 新路径读取，Agent-Evo 概览按章节标题与首段生成；4. 业务功能无变更。                               |
 | 0.9.9.3 | 1. 开发/用户全文分别整份内嵌B2与A-UserGuide，导出文件名同源；2. 链接助手说明名称外链，按来源及作用域清理未使用名称后原生断链，保留整簿恢复；3. 断链指令改为“断开链接”，旧文本提示改填；4. 名称依赖预检区分A1地址与真实名称，保存后核对并准确报告失败状态；5. 名称外链状态改为“仅名称管理器定义引用（X 个名称）”。 |
-| 0.9.9.8 | 1. 链接助手识别来源缺失的外链，支持替换到尚未就位的文件并保留外链公式，保存后核对新来源，支持按整簿备份撤销；2. 工作表批量操作按同名表预览文字和数值替换，支持格式设置及窗口内撤销；3. 精简交接与开发经验，更新内嵌说明。 |
+| 0.9.9.8 | 1. 链接助手支持替换到暂缺文件并保留外链公式，成功后直接保存，失败时尝试回退，扫描区按内容收缩；2. 工作表批量操作按同名表预览文字和数值替换，支持格式设置及窗口内撤销；3. 精简交接与开发经验，更新内嵌说明。 |
 
 
 ## 3. 当前命令按钮概览
@@ -105,15 +105,15 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 #### a. 【现场基线】
 
-在仓库根的 `C-01-ExcelIterate` 工作。当前分支为 `main`，换链实现基准为 `7ffb77c95fbe`，以交付提交及干净工作树为基线。核心产物是 `AA-Program/Excel_Iterate_Setup.exe`。必读文件为 [换链入口](<../C-01-ExcelIterate/AC-Original Code/ExcelIterate/Operations/LinkAssistant/LinkAssistant.cs>)、同目录的 `LinkBatch.cs`、[产品配置](../C-01-ExcelIterate/AA-Program/C1-Exceliterate_Configure.py) 和下方本轮交付证据。按缺失目标换链成功行数、重开后公式保留格数和撤销恢复工作簿数核对独立 WPS 实测回执。
+在仓库根的 `C-01-ExcelIterate` 工作。当前分支为 `main`，以交付提交及干净工作树为基线。核心产物是 `AA-Program/Excel_Iterate_Setup.exe`。必读文件为 [换链入口](<../C-01-ExcelIterate/AC-Original Code/ExcelIterate/Operations/LinkAssistant/LinkAssistant.cs>)、同目录的 `LinkBatch.cs`、[产品配置](../C-01-ExcelIterate/AA-Program/C1-Exceliterate_Configure.py) 和下方本轮交付证据。按实际换链状态、重开后保留的公式格数、失败自动回退结果及 DPI 截图核对回执。
 
 #### b. 【目标与验收】
 
-验收 0.9.9.8 的链接助手。先用样本副本复测完整路径、文件名和 `file:///` 三类来源，以及新路径中来自公式的方括号。填写缺失目标和空白行，执行替换并保存重开，对照「外部链接」的处理状态、WPS 编辑链接中的新源及原公式。补齐一份目标再更新值，核对取值。另起一批执行取消，核对整簿恢复。可直接运行源码探针和副本验证。需安装或切换正在使用的加载项时安排现场验收。出现保存、公式或恢复异常时保留工作簿副本及日志，按失败阶段复核。
+验收 0.9.9.8 的链接助手。先用样本副本复测完整路径、文件名和 `file:///` 三类来源，以及新路径中来自公式的方括号。填写缺失目标和空白行，执行替换并保存重开，对照「外部链接」的处理状态、WPS 编辑链接中的新源及原公式。补齐一份目标再更新值，核对取值。另起一批模拟处理中途失败，核对自动回退与日志记录，确认完成后可以直接重扫。可直接运行源码探针和副本验证。需安装或切换正在使用的加载项时安排现场验收。出现保存、公式或恢复异常时保留工作簿副本及日志，按失败阶段复核。
 
 #### c. 【执行规范】
 
-构建使用 Windows、Python 3.10 以上、.NET Framework 4.8 和 C# 5。改动本产品源码或专属说明后运行 Excel BAT，核对 G-11／G-12。用 `WorkbookToolsProbe` 检查映射、文件占用重试和恢复，实机用独立 WPS 处理临时样本。按扫描来源数、填写映射行数、匹配现存目标行数、成功写入缺失目标行数、跳过行数、失败行数、恢复工作簿数记录，附包摘要和运行标识。常规工程边界默认静默执行，遇阻或需决策时再说明。
+构建使用 Windows、Python 3.10 以上、.NET Framework 4.8 和 C# 5。改动本产品源码或专属说明后运行 Excel BAT，核对 G-11／G-12。用 `WorkbookToolsProbe` 检查映射、文件占用重试和自动回退，实机用独立 WPS 处理临时样本。按扫描来源数、填写映射行数、匹配现存目标行数、成功写入缺失目标行数、跳过行数、失败行数、恢复工作簿数记录，附包摘要和运行标识。常规工程边界默认静默执行，遇阻或需决策时再说明。
 
 #### d. 【起手动作】
 
@@ -121,11 +121,11 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
-11 月 25 日运行 [网站联合 BAT](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择「2. 完整验证」。北京时间 01:54:32 至 01:59:09，退出码 0。18 个重建关口及 G-23 通过。重建标识 `f2e51caeaacc47e5b34aa7425c3874bd`，收尾标识 `3fda4f22f75040399379c10be3944f0d`。见 [BAT 日志](../C-03-Website·Xycabin/build/v0998-bat-20261125-015432.log)、[本轮交付数据](../C-03-Website·Xycabin/build/v0998-delivery-f2e51caeaacc.json)。
+11 月 25 日运行 [Excel 一键重建并打包](../C-01-ExcelIterate/AA-Program/一键重建并打包.bat)，选择完整模式。北京时间 10:44:59 至 10:48:16，退出码 0，G-11／G-12 通过。重建标识 `bd954fb64c324649afd2f2706a35adbf`，验证标识 `a1aa4286036e40edacec90e77d2db744`。见 [BAT 日志](../C-01-ExcelIterate/build/20261125-link-assistant-bat.log)、[重建摘要](../C-01-ExcelIterate/build/rebuild-run-summary.json) 与 [验证摘要](../C-01-ExcelIterate/build/validate-run-summary.json)。
 
-`Excel_Iterate_Setup.exe` 为 5775872 字节，SHA-256 为 `8de765f4fef45604a08cd3be89e74ac83a924f33f1588ef4d6fb0e4da256acdc`。Excel 后台实际启动 32 次验证调用，WorkbookToolsProbe 通过 402 项断言，覆盖共享占用、并发编辑及整簿恢复。核验 5 个安装有效载荷。
+`Excel_Iterate_Setup.exe` 为 5773312 字节，SHA-256 为 `a929c43381465f12020fdacd3a7e7d5b4901d61e29d71e61faec3edfbe448db9`。后台验证实际执行 32 项，校验五载荷与清单签名。
 
-独立 WPS 使用 0.9.9.8 的 DLL 测试合成工作簿。主场景 12 条缺失目标和 1 条现存目标完成替换，1 条空白映射跳过。保存重开保留 14 格外链公式，补齐目标后刷新取值 1 次成功。另通过 2 个关闭工作簿的待核对来源场景，共按原字节恢复 3 份工作簿。见 [WPS 实测日志](../C-03-Website·Xycabin/build/v0998-link-wps-f2e51caeaacc.log)。
+WorkbookToolsProbe 通过 392 项断言，包含现存与暂缺目标换链、断链、自动回退、并发编辑保护及重扫。链接助手隔离窗体在 100%、125%、150%、200% 缩放下通过 11508 项断言，覆盖默认、最小和窄窗以及标题栏关闭。见 [窗体验证日志](../C-01-ExcelIterate/build/20261125-link-assistant-ui/layout.log) 和 [125% 截图](../C-01-ExcelIterate/build/20261125-link-assistant-ui/link-assistant-default-125.png)。安装及 WPS 功能区现场验收单列。
 
 # 三. WordUpdater 项目档案
 
@@ -205,9 +205,11 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
-11 月 25 日运行 [网站联合 BAT](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择「2. 完整验证」。北京时间 01:54:32 至 01:59:09，退出码 0。18 个重建关口及 G-23 通过。重建标识 `f2e51caeaacc47e5b34aa7425c3874bd`，收尾标识 `3fda4f22f75040399379c10be3944f0d`。见 [BAT 日志](../C-03-Website·Xycabin/build/v0998-bat-20261125-015432.log)、[本轮交付数据](../C-03-Website·Xycabin/build/v0998-delivery-f2e51caeaacc.json)。
+11 月 25 日运行 [Word 一键重建并打包](../C-02-WordUpdater/AA-Program/一键重建并打包.bat)，选择完整模式。北京时间 10:49:09 至 10:50:03，退出码 0，G-14／G-15 通过。重建标识 `dcaa8bc8862143908d3187c355a3cd6d`，验证标识 `6840736caa854ca7aea769abacf46d48`。见 [BAT 日志](../C-02-WordUpdater/build/20261125-link-assistant-bat.log)、[重建摘要](../C-02-WordUpdater/build/rebuild-run-summary.json) 与 [验证摘要](../C-02-WordUpdater/build/validate-run-summary.json)。
 
-`WordUpdater_Setup.exe` 为 4249088 字节，SHA-256 为 `d8eae2859cdd36e900610d22c665647f6b662119fefad56f62957b37d5e9bcd6`。Word 后台实际启动 25 次验证调用，核验 5 个安装有效载荷。真实安装、功能区逐格链接和刷新由现场验收记录。
+`WordUpdater_Setup.exe` 为 4247040 字节，SHA-256 为 `d7c5974153811bfc59ec0371ae27e794d97098216f0aefabfb116b51350a0096`。后台验证实际执行 25 项，校验五载荷与清单签名。
+
+在保留仓库源码与编译依赖的隔离副本中，Word BAT 在缺少网站正式 HTML 和 Excel 安装器的环境完成完整重建与验证。见 [独立打包验证](../C-02-WordUpdater/build/20261125-standalone-fixture.log)。安装及 WPS 功能区现场验收单列。
 
 # 四. XyCabin 项目档案
 
@@ -256,6 +258,6 @@ Windows 上使用 Python 3.10 以上和 Node.js。收到用户明确的联合打
 
 ### (2). 本轮交付证据
 
-11 月 25 日运行 [网站联合 BAT](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择「2. 完整验证」。北京时间 01:54:32 至 01:59:09，退出码 0。18 个重建关口及 G-23 通过。重建标识 `f2e51caeaacc47e5b34aa7425c3874bd`，收尾标识 `3fda4f22f75040399379c10be3944f0d`。见 [BAT 日志](../C-03-Website·Xycabin/build/v0998-bat-20261125-015432.log)、[本轮交付数据](../C-03-Website·Xycabin/build/v0998-delivery-f2e51caeaacc.json)。
+最近一次网站联合打包在 11 月 25 日运行 [网站联合 BAT](../C-03-Website·Xycabin/AA-Program/一键重建并打包.bat)，选择「2. 完整验证」。北京时间 01:54:32 至 01:59:09，退出码 0。18 个重建关口及 G-23 通过。重建标识 `f2e51caeaacc47e5b34aa7425c3874bd`，收尾标识 `3fda4f22f75040399379c10be3944f0d`。见 [BAT 日志](../C-03-Website·Xycabin/build/v0998-bat-20261125-015432.log)、[本轮交付数据](../C-03-Website·Xycabin/build/v0998-delivery-f2e51caeaacc.json)。
 
-`XyCabin.html` 为 14591511 字节，SHA-256 为 `29cc83d9e58436f1f44f860428e9c53e562a14a85838bc68c81684222edc02b0`。内嵌安装包与独立安装包逐字节一致 2 份。两个安装包均为 0.9.9.8。实际浏览器离线下载由现场验收记录。
+`XyCabin.html` 为 14591511 字节，SHA-256 为 `29cc83d9e58436f1f44f860428e9c53e562a14a85838bc68c81684222edc02b0`。该次联合打包核对了网页内嵌安装包与同轮独立安装包逐字节一致 2 份，版本均为 0.9.9.8。实际浏览器离线下载由现场验收记录。

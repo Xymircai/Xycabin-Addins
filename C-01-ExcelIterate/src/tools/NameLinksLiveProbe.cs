@@ -132,7 +132,7 @@ internal static class NameLinksLiveProbe
                 { dynamic edit = refs.Take(sheet.Range["C" + row]); edit.Value2 = command; }
             }
             ((dynamic)receiver).Save();
-            string beforeHash = Hash(target), beforeContent = Signature(target, sameReport);
+            string beforeContent = Signature(target, sameReport);
             Call(engine, "Execute", new Action<string>(Console.WriteLine));
             object batch = Get(engine, "Batch"); Track(session); Console.WriteLine(Get(batch, "UserLog"));
             Console.WriteLine("CASE=" + number + " closed=" + closed + " first=" + first + " second=" + second + " addressName=" + addressName + " STATE=" + Get(batch, "State"));
@@ -145,10 +145,9 @@ internal static class NameLinksLiveProbe
             session.Own(reopened, () => { if (!reopenedClosed) ((dynamic)reopened).Close(false); });
             Check(expected.SetEquals(new HashSet<string>(Links(target).Select(l => (string)Get(l, "SourcePath")), StringComparer.OrdinalIgnoreCase)), "reopening does not recreate the broken sources");
             ((dynamic)reopened).Close(false); reopenedClosed = true;
-            foreach (object step in (IEnumerable)Call(engine, "Steps", true, new Func<bool>(() => false))) Console.WriteLine(step);
-            Check(Hash(target) == beforeHash, "whole-workbook cancellation restores the exact original bytes and names");
-            Call(batch, "Confirm", new Action<string>(File.Delete));
-            Check(!WpsShared.SourcePaths.Exists((string)batch.GetType().GetProperty("Journal", Hidden).GetValue(batch, null)), "confirmation cleans only this test batch's recovery records");
+            Check((string)Get(batch, "State") == "Completed" &&
+                !WpsShared.SourcePaths.GetFiles(session.DirectoryPath, ".EI_LinkBackup_*.xlsx").Any(),
+                "successful break leaves the result saved and clears the protection copy");
         }
     }
     [STAThread]

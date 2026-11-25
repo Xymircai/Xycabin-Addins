@@ -161,23 +161,43 @@ class WpsFeatureLiveProbe
             dynamic report=Own(Own(book.Worksheets).Item("外部链接"));
             for(int row=2;row<=5;row++){string old=Convert.ToString(Own(report.Range["B"+row]).Value2);int index=Array.FindIndex(oldPaths,p=>string.Equals(p,old,StringComparison.OrdinalIgnoreCase));Check(index>=0,"Report row matches original source "+row);Own(report.Range["C"+row]).Value2=newPaths[index];}
             Check(!(bool)book.Saved,"Four new paths are real unsaved edits");
-            session=New("LinkAssistantSession",app);Console.WriteLine(Invoke(session,"Execute",new Action<string>(Console.WriteLine)));
-            Check(actual().SetEquals(newPaths),"All four sources changed to links 5 6 7 8");
-            var after=FormulaBindings(file);Check(before.Count==after.Count&&before.All(pair=>{string expected=pair.Value;for(int i=0;i<4;i++)expected=expected.Replace(oldPaths[i],newPaths[i]);return after.ContainsKey(pair.Key)&&after[pair.Key]==expected;}),"Every formula preserves its intended source mapping");
-            object stillOpen=InvokeStaticFind(app,file);Check(stillOpen!=null,"Mapped target stays open throughout replacement");if(stillOpen!=null)Marshal.ReleaseComObject(stillOpen);
-            foreach(object step in (System.Collections.IEnumerable)Invoke(session,"Steps",true,new Func<bool>(()=>false)))Console.WriteLine(step);
-            Check(actual().SetEquals(oldPaths),"Cancel restores all four old sources");
-            after=FormulaBindings(file);Check(before.Count==after.Count&&before.All(p=>after.ContainsKey(p.Key)&&after[p.Key]==p.Value),"Cancel restores each formula binding");restored=true;
+            session = New("LinkAssistantSession", app);
+            bool stop = false; int saved = 0; Exception observationError = null;
+            foreach (object step in (System.Collections.IEnumerable)Invoke(session, "Steps", new Func<bool>(() => stop)))
+            {
+                Console.WriteLine(step);
+                if (!step.ToString().StartsWith("已替换：", StringComparison.Ordinal) || ++saved != oldPaths.Length) continue;
+                stop = true;
+                try
+                {
+                    Check(actual().SetEquals(newPaths), "All four sources changed to links 5 6 7 8");
+                    var after = FormulaBindings(file);
+                    Check(before.Count == after.Count && before.All(pair =>
+                    {
+                        string expected = pair.Value;
+                        for (int i = 0; i < 4; i++) expected = expected.Replace(oldPaths[i], newPaths[i]);
+                        return after.ContainsKey(pair.Key) && after[pair.Key] == expected;
+                    }), "Every formula preserves its intended source mapping");
+                    object stillOpen = InvokeStaticFind(app, file);
+                    Check(stillOpen != null, "Mapped target stays open throughout replacement");
+                    if (stillOpen != null) Marshal.ReleaseComObject(stillOpen);
+                }
+                catch (Exception error) { observationError = error; }
+            }
+            restored = actual().SetEquals(oldPaths);
+            Check(restored && stop, "Stopping the running batch automatically restores all four original sources");
+            var rolledBack = FormulaBindings(file);
+            Check(before.Count == rolledBack.Count && before.All(p => rolledBack.ContainsKey(p.Key) && rolledBack[p.Key] == p.Value),
+                "Automatic rollback restores each formula binding");
+            if (observationError != null) throw observationError;
         }
         finally
         {
-            if(!restored&&session!=null)try{foreach(object step in (System.Collections.IEnumerable)Invoke(session,"Steps",true,new Func<bool>(()=>false)))Console.WriteLine(step);restored=actual().SetEquals(oldPaths);}catch(Exception ex){Console.WriteLine("RESTORE ERROR="+ex.Message);}
             if(restored&&originalMode&&priorSheet!=null){Own(((dynamic)priorSheet).Range["A1:D5"]).Value2=savedReport;book.Save();}
             if(session!=null){object log=session.GetType().GetField("Operations",Hidden).GetValue(session);File.WriteAllText(Path.Combine(evidence,originalMode?"original-mapping-events.log":"copy-mapping-events.log"),(string)log.GetType().GetProperty("Text",Hidden).GetValue(log,null),new UTF8Encoding(false));}
             Check(restored&&actual().SetEquals(oldPaths),"Final saved workbook contains links 1 2 3 4");
             Check(sourceHashes.All(p=>Hash(p.Key)==p.Value),"All eight source files unchanged");
         }
-        object batch=session.GetType().GetField("Batch",Hidden).GetValue(session);Invoke(batch,"Confirm",new Action<string>(p=>Call("RecycleFiles","Send",p)));
         Check((bool)book.Saved,"Final workbook saved");
     }
     static void TestLinks(object app,object test,string copy,string folder,params object[] preserved)
@@ -188,15 +208,16 @@ class WpsFeatureLiveProbe
         book.Activate();object session=New("LinkAssistantSession",app);int count=(int)Invoke(session,"Scan",(object)new string[]{copy});Check(count>0,"Workspace copy has external links");
         string reportName=(string)session.GetType().GetField("ReportName",Hidden).GetValue(session);Check(reportName=="外部链接","Fixed report name");
         Check((int)Invoke(session,"Scan",(object)new string[]{copy})==count,"Repeat scan reuses fixed report");
-        dynamic report=Own(Own(book.Worksheets).Item(reportName));string old=Convert.ToString(Own(report.Range["B2"]).Value2);Own(report.Range["C2"]).Value2=replacement;
+        dynamic report=Own(Own(book.Worksheets).Item(reportName));Own(report.Range["C2"]).Value2=replacement;
         object reopenedSession=New("LinkAssistantSession",app);string result=(string)Invoke(reopenedSession,"Execute",new Action<string>(Console.WriteLine));Console.WriteLine(result);
         Check(result.Contains("成功1条，跳过"+(count-1)+"条，失败0条"),"Reopened assistant rescans and executes via ChangeLink");
         object same=InvokeStaticFind(app,copy);Check(same!=null,"Test target remains open");if(Marshal.IsComObject(same))Marshal.ReleaseComObject(same);
         var links=(System.Collections.IEnumerable)Call("XlsxLinkPackage","Scan",copy);bool found=false;foreach(object l in links)if((string)l.GetType().GetField("SourcePath",Hidden).GetValue(l)==replacement)found=true;Check(found,"Saved replacement points to new source");
-        var inverse=(System.Collections.IEnumerable)Invoke(reopenedSession,"Steps",true,new Func<bool>(()=>false));foreach(object step in inverse)Console.WriteLine(step);
-        links=(System.Collections.IEnumerable)Call("XlsxLinkPackage","Scan",copy);found=false;foreach(object l in links)if((string)l.GetType().GetField("SourcePath",Hidden).GetValue(l)==old)found=true;Check(found,"Inverse mapping restored original source");
-        object batch=reopenedSession.GetType().GetField("Batch",Hidden).GetValue(reopenedSession);string journal=(string)batch.GetType().GetProperty("Journal",Hidden).GetValue(batch,null);Check(WpsShared.SourcePaths.Exists(journal)&&journal.StartsWith(folder+"\\"),"Workspace-local durable mapping");
-        Invoke(batch,"Confirm",new Action<string>(p=>Call("RecycleFiles","Send",p)));Check(!WpsShared.SourcePaths.Exists(journal),"Strict recycle confirmation cleans test records");
+        object batch=reopenedSession.GetType().GetField("Batch",Hidden).GetValue(reopenedSession);
+        string journal=(string)batch.GetType().GetProperty("Journal",Hidden).GetValue(batch,null);
+        Check(WpsShared.SourcePaths.Exists(journal)&&journal.StartsWith(folder+"\\"),"Workspace-local link record stays available");
+        Check((int)Invoke(reopenedSession, "Scan", (object)new[] { copy }) == count,
+            "saved replacement can be scanned again immediately");
         ((dynamic)test).Close(false);
     }
     static void TestDirectory(object app, object workbook)

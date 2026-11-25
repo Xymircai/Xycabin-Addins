@@ -18,6 +18,7 @@ partial class WorkbookToolsProbe {
     }
     static void Part(ZipArchive zip,string name,string data){using(StreamWriter w=new StreamWriter(zip.CreateEntry(name).Open(),new UTF8Encoding(false)))w.Write(data);}
     static LinkAssistantSession JournalSession(string report, string[] targets, string oldPath, string newPath, bool opened) {
+        File.Delete(new LinkBatch { ReportBook = report }.Journal);
         var sheet=new LinkFakeSheet(); var reportBook=new LinkFakeBook{FullName=report,Sheet=sheet};
         var books=new LinkFakeBooks{Items=new[]{reportBook}};
         reportBook.Owner=books;
@@ -29,6 +30,17 @@ partial class WorkbookToolsProbe {
         for(int r=0;r<targets.Length;r++){sheet.Values[r+1,0]=targets[r];sheet.Values[r+1,1]=oldPath;sheet.Values[r+1,2]=newPath;session.Links.Add(new ExternalLinkInfo{OwnerPath=targets[r],SourcePath=oldPath});}
         session.StageValidation=(file,expected)=>Check(new HashSet<string>(expected,StringComparer.OrdinalIgnoreCase).SetEquals(XlsxLinkPackage.Scan(file).Select(l=>l.SourcePath)),"offline stage agrees with expected relationships");
         return session;
+    }
+    static void StopAfterSave(LinkAssistantSession session, Action afterSave, string progress = "已保存工作簿：")
+    {
+        bool stop = false;
+        foreach (string step in session.Steps(() => stop))
+        {
+            if (stop || !step.StartsWith(progress, StringComparison.Ordinal)) continue;
+            stop = true;
+            afterSave();
+        }
+        Check(stop, "fixture reaches the requested save boundary: " + progress);
     }
     static void JournalChecks(string folder,string a,string b,string c) {
         var journal=new LinkOperationLog();var lines=new StringBuilder();journal.LineAdded+=line=>lines.Append(line);
@@ -48,49 +60,94 @@ partial class WorkbookToolsProbe {
         Check(scope.SetScope(LinkScanScope.Workbooks)&&!scope.SetScope(LinkScanScope.Workbooks),"duplicate radio notifications do not record duplicate transition");
         scope.Choose(new[]{a,b,a},true);Check(scope.Candidates().Length==2,"selected workbooks deduplicate paths");scope.Choose(new string[0],false);Check(scope.Candidates().Length==2,"cancel preserves original selection");
         scope.SetScope(LinkScanScope.Folder);Reject(()=>scope.Candidates(),"switch clears previous scope selection");
-        string scanFolder=Path.Combine(folder,"scope");Directory.CreateDirectory(scanFolder);Package(Path.Combine(scanFolder,"first.xlsx"));Package(Path.Combine(scanFolder,"second.xlsx"));Package(Path.Combine(scanFolder,"~$temp.xlsx"));Package(Path.Combine(scanFolder,".EI_LinkStage_temp.xlsx"));Directory.CreateDirectory(Path.Combine(scanFolder,"nested"));Package(Path.Combine(scanFolder,"nested/ignored.xlsx"));
+        string scanFolder=Path.Combine(folder,"scope");Directory.CreateDirectory(scanFolder);Package(Path.Combine(scanFolder,"first.xlsx"));Package(Path.Combine(scanFolder,"second.xlsx"));Package(Path.Combine(scanFolder,"~$temp.xlsx"));Package(Path.Combine(scanFolder,".EI_LinkStage_temp.xlsx"));Package(Path.Combine(scanFolder,".EI_LinkBackup_"+Guid.NewGuid().ToString("N")+"_"+Guid.NewGuid().ToString("N")+".xlsx"));Directory.CreateDirectory(Path.Combine(scanFolder,"nested"));Package(Path.Combine(scanFolder,"nested/ignored.xlsx"));
         scope.Choose(new[]{scanFolder},true);Check(scope.Candidates().Length==2,"folder scans only top-level non-temporary workbooks");
-        Check(journal.DiagnosticText.Contains("跳过临时文件 2 个")&&journal.DiagnosticText.Contains(Path.Combine(scanFolder,"first.xlsx"))&&!journal.DiagnosticText.Contains("ignored.xlsx"),"actual paths and temporary skip count recorded");
+        Check(journal.DiagnosticText.Contains("跳过临时文件 3 个")&&journal.DiagnosticText.Contains(Path.Combine(scanFolder,"first.xlsx"))&&!journal.DiagnosticText.Contains("ignored.xlsx"),"actual paths and temporary skip count recorded");
         string empty=Path.Combine(folder,"empty");Directory.CreateDirectory(empty);scope.Choose(new[]{empty},true);Check(scope.Candidates().Length==0&&journal.DiagnosticText.Contains("扫描未执行"),"zero folder files not reported successful");
         scope.SetScope(LinkScanScope.Current);Check(scope.Candidates().Single()==a&&journal.DiagnosticText.Contains("取消选择"),"scope switching and cancel accumulate history");
         string t1=Path.Combine(folder,"journal-target1.xlsx"),t2=Path.Combine(folder,"journal-target2.xlsx");Package(t1,a);Package(t2,a);
         var session=JournalSession(b,new[]{t1},a,c,false);string result=session.Execute(null);
-        Check(result.Contains("成功1条，跳过0条，失败0条")&&XlsxLinkPackage.Scan(t1)[0].SourcePath==c,"closed forward committed");Check(!WpsShared.SourcePaths.GetFiles(folder,"*链接备份*").Any(),"no persistent whole workbook backups");
+        Check(result.Contains("成功1条，跳过0条，失败0条")&&XlsxLinkPackage.Scan(t1)[0].SourcePath==c,"closed forward committed");Check(!WpsShared.SourcePaths.GetFiles(folder,".EI_LinkBackup_*.xlsx").Any(),"no persistent whole workbook backups");
         Check(WpsShared.SourcePaths.Exists(session.Batch.Journal)&&WpsShared.SourcePaths.Exists(session.Batch.LogPath(folder)),"local link log and mapping");
-        foreach(string step in session.Steps(true,()=>false)){}Check(XlsxLinkPackage.Scan(t1)[0].SourcePath==a&&session.Batch.State=="Undone","closed reverse mapping");session.Batch.Confirm(RecycleFiles.Send);
+        Check(!session.CanExecute && session.Scan(new[] { t1 }) == 1 && session.Links[0].SourcePath == c,
+            "a completed batch allows an immediate fresh scan of the saved sources");
         Package(t1,a);session=JournalSession(b,new[]{t1},a,c,true);var open=((LinkFakeApp)session.App).Workbooks.Items[1];open.Saved=false;result=session.Execute(null);
         Check(open.SaveCount>=2&&open.CloseCount==0&&XlsxLinkPackage.Scan(t1)[0].SourcePath==c,"open target autosaves never closes");
-        foreach(string step in session.Steps(true,()=>false)){}Check(open.CloseCount==0&&XlsxLinkPackage.Scan(t1)[0].SourcePath==a,"open inverse never closes");session.Batch.Confirm(RecycleFiles.Send);
         Package(t1,a);session=JournalSession(b,new[]{t1},a,c,true);open=((LinkFakeApp)session.App).Workbooks.Items[1];open.SourceStyle="uri";open.RetainHistorical=true;result=session.Execute(null);
         Check(XlsxLinkPackage.Scan(t1)[0].SourcePath==c&&result.Contains("成功1条")&&open.LinkSources(1) is Array,"raw URI name and lower-bound-one stale WPS array accepted");
-        foreach(string step in session.Steps(true,()=>false)){}Check(XlsxLinkPackage.Scan(t1)[0].SourcePath==a&&open.CloseCount==0,"inverse ignores cached old names and rereads exact source token");session.Batch.Confirm(RecycleFiles.Send);
+        Package(t1, a); session = JournalSession(b, new[] { t1 }, a, c, true);
+        open = ((LinkFakeApp)session.App).Workbooks.Items[1]; open.SourceStyle = "uri"; open.RetainHistorical = true;
+        StopAfterSave(session, () => { }, "已替换：");
+        Check(XlsxLinkPackage.Scan(t1)[0].SourcePath == a && open.CloseCount == 0,
+            "automatic rollback rereads the exact source token without closing the open target");
         Package(t1,a);session=JournalSession(b,new[]{t1},a,c,true);open=((LinkFakeApp)session.App).Workbooks.Items[1];open.FailSaveAfterChange=true;result=session.Execute(null);
-        Check(result.Contains("失败1条")&&XlsxLinkPackage.Scan(t1)[0].SourcePath==a&&session.Batch.State=="Undone","Save exception reconciles intent then reverses actual change");session.Batch.Confirm(RecycleFiles.Send);
+        Check(result.Contains("失败1条")&&XlsxLinkPackage.Scan(t1)[0].SourcePath==a&&session.Batch.State=="Undone","Save exception reconciles intent then reverses actual change");
         Package(t1,a);session=JournalSession(b,new[]{t1},a,c,true);open=((LinkFakeApp)session.App).Workbooks.Items[1];open.NoChange=true;result=session.Execute(null);
-        Check(result.Contains("失败1条")&&XlsxLinkPackage.Scan(t1)[0].SourcePath==a&&session.Batch.State=="Undone","no-op host API fails saved-package verification without ambiguous undo");session.Batch.Confirm(RecycleFiles.Send);
-        Package(t1,a);session=JournalSession(b,new[]{t1},a,c,true);open=((LinkFakeApp)session.App).Workbooks.Items[1];open.RefuseChange=true;result=session.Execute(null);Check(XlsxLinkPackage.Scan(t1)[0].SourcePath==a&&open.CloseCount==0&&result.Contains("失败1条"),"unsupported ChangeLink refuses no close fallback");session.Batch.Confirm(RecycleFiles.Send);
+        Check(result.Contains("失败1条")&&XlsxLinkPackage.Scan(t1)[0].SourcePath==a&&session.Batch.State=="Undone","no-op host API fails saved-package verification without ambiguous undo");
+        Package(t1,a);session=JournalSession(b,new[]{t1},a,c,true);open=((LinkFakeApp)session.App).Workbooks.Items[1];open.RefuseChange=true;result=session.Execute(null);Check(XlsxLinkPackage.Scan(t1)[0].SourcePath==a&&open.CloseCount==0&&result.Contains("失败1条"),"unsupported ChangeLink refuses no close fallback");
         Package(t1,a);Package(t2,a);session=JournalSession(b,new[]{t1,t2},a,c,false);int n=0;session.StageValidation=(f,e)=>{if(++n==2)throw new IOException("injected second validation failure");};result=session.Execute(null);
-        Check(result.Contains("失败1条")&&XlsxLinkPackage.Scan(t1)[0].SourcePath==a&&XlsxLinkPackage.Scan(t2)[0].SourcePath==a,"failure reverses prior committed links");session.Batch.Confirm(RecycleFiles.Send);
-        Package(t1,a);session=JournalSession(b,new[]{t1},a,c,true);bool stop=false;foreach(string step in session.Steps(false,()=>stop))if(step.StartsWith("已替换"))stop=true;Check(XlsxLinkPackage.Scan(t1)[0].SourcePath==a&&session.Batch.State=="Undone","running cancellation reverses actual completed mapping");session.Batch.Confirm(RecycleFiles.Send);
+        Check(result.Contains("失败1条")&&XlsxLinkPackage.Scan(t1)[0].SourcePath==a&&XlsxLinkPackage.Scan(t2)[0].SourcePath==a,"failure reverses prior committed links");
+        Package(t1,a);session=JournalSession(b,new[]{t1},a,c,true);bool stop=false;foreach(string step in session.Steps(()=>stop))if(step.StartsWith("已替换"))stop=true;Check(XlsxLinkPackage.Scan(t1)[0].SourcePath==a&&session.Batch.State=="Undone","running cancellation reverses actual completed mapping");
         Package(t1,a);session=JournalSession(b,new[]{t1},a,c,true);var app=(LinkFakeApp)session.App;var sheet=((LinkFakeBook)app.ActiveWorkbook).Sheet;
         Check(session.Scan(new[]{t1})==1&&session.ReportName=="外部链接","fixed report reuse");sheet.Values[1,2]=c;Check(session.Scan(new[]{t1})==1&&app.Workbooks.Items[0].Worksheets.Count==1&&sheet.Values[1,2].ToString()=="","repeat scan overwrites same sheet");sheet.Values[1,2]=c;
-        var reopened=new LinkAssistantSession(app);Check(reopened.HasReport&&reopened.Links.Count==1,"reopen loads report and original scope");result=reopened.Execute(null);Check(XlsxLinkPackage.Scan(t1)[0].SourcePath==c,"reopen direct execute rescans and validates");
-        foreach(string step in reopened.Steps(true,()=>false)){}reopened.Batch.Confirm(RecycleFiles.Send);
-        session=JournalSession(b,new[]{t1},a,c,true);session.Scan(new[]{t1});((LinkFakeBook)((LinkFakeApp)session.App).ActiveWorkbook).Sheet.Values[1,2]=c;Package(t1,a,c);Reject(()=>session.Execute(null),"new link invalidates persisted report");Check(XlsxLinkPackage.Scan(t1).Count==2,"mismatch leaves original unchanged");session.Batch.Confirm(RecycleFiles.Send);
+        var reopened=new LinkAssistantSession(app);Check(reopened.CanExecute&&reopened.Links.Count==1,"reopen loads report and original scope");result=reopened.Execute(null);Check(XlsxLinkPackage.Scan(t1)[0].SourcePath==c,"reopen direct execute rescans and validates");
+        session=JournalSession(b,new[]{t1},a,c,true);session.Scan(new[]{t1});((LinkFakeBook)((LinkFakeApp)session.App).ActiveWorkbook).Sheet.Values[1,2]=c;Package(t1,a,c);Reject(()=>session.Execute(null),"new link invalidates persisted report");Check(XlsxLinkPackage.Scan(t1).Count==2,"mismatch leaves original unchanged");
         var changes=new[]{new LinkChange{Old=a,New=b},new LinkChange{Old=b,New=c}};
         Check(LinkBatch.Order(changes,new[]{a,b},false)[0].Old==b,"acyclic chain runs tail first");Check(LinkBatch.Order(changes,new[]{b,c},true)[0].Old==a,"inverse chain runs head first");
         Reject(()=>LinkBatch.Order(new[]{new LinkChange{Old=a,New=c},new LinkChange{Old=b,New=c}},new[]{a,b},false),"many to one refused");Reject(()=>LinkBatch.Order(new[]{new LinkChange{Old=a,New=b}},new[]{a,b},false),"unchanged target source refused");Reject(()=>LinkBatch.Order(new[]{new LinkChange{Old=a,New=b},new LinkChange{Old=b,New=a}},new[]{a,b},false),"cycle refused");
         Package(t1,a,b);session=JournalSession(b,new[]{t1},a,c,true);session.Links.Add(new ExternalLinkInfo {OwnerPath=t1,SourcePath=b});
         var chainSheet=((LinkFakeBook)((LinkFakeApp)session.App).ActiveWorkbook).Sheet;
         chainSheet.Values=new object[,]{{"文档路径","外部链接","新链接（待填）","处理状态"},{t1,a,b,""},{t1,b,c,""}};
-        result=session.Execute(null);Check(new HashSet<string>(XlsxLinkPackage.Scan(t1).Select(l=>l.SourcePath),StringComparer.OrdinalIgnoreCase).SetEquals(new[]{b,c}),"live chain executes without source merging");
-        using(var stream=File.Open(t1,FileMode.Open,FileAccess.ReadWrite))using(var zip=new ZipArchive(stream,ZipArchiveMode.Update)){zip.GetEntry("customXml/item1.xml").Delete();Part(zip,"customXml/item1.xml","<content>later user edit</content>");}
-        foreach(string step in session.Steps(true,()=>false)){}Check(new HashSet<string>(XlsxLinkPackage.Scan(t1).Select(l=>l.SourcePath),StringComparer.OrdinalIgnoreCase).SetEquals(new[]{a,b}),"live reverse chain preserves original source set");
-        using(var stream=File.OpenRead(t1))using(var zip=new ZipArchive(stream,ZipArchiveMode.Read))using(var reader=new StreamReader(zip.GetEntry("customXml/item1.xml").Open()))Check(reader.ReadToEnd().Contains("later user edit"),"link inverse preserves unrelated post-execution edits");session.Batch.Confirm(RecycleFiles.Send);
+        int chainSteps = 0;
+        foreach (string step in session.Steps(() => chainSteps == 2))
+        {
+            if (!step.StartsWith("已替换：", StringComparison.Ordinal) || ++chainSteps != 2) continue;
+            Check(new HashSet<string>(XlsxLinkPackage.Scan(t1).Select(l => l.SourcePath), StringComparer.OrdinalIgnoreCase).SetEquals(new[] { b, c }),
+                "live chain executes without source merging");
+            using (var stream = File.Open(t1, FileMode.Open, FileAccess.ReadWrite))
+            using (var zip = new ZipArchive(stream, ZipArchiveMode.Update))
+            {
+                zip.GetEntry("customXml/item1.xml").Delete();
+                Part(zip, "customXml/item1.xml", "<content>later user edit</content>");
+            }
+        }
+        Check(chainSteps == 2 && new HashSet<string>(XlsxLinkPackage.Scan(t1).Select(l => l.SourcePath), StringComparer.OrdinalIgnoreCase).SetEquals(new[] { a, b }),
+            "automatic rollback restores the original chain");
+        using(var stream=File.OpenRead(t1))using(var zip=new ZipArchive(stream,ZipArchiveMode.Read))using(var reader=new StreamReader(zip.GetEntry("customXml/item1.xml").Open()))Check(reader.ReadToEnd().Contains("later user edit"),"link inverse preserves unrelated post-execution edits");
         Package(t1,a);session=JournalSession(b,new[]{t1},a,c,true);session.Execute(null);
-        using(var form=new LinkAssistantForm(new LinkAssistantSession(session.App)))Check(form.Stop.Enabled&&form.Confirm.Enabled&&!form.ExecuteButton.Enabled,"reopened link form enables undo and confirmation");
-        foreach(string step in session.Steps(true,()=>false)){}session.Batch.Confirm(RecycleFiles.Send);
-        Package(b,a);session=JournalSession(b,new[]{b},a,c,false);var receiver=(LinkFakeBook)((LinkFakeApp)session.App).ActiveWorkbook;receiver.Saved=false;result=session.Execute(null);Check(receiver.CloseCount==0&&XlsxLinkPackage.Scan(b)[0].SourcePath==c&&receiver.Sheet.Values[1,3].ToString().Contains("已替换"),"receiver also target saves and writes report without close");foreach(string step in session.Steps(true,()=>false)){}session.Batch.Confirm(RecycleFiles.Send);Package(b);
+        using (var form = new LinkAssistantForm(new LinkAssistantSession(session.App)))
+            Check(form.ScanButton.Enabled && !form.ExecuteButton.Enabled && form.CancelButton == null,
+                "reopened link form can scan a new batch after the previous save");
+        Package(b,a);session=JournalSession(b,new[]{b},a,c,false);var receiver=(LinkFakeBook)((LinkFakeApp)session.App).ActiveWorkbook;receiver.Saved=false;result=session.Execute(null);Check(receiver.CloseCount==0&&XlsxLinkPackage.Scan(b)[0].SourcePath==c&&receiver.Sheet.Values[1,3].ToString().Contains("已替换"),"receiver also target saves and writes report without close");Package(b);
+        LegacyLinkRecordChecks(folder, a, c, t2);
+    }
+    static void LegacyLinkRecordChecks(string folder, string source, string replacement, string target)
+    {
+        string report = Path.Combine(folder, "legacy-receiver.xlsx");
+        Package(report);
+        Package(target, source);
+        var session = JournalSession(report, new[] { target }, source, replacement, false);
+        session.Scan(new[] { target });
+        using (var sha = System.Security.Cryptography.SHA256.Create())
+        {
+            string key = BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(report.ToUpperInvariant())))
+                .Replace("-", "").Substring(0, 24);
+            string legacy = Path.Combine(folder, ".EI_LinkBatch_" + key + ".xml");
+            string scan = File.ReadAllText(session.Batch.Journal);
+            File.WriteAllText(legacy, scan, new UTF8Encoding(false));
+            File.Delete(session.Batch.Journal);
+            var reopened = new LinkAssistantSession(session.App);
+            Check(reopened.CanExecute && reopened.Links.Single().SourcePath == source,
+                "a legacy scan is available for normal source and identity checks");
+            string oldBatch = scan.Replace("<State>Scanned</State>", "<State>Completed</State>");
+            Check(oldBatch != scan, "legacy test fixture contains a persisted state");
+            File.WriteAllText(legacy, oldBatch, new UTF8Encoding(false));
+            reopened = new LinkAssistantSession(session.App);
+            Check(!reopened.CanExecute && reopened.Scan(new[] { target }) == 1,
+                "a legacy pending batch leaves the next scan available");
+            Check(File.ReadAllText(legacy) == oldBatch && File.Exists(reopened.Batch.Journal),
+                "the new workflow writes a different journal and preserves historical recovery metadata");
+        }
     }
     static void ResultChecks(string folder,string a,string b,string c)
     {
@@ -109,14 +166,16 @@ partial class WorkbookToolsProbe {
             string disk=WpsShared.SourcePaths.ReadAllText(session.Batch.LogPath(folder));Check(disk.Split(new[]{"开始扫描："},StringSplitOptions.None).Length==3,"diagnostic increment contains two scans without history duplication");
             report.Values[1,2]=b;report.Values[2,2]="";session.Execute(null);
             Check(session.Operations.Text.Contains("尚未修改链接")&&!session.Operations.Text.Contains("成功："),"mapping conflict refuses with no false success");
-            session.Batch.Confirm(RecycleFiles.Send);session.Batch=null;
+            string previousLog = session.Batch.LogPath(folder);
             session.Scan(new[]{t});report.Values[1,2]=a;report.Values[2,2]="";session.Execute(null);
             Check(session.LastResult.Contains("成功0条，跳过2条")&&!session.Operations.Text.Contains("跳过链接：")&&!session.Operations.Text.Contains("待替换链接："),"blank and same mapping skip only in summary");
-            Check(!WpsShared.SourcePaths.ReadAllText(session.Batch.LogPath(folder)).Contains("预检未通过"),"confirmed prior diagnostics are not copied into the new batch");
+            Check(session.Batch.LogPath(folder) != previousLog && File.Exists(previousLog) &&
+                !WpsShared.SourcePaths.ReadAllText(session.Batch.LogPath(folder)).Contains("预检未通过"),
+                "a fresh batch gets its own diagnostics and preserves the previous log");
             string copied=null;form.CopyText=text=>copied=text;
             typeof(System.Windows.Forms.Control).GetMethod("OnClick",System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic).Invoke(form.CopyLog,new object[]{EventArgs.Empty});
             Check(copied==session.Operations.Text.Replace("\r","")&&copied==form.LogView.Text,"copy captures current concise batch without touching clipboard");
-            session.Batch.Confirm(RecycleFiles.Send);session.Batch=null;
+
         }
         Package(t,a,b);session=JournalSession(c,new[]{t},a,c,true);report=((LinkFakeApp)session.App).Workbooks.Items[0].Sheet;target=((LinkFakeApp)session.App).Workbooks.Items[1];
         session.Links.Add(new ExternalLinkInfo{OwnerPath=t,SourcePath=b});report.Values=new object[,]{{"文档路径","外部链接","新链接（待填）","处理状态"},{t,a,c,""},{t,b,Path.Combine(folder,"D.xlsx"),""}};Package(Path.Combine(folder,"D.xlsx"));
@@ -124,25 +183,28 @@ partial class WorkbookToolsProbe {
         Check(result.Contains("失败1条")&&result.Contains("仍有0条")&&new HashSet<string>(XlsxLinkPackage.Scan(t).Select(l=>l.SourcePath)).SetEquals(new[]{a,b}),"partial success summary reflects automatic full rollback: "+result);
         Check(session.Operations.Text.Contains("成功："+a+"\r\n→ "+c)&&session.Operations.Text.Contains("已还原："+c+"\r\n→ "+a),"partial forward and reverse actual per-link results remain visible");
         Check(!session.Operations.Text.Contains("HRESULT")&&!session.Operations.Text.Contains("ChangeLink")&&session.Operations.DiagnosticText.Contains("调用ChangeLink")&&session.Operations.DiagnosticText.Contains("HRESULT"),"call details and exceptions go only to diagnostic channel");
-        var reopened=new LinkAssistantSession(session.App);Check(reopened.Operations.Text==session.Operations.Text,"reopening restores current batch transcript");session.Batch.Confirm(RecycleFiles.Send);
+        var reopened=new LinkAssistantSession(session.App);Check(reopened.Operations.Text==session.Operations.Text,"reopening restores current batch transcript");
         Package(t,a,b);session=JournalSession(c,new[]{t},a,c,false);report=((LinkFakeApp)session.App).Workbooks.Items[0].Sheet;
         session.Links.Add(new ExternalLinkInfo{OwnerPath=t,SourcePath=b});report.Values=new object[,]{{"文档路径","外部链接","新链接（待填）","处理状态"},{t,b,Path.Combine(folder,"D.xlsx"),""},{t,a,c,""}};
         session.DiagnosticWriter=(path,text)=>{throw new IOException("injected diagnostic failure");};session.Execute(null);
         Check(session.LastResult.Contains("成功2条")&&session.Operations.Text.Contains("成功："+a)&&session.Operations.Text.Contains("成功："+b),"closed sorted two-map result counts links despite diagnostic failure");
         Check(session.Operations.Text.Split(new[]{"日志保存失败："},StringSplitOptions.None).Length==2,"diagnostic failure warns once per batch");
-        foreach(string step in session.Steps(true,()=>false)){}session.Batch.Confirm(RecycleFiles.Send);
         Package(t,a);session=JournalSession(c,new[]{t},a,b,true);report=((LinkFakeApp)session.App).Workbooks.Items[0].Sheet;target=((LinkFakeApp)session.App).Workbooks.Items[1];
         report.FailWrite=true;session.Execute(null);Check(session.LastResult.Contains("成功1条")&&session.Operations.Text.Contains("清单状态未完整保存")&&XlsxLinkPackage.Scan(t)[0].SourcePath==b,"report-write failure does not hide successful replacement");report.FailWrite=false;
-        target.RefuseChange=true;foreach(string step in session.Steps(true,()=>false)){}
-        Check(session.Batch.State=="UndoFailed"&&session.LastResult.Contains("仍有1条")&&session.Operations.Text.Contains("还原失败："),"undo failure exposes remaining link and prohibits confirmation");Reject(()=>session.Batch.Confirm(_=>{}),"failed undo cannot be confirmed");
-        target.RefuseChange=false;foreach(string step in session.Steps(true,()=>false)){}
-        Reject(()=>{foreach(string step in session.ConfirmSteps(_=>{throw new IOException("injected recycle failure");})){}},"confirmation failure retains remaining records");
-        string before=WpsShared.SourcePaths.ReadAllText(session.Batch.LogPath(folder));session.ReportStopped(new IOException("injected cleanup failure"));Check(WpsShared.SourcePaths.ReadAllText(session.Batch.LogPath(folder))==before&&session.Operations.Text.Contains("重试确认清理"),"cleanup failure does not recreate or append recycled log");
-        string journal=session.Batch.Journal,log=session.Batch.LogPath(folder),display=session.Operations.Text;
-        foreach(string step in session.ConfirmSteps(RecycleFiles.Send)){}
-        Check(session.Batch==null&&!WpsShared.SourcePaths.Exists(journal)&&!WpsShared.SourcePaths.Exists(log)&&session.Operations.Text==display+"已确认，本批日志和恢复记录已清理。\r\n","successful retry appends only confirmation and does not recreate logs");
-        Check(XlsxLinkPackage.Scan(t)[0].SourcePath==a,"confirmation preserves already restored file state");
-        Package(t);session=JournalSession(c,new[]{t},a,b,true);session.Scan(new[]{t});Check(session.Operations.Text.Contains("未发现可替换链接")&&!session.Operations.Text.Contains("再点击「执行替换」"),"zero-link scan omits replacement suggestion");session.Batch.Confirm(RecycleFiles.Send);
+        Package(t, a);
+        session = JournalSession(c, new[] { t }, a, b, true);
+        target = ((LinkFakeApp)session.App).Workbooks.Items[1];
+        StopAfterSave(session, () => target.RefuseChange = true, "已替换：");
+        Check(session.Batch.State == "UndoFailed" && session.LastResult.Contains("仍有1条") &&
+            session.Operations.Text.Contains("还原失败：") && XlsxLinkPackage.Scan(t)[0].SourcePath == b,
+            "failed automatic rollback reports remaining saved changes");
+        string unresolvedId = session.Batch.Id;
+        string unresolvedLog = session.Batch.LogPath(folder);
+        session.Scan(new[] { t });
+        Check(session.CanExecute && session.Batch.Id != unresolvedId && File.Exists(unresolvedLog) &&
+            File.Exists(Path.Combine(folder, ".EI_LinkBatch_" + unresolvedId + ".xml")),
+            "a new scan preserves unresolved evidence under its previous batch ID");
+        Package(t);session=JournalSession(c,new[]{t},a,b,true);session.Scan(new[]{t});Check(session.Operations.Text.Contains("未发现可替换链接")&&!session.Operations.Text.Contains("再点击「执行替换」"),"zero-link scan omits replacement suggestion");
     }
     static void MissingDestinations(string folder) {
         string[] originals = Enumerable.Range(0, 14).Select(i => Path.Combine(folder, "source-" + i + ".xlsx")).ToArray();
@@ -152,7 +214,6 @@ partial class WorkbookToolsProbe {
         {
             string owner = Path.Combine(folder, "target-" + live + ".xlsx"), report = Path.Combine(folder, "report-" + live + ".xlsx");
             Package(owner, originals); Package(report); Package(present);
-            string before = XlsxLinkPackage.Hash(owner);
             var session = JournalSession(report, new[] { owner }, originals[0], present, live);
             var app = (LinkFakeApp)session.App; app.Workbooks.SupportReopen = true;
             session.Scan(new[] { owner });
@@ -160,8 +221,8 @@ partial class WorkbookToolsProbe {
             for (int i = 0; i < 12; i++) sheet.Values[i + 1, 2] = Path.GetDirectoryName(missing[i]) + @"\\[" + Path.GetFileName(missing[i]) + "]";
             sheet.Values[13, 2] = present;
             var original = live ? app.Workbooks.Items[1] : null;
-            foreach (string step in session.Steps(false, () => false))
-                if (live && step.StartsWith("备份及链接预检完成")) File.Delete(present);
+            foreach (string step in session.Steps(() => false))
+                if (live && step.StartsWith("链接预检完成")) File.Delete(present);
             int missingCount = live ? 13 : 12;
             Check(session.LastResult.Contains("成功13条，跳过1条，失败0条") && session.LastResult.Contains("目标文件当前缺失" + missingCount + "条"),
                 "batch applies entered missing destinations and reports their count: " + session.LastResult);
@@ -173,9 +234,9 @@ partial class WorkbookToolsProbe {
             var reopened = new LinkAssistantSession(app);
             Check(reopened.Links.Count(l => l.Status == LinkAssistantSession.MissingStatus) == missingCount, "reopen reads the committed missing status");
             if (original != null) { Check(original.CloseCount == 0, "original workbook stays open"); original.Close(false); }
-            foreach (string step in reopened.Steps(true, () => false)) { }
-            Check(XlsxLinkPackage.Hash(owner) == before, "checkpoint cancellation restores exact XLSX bytes");
-            reopened.Batch.Confirm(File.Delete);
+            Check(!reopened.CanExecute && reopened.Batch.Checkpoints.Count == 0 &&
+                !Directory.EnumerateFiles(folder, ".EI_LinkBackup_" + reopened.Batch.Id + "_*.xlsx").Any(),
+                "successful missing-target replacement leaves no workbook protection copy");
         }
     }
     static void ClosedCheckpointSharingViolation(string folder)
@@ -215,9 +276,18 @@ partial class WorkbookToolsProbe {
             };
             try
             {
-                foreach (string step in session.Steps(false, () => false))
-                    if (step.StartsWith("已处理暂存副本"))
+                bool stop = false;
+                foreach (string step in session.Steps(() => stop))
+                {
+                    if (step.StartsWith("已处理暂存副本", StringComparison.Ordinal))
                         held = File.Open(owner, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    if (step.StartsWith("已保存工作簿", StringComparison.Ordinal))
+                    {
+                        Check(XlsxLinkPackage.Hash(owner) != before, "released share lock lets the missing-target replacement commit");
+                        held = File.Open(owner, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        stop = true;
+                    }
+                }
                 Check(commitRetries == 1, "checkpoint commit retries a real sharing violation once");
                 if (concurrentEdit)
                 {
@@ -228,14 +298,9 @@ partial class WorkbookToolsProbe {
                         "concurrent edit leaves the original backup and pending verification");
                     continue;
                 }
-                Check(session.LastResult.Contains("成功1条") && XlsxLinkPackage.Hash(owner) != before,
-                    "released share lock allows the validated missing-target replacement");
-
-                held = File.Open(owner, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                foreach (string step in session.Steps(true, () => false)) { }
-                Check(restoreRetries == 1 && XlsxLinkPackage.Hash(owner) == before,
-                    "checkpoint undo retries a share lock and restores the exact bytes");
-                session.Batch.Confirm(File.Delete);
+                Check(stop && restoreRetries == 1 && XlsxLinkPackage.Hash(owner) == before &&
+                    session.Batch.Checkpoints.Count == 0,
+                    "automatic rollback retries a share lock, restores exact bytes and removes its copy");
             }
             finally { if (held != null) held.Dispose(); }
         }
@@ -317,7 +382,6 @@ partial class WorkbookToolsProbe {
         Check(sheet.Values[1,3].ToString().Contains("已替换")&&sheet.Width(4)>2,"link result rewrites and refits the status column");
         Check(receiver.SavedReports.Last().Contains("已替换")&&receiver.SavedReports.Last()==string.Join("\n",receiver.SheetItems.Select(s=>s.State())),"link save contains the final report value and all fitted formats");
         Check(receiver.SavedHashes.Last()==XlsxLinkPackage.Hash(b),"report digest is captured only after fitted content reaches disk");
-        foreach(string step in session.Steps(true,()=>false)){}session.Batch.Confirm(RecycleFiles.Send);
     }
     static void DirectoryOutputChecks(string folder)
     {
@@ -433,7 +497,7 @@ partial class WorkbookToolsProbe {
             report[1,2]=directory;Reject(()=>session.ReadMappings(),"existing directory is refused");report[1,2]=c;
             report[1,2]="relative.xlsx";Reject(()=>session.ReadMappings(),"relative user new path refused");report[1,2]=c;
             string targetHash=XlsxLinkPackage.Hash(a);target.RefuseChange=true;
-            Check(session.Execute(_=>{}).Contains("失败1条"),"unsupported open target reports failure");Check(target.SaveCount>0&&target.CloseCount==0&&XlsxLinkPackage.Hash(a)==targetHash,"dirty target saved without close or overwrite");session.Batch.Confirm(RecycleFiles.Send);session.Batch=null;target.RefuseChange=false;
+            Check(session.Execute(_=>{}).Contains("失败1条"),"unsupported open target reports failure");Check(target.SaveCount>0&&target.CloseCount==0&&XlsxLinkPackage.Hash(a)==targetHash,"dirty target saved without close or overwrite");target.RefuseChange=false;
             report[1,2]="";Check(session.ReadMappings().Count==0,"empty new path skipped");
             report[1,2]=b;Check(session.ReadMappings().Count==0,"identical path skipped");
             report[1,2]=a;Reject(()=>session.ReadMappings(),"report self-reference refused");

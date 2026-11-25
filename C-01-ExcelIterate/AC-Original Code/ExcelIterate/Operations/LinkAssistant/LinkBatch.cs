@@ -44,39 +44,89 @@ namespace Excel_Iterate
         public List<LinkRowRecord> Rows=new List<LinkRowRecord>();
         public List<LinkChange> Changes=new List<LinkChange>();
         public List<LinkWorkbookCheckpoint> Checkpoints=new List<LinkWorkbookCheckpoint>();
-        [XmlIgnore] public string Journal {get {return Path.Combine(Path.GetDirectoryName(ReportBook),".EI_LinkBatch_"+Key(ReportBook)+".xml");}}
-        [XmlIgnore] internal bool Pending {get {return State!="Scanned";}}
-        [XmlIgnore] internal bool CanUndo {get {return State!="Cleaning"&&State!="Undone"&&(Changes.Any(c=>c.Applied||c.Intent)||Checkpoints.Any(c=>c.NeedsRestore));}}
-        private static string Key(string path)
-        {using(var sha=System.Security.Cryptography.SHA256.Create())return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(Path.GetFullPath(path).ToUpperInvariant()))).Replace("-","").Substring(0,24);}
+        [XmlIgnore] public string Journal { get { return JournalPath(ReportBook, false); } }
+
+        private static string JournalPath(string report, bool legacy)
+        {
+            string identity = Path.GetFullPath(report).ToUpperInvariant();
+            if (!legacy) identity = "v2\n" + identity;
+            using (var sha = System.Security.Cryptography.SHA256.Create())
+            {
+                string key = BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(identity))).Replace("-", "").Substring(0, 24);
+                return Path.Combine(Path.GetDirectoryName(report), ".EI_LinkBatch_" + key + ".xml");
+            }
+        }
+
         internal static LinkBatch Load(string report)
         {
-            var model=new LinkBatch {ReportBook=report};if(!File.Exists(model.Journal))return null;
-            using(var reader=XmlReader.Create(model.Journal,new XmlReaderSettings {DtdProcessing=DtdProcessing.Prohibit,XmlResolver=null}))model=(LinkBatch)new XmlSerializer(typeof(LinkBatch)).Deserialize(reader);
-            if(!string.Equals(model.ReportBook,report,StringComparison.OrdinalIgnoreCase))throw new IOException("链接恢复记录工作簿身份不符。");
-            return model;
+            string current = JournalPath(report, false);
+            if (File.Exists(current)) return Read(current, report);
+
+            // A pre-upgrade scan can be reused. Pending recovery records belong to the old workflow.
+            string legacy = JournalPath(report, true);
+            if (!File.Exists(legacy)) return null;
+            try
+            {
+                var batch = Read(legacy, report);
+                if (batch.State != "Scanned" || batch.Changes.Count != 0 || batch.Checkpoints.Count != 0) return null;
+                batch.Id = Guid.NewGuid().ToString("N");
+                return batch;
+            }
+            catch (IOException) { return null; }
+            catch (UnauthorizedAccessException) { return null; }
+            catch (InvalidOperationException) { return null; }
+            catch (XmlException) { return null; }
         }
+
+        private static LinkBatch Read(string path, string report)
+        {
+            LinkBatch batch;
+            using (var reader = XmlReader.Create(path, new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null }))
+                batch = (LinkBatch)new XmlSerializer(typeof(LinkBatch)).Deserialize(reader);
+            Guid id;
+            if (!string.Equals(batch.ReportBook, report, StringComparison.OrdinalIgnoreCase) ||
+                !Guid.TryParseExact(batch.Id, "N", out id))
+                throw new IOException("链接记录的工作簿身份或批次编号不符。");
+            return batch;
+        }
+
         internal void Persist()
         {
-            string temp=Journal+".tmp";using(var writer=XmlWriter.Create(temp,new XmlWriterSettings {Encoding=new UTF8Encoding(false),Indent=true}))new XmlSerializer(typeof(LinkBatch)).Serialize(writer,this);
-            // 已进回收站的旧记录仍被 File.Exists 判为存在，Replace 会因"无法删除要被替换的文件"失败，退化为删除后移动。
-            if(File.Exists(Journal)){try{File.Replace(temp,Journal,null);}catch(IOException){File.Delete(Journal);File.Move(temp,Journal);}}else File.Move(temp,Journal);
+            ReplaceJournal(Journal);
         }
+
+        private void ReplaceJournal(string path)
+        {
+            string temp = path + ".tmp";
+            using (var writer = XmlWriter.Create(temp, new XmlWriterSettings { Encoding = new UTF8Encoding(false), Indent = true }))
+                new XmlSerializer(typeof(LinkBatch)).Serialize(writer, this);
+            if (File.Exists(path)) File.Replace(temp, path, null);
+            else File.Move(temp, path);
+        }
+
+        internal void PreserveUnresolvedRecord()
+        {
+            if (State != "Active" && State != "UndoFailed" && Checkpoints.Count == 0) return;
+            string archive = Path.Combine(Path.GetDirectoryName(ReportBook), ".EI_LinkBatch_" + Id + ".xml");
+            if (!File.Exists(archive)) ReplaceJournal(archive);
+        }
+
         internal string LogPath(string dir){return Path.Combine(dir,".EI_LinkBatch_"+Id+".log");}
-        internal void Log(string text){foreach(string dir in LogDirectories)LogTo(dir,text);}
         internal void LogTo(string dir,string text){File.AppendAllText(LogPath(dir),text,new UTF8Encoding(false));}
         internal string[] Candidates()
         {
-            if(ScopeFolder==null)return Owners.ToArray();
-            return Directory.GetFiles(ScopeFolder,"*.xlsx").Where(p=>!Path.GetFileName(p).StartsWith("~$")&&!OperationBatch.ManagedFile(p)).OrderBy(p=>p,StringComparer.OrdinalIgnoreCase).ToArray();
+            int skipped;
+            return ScopeFolder == null ? Owners.ToArray() : LinkScanSelection.FolderCandidates(ScopeFolder, out skipped);
         }
-        internal void Confirm(Action<string> recycle)
+
+        internal void RemoveTemporaryCopy(LinkWorkbookCheckpoint checkpoint)
         {
-            if(State=="UndoFailed"||Changes.Any(c=>c.Intent)||Checkpoints.Any(c=>c.Uncertain||c.CommitIntent))throw new InvalidOperationException("链接还原或提交核对未完成，禁止清理恢复记录。");
-            State="Cleaning";Persist();
-            foreach(var checkpoint in Checkpoints)if(File.Exists(checkpoint.Backup)){ValidateBackup(checkpoint);recycle(checkpoint.Backup);}
-            foreach(string dir in LogDirectories)if(File.Exists(LogPath(dir)))recycle(LogPath(dir));
-            if(File.Exists(Journal+".tmp"))recycle(Journal+".tmp");if(File.Exists(Journal))recycle(Journal);
+            if (File.Exists(checkpoint.Backup))
+            {
+                ValidateBackup(checkpoint);
+                File.Delete(checkpoint.Backup);
+            }
+            Checkpoints.Remove(checkpoint);
         }
         internal void ValidateBackup(LinkWorkbookCheckpoint checkpoint)
         {
@@ -84,7 +134,7 @@ namespace Excel_Iterate
             if(!string.Equals(Path.GetDirectoryName(owner),Path.GetDirectoryName(backup),StringComparison.OrdinalIgnoreCase)
                 || !Path.GetFileName(backup).StartsWith(".EI_LinkBackup_"+Id+"_",StringComparison.Ordinal)
                 || Path.GetExtension(backup)!=".xlsx" || (File.GetAttributes(backup)&FileAttributes.ReparsePoint)!=0
-                || XlsxLinkPackage.Hash(backup)!=checkpoint.BeforeHash)throw new IOException("断链备份身份或摘要不符，已保留恢复记录。");
+                || XlsxLinkPackage.Hash(backup)!=checkpoint.BeforeHash)throw new IOException("临时保护副本的身份或摘要不符，已保留原文件。");
         }
         // ChangeLink is sequential. Reverse topological order avoids merging a
         // chain's intermediate source; cycles require aliases and are refused.

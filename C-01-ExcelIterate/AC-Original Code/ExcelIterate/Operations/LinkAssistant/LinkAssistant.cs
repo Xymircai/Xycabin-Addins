@@ -24,16 +24,16 @@ namespace Excel_Iterate
         internal string ReportName, ReportAnchor;
         internal List<ExternalLinkInfo> Links = new List<ExternalLinkInfo>();
         internal LinkBatch Batch; internal string ScanFolder;
-        internal bool HasReport { get { return ReportAnchor!=null; } }
+        internal bool CanExecute { get { return ReportAnchor != null && (Batch == null || Batch.State == "Scanned"); } }
         private readonly Dictionary<string,int> diagnosticOffsets=new Dictionary<string,int>(StringComparer.OrdinalIgnoreCase);
         private int diagnosticStart;
         internal Action<string,string> DiagnosticWriter;
         private Exception reportedError;
         private string displayedOwner;
-        private bool reportChanged,reportSaved;
+        private bool reportChanged, reportSaved, deferDiagnostics;
         private void FlushDiagnostics()
         {
-            if(Batch==null||Batch.State=="Cleaning"||Operations.PersistenceError!=null)return;
+            if (Batch == null || deferDiagnostics || Operations.PersistenceError != null) return;
             string text=Operations.DiagnosticText;
             try {foreach(string dir in Batch.LogDirectories){string path=Batch.LogPath(dir);int offset;if(!diagnosticOffsets.TryGetValue(path,out offset))offset=diagnosticStart;if(offset>=text.Length)continue;
                 if(DiagnosticWriter!=null)DiagnosticWriter(path,text.Substring(offset));else Batch.LogTo(dir,text.Substring(offset));diagnosticOffsets[path]=text.Length;}}
@@ -57,8 +57,7 @@ namespace Excel_Iterate
         {
             if(ReferenceEquals(reportedError,error))return;reportedError=error;
             Operations.Trace("操作异常",error.ToString());
-            string state=Batch!=null&&Batch.State=="Cleaning"?"已保留处理结果，剩余记录可重试确认清理。":Batch!=null&&Batch.Changes.Any(c=>c.Applied||c.Intent)?"本批仍有改动或待核对步骤，请重试取消；恢复记录已保留。":"尚未修改链接。";
-            Operations.Record("操作停止",Reason(error)+"\r\n"+state);
+            Operations.Record("操作停止", Reason(error) + "\r\n尚未开始本次链接处理。");
         }
         internal LinkAssistantSession(object app)
         {
@@ -73,7 +72,17 @@ namespace Excel_Iterate
             Batch=LinkBatch.Load(ReportBookPath);
             if(Batch!=null){ReportAnchor=Batch.Anchor;ReportName=Batch.ReportName;Links=Batch.Rows.Select(r=>r.Link()).ToList();ScanFolder=Batch.ScopeFolder;}
             Operations.DiagnosticLineAdded+=delegate {FlushDiagnostics();};
-            if(Batch!=null){LastResult=Batch.LastSummary;if(!string.IsNullOrEmpty(Batch.UserLog))Operations.RestoreDisplay(Batch.UserLog);else if(!string.IsNullOrEmpty(LastResult))Operations.Record("",LastResult);else if(Batch.Pending)Operations.Record("","已恢复待确认批次。请取消还原或确认清理。");}
+            if (Batch != null)
+            {
+                LastResult = Batch.LastSummary;
+                if (!string.IsNullOrEmpty(Batch.UserLog)) Operations.RestoreDisplay(Batch.UserLog);
+                else if (!string.IsNullOrEmpty(LastResult)) Operations.Record("", LastResult);
+                if (Batch.State == "Active")
+                {
+                    Operations.Record("上次处理已中断", "重新扫描前请核对工作簿和链接记录：" + Batch.Journal);
+                    RecordUnresolvedCopies();
+                }
+            }
             Operations.Trace("打开助手", "清单接收工作簿：" + ReportBookPath);
         }
         internal string LogFailure;
@@ -98,16 +107,29 @@ namespace Excel_Iterate
         }
         internal int Scan(IEnumerable<string> files)
         {
+            reportChanged = reportSaved = false;
+            deferDiagnostics = Batch == null || Batch.State != "Scanned";
+            if (deferDiagnostics) diagnosticStart = Operations.DiagnosticText.Length;
             try { return ScanCore(files); }
-            catch (Exception ex) {reportedError=ex;Operations.Trace("扫描异常",ex.ToString());Operations.Record("扫描中止",Reason(ex)+"\r\n"+(reportSaved?"清单已保存，恢复记录未完整建立；请重新扫描。":reportChanged?"清单已更新，但未完整保存；请重新扫描。":"本次扫描未完成，尚未更新清单。"));throw;}
+            catch (Exception ex)
+            {
+                reportedError = ex;
+                if (reportChanged) ReportAnchor = null;
+                Operations.Trace("扫描异常", ex.ToString());
+                Operations.Record("扫描中止", Reason(ex) + "\r\n" +
+                    (reportSaved ? "清单已保存，链接记录未完整建立；请重新扫描。" :
+                        reportChanged ? "清单已更新，但未完整保存；请重新扫描。" : "本次扫描未完成，尚未更新清单。"));
+                throw;
+            }
+            finally { deferDiagnostics = false; }
         }
         private int ScanCore(IEnumerable<string> files)
         {
-            if(Batch!=null&&Batch.Pending)throw new InvalidOperationException("请先取消还原或确认上一批操作。");
+            var previousBatch = Batch;
+            if (previousBatch != null) previousBatch.PreserveUnresolvedRecord();
             List<ExternalLinkInfo> collected = new List<ExternalLinkInfo>();
             string[] targets = files.Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-            if(Batch==null)diagnosticStart=Operations.DiagnosticText.Length;
-            Operations.ClearDisplay();LogFailure=null;displayedOwner=null;reportedError=null;reportChanged=reportSaved=false;
+            Operations.ClearDisplay();LogFailure=null;displayedOwner=null;reportedError=null;
             Operations.Record("开始扫描", targets.Length + "个工作簿。");
             if (targets.Length == 0) { Operations.Record("", "没有可扫描的工作簿。");LastResult="没有可扫描的工作簿。"; return 0; }
             using (ComBag receiver = new ComBag()) RequireSaved(receiver.Own(FindBook(App, ReportBookPath)));
@@ -167,11 +189,18 @@ namespace Excel_Iterate
                 RequireSaved((object)book);
                 reportSaved=true;
             }
-            var previousBatch=Batch;
-            Batch=new LinkBatch {ReportBook=ReportBookPath,Anchor=ReportAnchor,ReportName=ReportName,ScopeFolder=ScanFolder,Owners=targets.ToList(),Rows=Links.Select(LinkRowRecord.FromLink).ToList()};
-            Batch.LogDirectories=ScanFolder!=null?new List<string>{ScanFolder}:targets.Select(Path.GetDirectoryName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            if(previousBatch!=null){Batch.Id=previousBatch.Id;Batch.LogDirectories=Batch.LogDirectories.Concat(previousBatch.LogDirectories).Distinct(StringComparer.OrdinalIgnoreCase).ToList();}
-            Batch.Persist();FlushDiagnostics();
+            var scanned = new LinkBatch { ReportBook = ReportBookPath, Anchor = ReportAnchor, ReportName = ReportName, ScopeFolder = ScanFolder,
+                Owners = targets.ToList(), Rows = Links.Select(LinkRowRecord.FromLink).ToList() };
+            scanned.LogDirectories = ScanFolder != null ? new List<string> { ScanFolder } : targets.Select(Path.GetDirectoryName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (previousBatch != null && previousBatch.State == "Scanned")
+            {
+                scanned.Id = previousBatch.Id;
+                scanned.LogDirectories = scanned.LogDirectories.Concat(previousBatch.LogDirectories).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            }
+            scanned.Persist();
+            Batch = scanned;
+            deferDiagnostics = false;
+            FlushDiagnostics();
             Operations.Trace("导出清单", ReportBookPath + "；工作表「" + ReportName + "」");
             LastResult=Links.Any(l=>l.UnavailableReason==null)?"扫描完成。在「外部链接」第三列填完整新路径，或对普通链接填「断开链接」，再点击「执行替换」。":"扫描完成，未发现可处理链接。";
             SaveSummary();
@@ -265,7 +294,7 @@ namespace Excel_Iterate
             }
         }
         internal string Execute(Action<string> progress)
-        { foreach(string step in Steps(false,()=>false))if(progress!=null)progress(step);return LastResult; }
+        { foreach(string step in Steps(() => false))if(progress!=null)progress(step);return LastResult; }
         internal string LastResult;
         private static IEnumerable<string> HostLinkNames(object raw)
         {
@@ -406,28 +435,108 @@ namespace Excel_Iterate
                 bool applied=c!=null&&(c.Intent?(completed?!c.IntentReverse:c.IntentReverse):c.Applied);return applied?c.New:r.Source;
             }),StringComparer.OrdinalIgnoreCase);
             bool done=expected(true).SetEquals(sources),untouched=expected(false).SetEquals(sources);
-            if(done==untouched)throw new IOException("链接中断状态不明确，保留恢复记录："+owner);
+            if(done==untouched)throw new IOException("链接中断状态不明确，已保留链接记录："+owner);
             foreach(var c in pending){c.Applied=done?!c.IntentReverse:c.IntentReverse;c.EverApplied|=c.Applied||c.IntentReverse;c.Intent=false;}
             Batch.Persist();
         }
-        internal IEnumerable<string> Steps(bool undo,Func<bool> cancelled)
-        {foreach(string step in ProcessSteps(undo,cancelled,false))yield return step;}
-        private IEnumerable<string> ProcessSteps(bool undo,Func<bool> cancelled,bool automatic)
+        private sealed class ProcessingResult
         {
-            if(Batch==null && undo)throw new InvalidOperationException("没有可还原的链接批次。");
-            displayedOwner=null;reportedError=null;
-            if(!undo)
+            internal readonly HashSet<LinkChange> Failures = new HashSet<LinkChange>();
+            internal int Success;
+            internal bool Cancelled;
+            internal Exception Error;
+        }
+
+        internal IEnumerable<string> Steps(Func<bool> cancelled)
+        {
+            if (!CanExecute) throw new InvalidOperationException("请先扫描链接。");
+            displayedOwner = null;
+            reportedError = null;
+            try { Rescan(); ReadMappings(); } catch (Exception ex) { ReportStopped(ex); throw; }
+
+            if (Batch == null) // Offline seam; production scans always have a persisted identity.
+                Batch = new LinkBatch { ReportBook = ReportBookPath, Anchor = ReportAnchor, ReportName = ReportName,
+                    Owners = Links.Select(l => l.OwnerPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+                    Rows = Links.Select(LinkRowRecord.FromLink).ToList(), LogDirectories = new List<string> { Path.GetDirectoryName(ReportBookPath) } };
+            foreach (var row in Batch.Rows)
             {
-                if(Batch!=null&&Batch.Pending)throw new InvalidOperationException("请先取消还原或确认上一批操作。");
-                try{Rescan();ReadMappings();}catch(Exception ex){ReportStopped(ex);throw;}
-                if(Batch==null) // Offline seam; production scans always have a persisted identity.
-                {Batch=new LinkBatch {ReportBook=ReportBookPath,Anchor=ReportAnchor,ReportName=ReportName,Owners=Links.Select(l=>l.OwnerPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList(),Rows=Links.Select(LinkRowRecord.FromLink).ToList(),LogDirectories=new List<string>{Path.GetDirectoryName(ReportBookPath)}};}
-                foreach(var row in Batch.Rows){var link=Links.FirstOrDefault(l=>l.Key==row.Owner+"\n"+(row.Source??row.Raw));if(link!=null)row.Status=link.Status;}
-                Batch.Changes=Links.Where(l=>l.NewPath!=null||l.BreakRequested).Select(ToChange).ToList();Batch.Skipped=Links.Count-Batch.Changes.Count;Batch.State="Active";Batch.Persist();FlushDiagnostics();
-                Operations.Record(Batch.Changes.Any(c=>c.Action==LinkAction.Break)?"开始链接处理":"开始替换",Batch.Changes.Count+"条链接。");
+                var link = Links.FirstOrDefault(l => l.Key == row.Owner + "\n" + (row.Source ?? row.Raw));
+                if (link != null) row.Status = link.Status;
             }
-            else {if(Batch.State=="Cleaning")throw new InvalidOperationException("已开始清理，不能还原。");Operations.Record("开始还原","核对本批改动。");}
-            int success=0;var failures=new HashSet<LinkChange>();bool abort=false;
+            Batch.Changes = Links.Where(l => l.NewPath != null || l.BreakRequested).Select(ToChange).ToList();
+            Batch.Skipped = Links.Count - Batch.Changes.Count;
+            Batch.State = "Active";
+            try { Batch.Persist(); }
+            catch { Batch.State = "Scanned"; Batch.Changes.Clear(); throw; }
+            FlushDiagnostics();
+            bool includesBreak = Batch.Changes.Any(c => c.Action == LinkAction.Break);
+            Operations.Record(includesBreak ? "开始链接处理" : "开始替换", Batch.Changes.Count + "条链接。");
+
+            var forward = new ProcessingResult();
+            foreach (string step in RunChanges(false, cancelled, forward)) yield return step;
+            bool rollback = forward.Cancelled || forward.Failures.Count > 0 || forward.Error != null;
+            if (rollback)
+            {
+                if (forward.Error != null)
+                {
+                    Operations.Trace("操作异常", forward.Error.ToString());
+                    Operations.Record("链接处理异常", Reason(forward.Error));
+                }
+                Operations.Record("", forward.Cancelled ? "已停止后续处理，正在尝试回退本批改动。" : "链接处理失败，正在尝试回退本批改动。");
+                var reverse = new ProcessingResult();
+                foreach (string step in RunChanges(true, () => false, reverse)) yield return step;
+                if (reverse.Error != null)
+                {
+                    Operations.Trace("回退异常", reverse.Error.ToString());
+                    Operations.Record("自动回退中止", Reason(reverse.Error));
+                }
+                int remaining = PendingChanges();
+                Batch.State = remaining > 0 ? "UndoFailed" : "Undone";
+                int unprocessed = Batch.Changes.Count - forward.Success - forward.Failures.Count;
+                LastResult = "链接处理停止：仍有" + remaining + "条改动或待核对步骤，跳过" + Batch.Skipped +
+                    "条，失败" + forward.Failures.Count + "条，未执行" + unprocessed + "条。\r\n" +
+                    (remaining > 0 ? "自动回退未完成，请按操作日志核对实际结果。" : "本批链接已恢复原状。");
+            }
+            else
+            {
+                Batch.State = "Completed";
+                LastResult = (includesBreak ? "链接处理完成（替换/断开）：成功" : "替换完成：成功") + forward.Success +
+                    "条，跳过" + Batch.Skipped + "条，失败0条。\r\n" +
+                    (forward.Success > 0 ? "结果已自动保存。可扫描下一批。" : "没有修改链接。可扫描下一批。");
+                int missing = Batch.Changes.Count(c => c.Applied && c.DestinationMissing);
+                if (missing > 0) LastResult += "\r\n已替换的链接中，目标文件当前缺失" + missing + "条。";
+            }
+
+            RefreshStatuses(rollback);
+            try { UpdateReport(rollback); }
+            catch (Exception ex)
+            {
+                Operations.Trace("清单回写异常", ex.ToString());
+                Operations.Record("清单状态未完整保存", Reason(ex) + "\r\n链接处理结果以本日志为准。");
+            }
+            ClearTemporaryProtection(rollback);
+            SaveSummary();
+        }
+
+        private IEnumerable<string> RunChanges(bool rollback, Func<bool> cancelled, ProcessingResult outcome)
+        {
+            using (var steps = ChangeWorkbooks(rollback, cancelled, outcome).GetEnumerator())
+            {
+                while (true)
+                {
+                    bool more;
+                    try { more = steps.MoveNext(); }
+                    catch (Exception error) { outcome.Error = error; more = false; }
+                    if (!more) yield break;
+                    yield return steps.Current;
+                }
+            }
+        }
+
+        private IEnumerable<string> ChangeWorkbooks(bool undo, Func<bool> cancelled, ProcessingResult outcome)
+        {
+            var failures = outcome.Failures;
+            bool abort = false;
             foreach(string owner in Batch.Changes.Select(c=>c.Owner).Distinct(StringComparer.OrdinalIgnoreCase).ToArray())
             {
                 if(!undo&&cancelled()){abort=true;break;}
@@ -450,11 +559,24 @@ namespace Excel_Iterate
                 }
                 if (Checkpoint(owner) != null || ownerChanges.Any(c => c.Action == LinkAction.Break || c.IsMissingPath || c.ReportSource != null || c.DestinationMissing))
                 {
-                    var outcome=new CheckpointOutcome();
-                    foreach(string step in CheckpointSteps(owner,undo,cancelled,outcome))yield return step;
-                    success+=outcome.Success;abort|=outcome.Cancelled;
-                    if(outcome.Error!=null)foreach(var change in Batch.Changes.Where(c=>c.Owner==owner&&(undo||!c.Applied||c.Intent))){failures.Add(change);if(!undo)change.FailureReason=Reason(outcome.Error);Pair(change,undo,false,outcome.Error);}
-                    if(abort)break;continue;
+                    var checkpointResult = new CheckpointOutcome();
+                    foreach (string step in CheckpointSteps(owner, undo, cancelled, checkpointResult)) yield return step;
+                    outcome.Success += checkpointResult.Success;
+                    abort |= checkpointResult.Cancelled;
+                    if (checkpointResult.Error != null)
+                        foreach (var change in ownerChanges.Where(c => undo || !c.Applied || c.Intent))
+                        {
+                            failures.Add(change);
+                            if (!undo) change.FailureReason = Reason(checkpointResult.Error);
+                            Pair(change, undo, false, checkpointResult.Error);
+                        }
+                    if (!undo && checkpointResult.Success > 0)
+                    {
+                        yield return "已保存工作簿：" + Path.GetFileName(owner);
+                        abort |= cancelled();
+                    }
+                    if (abort) break;
+                    continue;
                 }
                 Exception error=null;List<LinkChange> ordered=null;
                 try
@@ -497,7 +619,7 @@ namespace Excel_Iterate
                                 if(!expected.SetEquals(ActiveHostSources(book,owner,s=>Operations.Trace("保存后核对",s)).Select(s=>s.Path)))throw new IOException("保存后实际链接核对失败；保留恢复记录。");
                                 c.EverApplied=true;c.Applied=!undo;c.Intent=false;Batch.Persist();
                             }
-                            success++;Pair(c,undo,true,null);
+                            outcome.Success++;Pair(c,undo,true,null);
                         }catch(Exception ex){error=ex;failures.Add(c);if(!undo)c.FailureReason=Reason(ex);Operations.Trace("链接处理异常",owner+"；"+Failure(ex)+"\r\n"+ex);Pair(c,undo,false,ex);break;}
                         yield return (undo?"已还原：":"已替换：")+Path.GetFileName(owner);
                     }
@@ -511,59 +633,90 @@ namespace Excel_Iterate
                     worker.SetApartmentState(System.Threading.ApartmentState.STA);worker.IsBackground=true;worker.Start();
                     while(!done.WaitOne(0))yield return (undo?"正在还原文件：":"正在核对文件：")+Path.GetFileName(owner);
                     done.Dispose();error=workerError;
-                    if(error==null){foreach(var c in ordered){success++;Pair(c,undo,true,null);}}
+                    if(error==null){foreach(var c in ordered){outcome.Success++;Pair(c,undo,true,null);}}
                     else {Operations.Trace("文件处理异常",owner+"；"+error);foreach(var c in ordered){failures.Add(c);if(!undo)c.FailureReason=Reason(error);Pair(c,undo,false,error);}}
                 }
                 if(!undo&&cancelled())abort=true;
                 if(abort)break;
             }
-            if(!undo&&(abort||failures.Count>0))
+            outcome.Cancelled = abort;
+        }
+
+        private void ClearTemporaryProtection(bool rollback)
+        {
+            foreach (var checkpoint in Batch.Checkpoints.ToArray())
             {
-                int unprocessed=Batch.Changes.Count-success-failures.Count;
-                Operations.Record("",abort?"已取消后续替换，正在还原本批已完成的改动。":"替换未完成，正在还原本批已完成的改动。");
-                foreach(string step in ProcessSteps(true,()=>false,true))yield return step;
-                int remaining=PendingChanges();
-                LastResult="替换已停止：仍有"+remaining+"条改动或待核对步骤，跳过"+Batch.Skipped+"条，失败"+failures.Count+"条，未执行"+unprocessed+"条。\r\n"+(remaining>0?"还原未完成，请重试「取消操作」；当前禁止确认清理。":"本批链接已恢复原状。请点击「确认操作」清理记录。");
-                SaveSummary();yield break;
+                if (rollback && (checkpoint.NeedsRestore ||
+                    Batch.Changes.Any(c => c.Owner == checkpoint.Owner && (c.Applied || c.Intent))))
+                    continue;
+                try { Batch.RemoveTemporaryCopy(checkpoint); }
+                catch (Exception ex)
+                {
+                    Operations.Trace("临时副本清理异常", ex.ToString());
+                    Operations.Record("临时保护副本未清理", checkpoint.Backup + "\r\n" + Reason(ex));
+                }
             }
-            Batch.State=undo?(PendingChanges()>0?"UndoFailed":"Undone"):"Completed";Batch.Persist();
-            RefreshStatuses(undo);
-            try{UpdateReport();}catch(Exception ex){Operations.Trace("清单回写异常",ex.ToString());Operations.Record("清单状态未完整保存",Reason(ex)+"\r\n链接处理结果以本日志为准；回写失败不会撤销已完成的处理。");}
-            int left=PendingChanges();
-            LastResult=undo?"还原完成：成功"+success+"条，仍有"+left+"条改动或待核对步骤。"+(automatic?"":"\r\n"+(left>0?"请重试「取消操作」；当前禁止确认清理。":"本批链接已恢复原状。请点击「确认操作」清理记录。")):
-                (Batch.Changes.Any(c=>c.Action==LinkAction.Break)?"链接处理完成（替换/断开）：成功":"替换完成：成功")+success+"条，跳过"+Batch.Skipped+"条，失败0条。\r\n"+(success>0?"结果已自动保存。保留本次结果，请点击「确认操作」；需要还原，请点击「取消操作」。":"没有修改链接。请点击「确认操作」清理本批记录。");
-            int missing = Batch.Changes.Count(c => c.Applied && c.DestinationMissing);
-            if (!undo && missing > 0) LastResult += "\r\n已替换的链接中，目标文件当前缺失" + missing + "条。";
-            SaveSummary();
+            if (rollback && Batch.State == "UndoFailed")
+            {
+                Operations.Record("保留待核对记录", Batch.Journal);
+                RecordUnresolvedCopies();
+            }
         }
-        private void RefreshStatuses(bool undo)
+
+        private void RecordUnresolvedCopies()
         {
-            foreach(var l in Links){var c=Batch.Changes.FirstOrDefault(x=>string.Equals(x.Owner,l.OwnerPath,StringComparison.OrdinalIgnoreCase)&&string.Equals(x.ReportSourceId,l.SourceId,StringComparison.OrdinalIgnoreCase));if(c==null)continue;
-                var checkpoint=Checkpoint(c.Owner);
-                l.Status=c.Intent?(checkpoint!=null&&checkpoint.Applied?"已保存，但处理结果尚未核对；请重试取消":"处理结果待核对，备份已保留；请重试取消"):c.Applied?c.Action==LinkAction.Break?"链接已断开；结果已保存":c.DestinationMissing?MissingStatus:"链接已替换，结果已保存":undo&&c.EverApplied?"本批处理已还原":c.FailureReason==null?"未执行":checkpoint!=null&&checkpoint.Restored?"已核对备份状态；此前失败："+c.FailureReason:"未执行；失败："+c.FailureReason;
-                var row = Batch.Rows.FirstOrDefault(r => string.Equals(r.Owner, l.OwnerPath, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(r.Source ?? r.Raw, l.SourceId, StringComparison.OrdinalIgnoreCase));
-                if (row != null) row.Status = l.Status;
+            foreach (var checkpoint in Batch.Checkpoints.Where(c => c.NeedsRestore))
+                Operations.Record("保留待核对副本", checkpoint.Owner + "\r\n" + checkpoint.Backup);
+        }
+
+        private void RefreshStatuses(bool rollback)
+        {
+            foreach (var link in Links)
+            {
+                var change = Batch.Changes.FirstOrDefault(c => string.Equals(c.Owner, link.OwnerPath, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(c.ReportSourceId, link.SourceId, StringComparison.OrdinalIgnoreCase));
+                if (change == null) continue;
+
+                if (change.Intent) link.Status = "处理结果待核对，请查看操作日志";
+                else if (change.Applied)
+                {
+                    link.Status = change.Action == LinkAction.Break ? "链接已断开，结果已保存" :
+                        change.DestinationMissing ? MissingStatus : "链接已替换，结果已保存";
+                    if (rollback) link.Status += "；自动回退未完成";
+                }
+                else if (rollback && change.EverApplied) link.Status = "本批处理已回退";
+                else link.Status = change.FailureReason == null ? "未执行" : "未执行；失败：" + change.FailureReason;
+
+                var row = Batch.Rows.FirstOrDefault(r => string.Equals(r.Owner, link.OwnerPath, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(r.Source ?? r.Raw, link.SourceId, StringComparison.OrdinalIgnoreCase));
+                if (row != null) row.Status = link.Status;
             }
         }
+
         private void SaveSummary()
-        {Operations.Record("",LastResult);Batch.LastSummary=LastResult;Batch.UserLog=Operations.Text;Batch.Persist();}
-        internal IEnumerable<string> ConfirmSteps(Action<string> recycle)
         {
-            if(Batch==null)throw new InvalidOperationException("没有待确认批次。");
-            Exception error=null;var done=new System.Threading.ManualResetEvent(false);var batch=Batch;
-            var thread=new System.Threading.Thread(delegate(){try{batch.Confirm(recycle);}catch(Exception ex){error=ex;}finally{done.Set();}});
-            thread.SetApartmentState(System.Threading.ApartmentState.STA);thread.IsBackground=true;thread.Start();
-            while(!done.WaitOne(0))yield return "正在确认清理…";
-            done.Dispose();if(error!=null)throw error;Batch=null;LastResult="已确认，本批日志和恢复记录已清理。";Operations.Record("",LastResult);
+            Operations.Record("", LastResult);
+            Batch.LastSummary = LastResult;
+            Batch.UserLog = Operations.Text;
+            try { Batch.Persist(); }
+            catch (Exception ex)
+            {
+                Operations.Trace("链接记录保存异常", ex.ToString());
+                Operations.Record("链接记录未完整保存", Reason(ex) + "\r\n请复制窗口日志。");
+                LogFailure = ex.Message;
+            }
         }
-        private void UpdateReport()
+        private void UpdateReport(bool rollback)
         {
             using (ComBag bag = new ComBag())
             {
                 dynamic book = bag.Own(FindBook(App, ReportBookPath)); if (book == null) throw new InvalidOperationException("清单工作簿没有打开。");
                 var checkpoint=Checkpoint(ReportBookPath);
-                if(checkpoint!=null&&!checkpoint.Restored)GuardCheckpoint(checkpoint,(object)book);else RequireSaved((object)book);
+                if (rollback && ((checkpoint != null && checkpoint.NeedsRestore) ||
+                    Batch.Changes.Any(c => c.Owner == ReportBookPath && c.Intent)))
+                    throw new IOException("清单工作簿的回退结果待核对，请查看操作日志。");
+                if (checkpoint != null && !checkpoint.Restored) GuardCheckpoint(checkpoint, (object)book);
+                else RequireSaved((object)book);
                 dynamic sheet = ReportSheet((object)book, bag);
                 dynamic used = bag.Own(sheet.UsedRange), rows = bag.Own(used.Rows);
                 if (Convert.ToInt32(rows.Count) != Links.Count+1) throw new InvalidOperationException("处理期间清单行数已变化，实际结果见日志。");
@@ -577,7 +730,7 @@ namespace Excel_Iterate
                 for (int i = 1; i <= Links.Count; i++)
                 {
                     string key = Convert.ToString(values.GetValue(r0 + i, c0)) + "\n" + Convert.ToString(values.GetValue(r0 + i, c0 + 1)); ExternalLinkInfo link;
-                    if (!known.TryGetValue(key, out link)) throw new InvalidOperationException("清单行身份变化，请查看恢复日志。");
+                    if (!known.TryGetValue(key, out link)) throw new InvalidOperationException("清单行身份变化，请查看操作日志。");
                     dynamic cell = bag.Own(sheet.Range["D" + (i + 1)]); cell.Value2 = link.Status;
                 }
                 WorkbookUi.FitOutput((object)sheet, 1, 4, Links.Count + 1);
@@ -593,15 +746,16 @@ namespace Excel_Iterate
         internal readonly TextBox LocationBox=new TextBox {ReadOnly=true};
         internal readonly Label Status=Ui.Label("选择范围后扫描链接。",9,true),ScopeLabel=Ui.Label("扫描范围",10,false);
         internal readonly RichTextBox LogView=new RichTextBox {ReadOnly=true,WordWrap=true,ScrollBars=RichTextBoxScrollBars.Vertical,BorderStyle=BorderStyle.None,BackColor=Color.White,Dock=DockStyle.Fill};
-        internal readonly Button CopyLog=Ui.Button("复制日志",96),ScanButton=Ui.Button("扫描链接",116),ExecuteButton=Ui.Button("执行替换",116),Browse=Ui.Button("选择…",96),Stop=Ui.Button("取消操作",104),Confirm=Ui.Button("确认操作",104);
+        internal readonly Button CopyLog = Ui.Button("复制日志", 96), ScanButton = Ui.Button("扫描链接", 116),
+            ExecuteButton = Ui.Button("执行替换", 116), Browse = Ui.Button("选择…", 96);
         internal readonly LinkOperationLog Operations;
         internal Action<string> CopyText=text=>Clipboard.SetDataObject(text,true);
-        internal readonly string Guidance="先扫描链接，在「外部链接」第三列填写完整新路径，或填写「断开链接」，再执行替换。\r\n名称定义也会产生外部链接；断链会处理所选来源的公式和未使用名称，并保留整簿备份。名称仍被使用或无法安全核对时停止；取消恢复前请关闭相关工作簿，新编辑会阻止覆盖。";
+        internal readonly string Guidance = "先扫描链接，在「外部链接」第三列填写完整新路径，或填写「断开链接」，再执行替换。\r\n" +
+            "断链会将所选来源的公式转为当前值，并处理未使用的名称。名称仍被使用或无法安全核对时停止。结果自动保存，失败时会尝试回退。";
         private readonly UiCard scope=new UiCard(),logCard=new UiCard();
         private readonly Label logTitle=Ui.Label("操作日志",10,true),help=Ui.Label("当前工作簿接收清单；文件夹只扫描本层.xlsx，跳过临时文件。",9,false);
         private readonly FlowLayoutPanel options=new FlowLayoutPanel {WrapContents=true},actions=new FlowLayoutPanel {WrapContents=true};
         private readonly TableLayoutPanel layout=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=4,Padding=new Padding(16)};
-        private readonly Button close=Ui.Button("关闭",96);
         private readonly LinkScanSelection selection;
         private readonly LinkAssistantSession session;
         private readonly System.Windows.Forms.Timer stepTimer=new System.Windows.Forms.Timer {Interval=20};
@@ -624,54 +778,75 @@ namespace Excel_Iterate
             ScopeLabel.Dock=DockStyle.None;ScopeLabel.Anchor=AnchorStyles.Left;ScopeLabel.Margin=new Padding(0,0,8,0);LocationBox.Anchor=AnchorStyles.Left|AnchorStyles.Right;
             pathRow.Controls.Add(ScopeLabel,0,0);pathRow.Controls.Add(LocationBox,1,0);pathRow.Controls.Add(Browse,2,0);
             scopeRows.Controls.Add(options,0,0);scopeRows.Controls.Add(pathRow,0,1);scopeRows.Controls.Add(help,0,2);
-            scope.Dock=DockStyle.Top;scope.AutoSize=true;scope.AutoSizeMode=AutoSizeMode.GrowAndShrink;scope.Controls.Add(scopeRows);
+            scope.Dock = DockStyle.Top;
+            scope.Controls.Add(scopeRows);
+            Action fitScope = delegate
+            {
+                int height = scopeRows.Height + scope.Padding.Vertical;
+                if (scope.Height != height) scope.Height = height;
+            };
+            scopeRows.SizeChanged += delegate { fitScope(); };
             var logRows=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=2,Margin=Padding.Empty};logRows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));logRows.RowStyles.Add(new RowStyle(SizeType.AutoSize));logRows.RowStyles.Add(new RowStyle(SizeType.Percent,100));
             var header=new TableLayoutPanel {Dock=DockStyle.Top,AutoSize=true,AutoSizeMode=AutoSizeMode.GrowAndShrink,ColumnCount=2,RowCount=1,Margin=new Padding(0,0,0,8)};header.RowStyles.Add(new RowStyle(SizeType.AutoSize));header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));header.Controls.Add(logTitle,0,0);header.Controls.Add(CopyLog,1,0);
             logRows.Controls.Add(header,0,0);logRows.Controls.Add(LogView,0,1);logCard.Dock=DockStyle.Fill;logCard.Controls.Add(logRows);
-            actions.Controls.AddRange(new Control[]{ScanButton,ExecuteButton,Stop,Confirm,close});
+            actions.Controls.AddRange(new Control[] { ScanButton, ExecuteButton });
             actions.Dock=DockStyle.Top;actions.AutoSize=true;actions.AutoSizeMode=AutoSizeMode.GrowAndShrink;actions.Margin=Padding.Empty;
             foreach(Control button in actions.Controls)button.Margin=new Padding(0,0,8,4);
             Status.Margin=new Padding(0,0,0,8);Status.Dock=DockStyle.Top;
             layout.Controls.Add(scope,0,0);layout.Controls.Add(logCard,0,1);layout.Controls.Add(Status,0,2);layout.Controls.Add(actions,0,3);Controls.Add(layout);
-            Resize+=delegate {int w=Math.Max(80,layout.ClientSize.Width-layout.Padding.Horizontal);actions.MaximumSize=new Size(w,0);int inner=Math.Max(80,w-scope.Padding.Horizontal);options.MaximumSize=new Size(inner,0);help.MaximumSize=new Size(inner,0);Status.MaximumSize=new Size(w,0);};
+            Action fitWidth = delegate
+            {
+                int width = Math.Max(80, layout.ClientSize.Width - layout.Padding.Horizontal);
+                int innerWidth = Math.Max(80, width - scope.Padding.Horizontal);
+                actions.MaximumSize = new Size(width, 0);
+                options.MaximumSize = new Size(innerWidth, 0);
+                help.MaximumSize = new Size(innerWidth, 0);
+                Status.MaximumSize = new Size(width, 0);
+                fitScope();
+            };
+            Resize += delegate { fitWidth(); };
+            fitWidth();
             if(Operations.Text.Length==0){LogView.SelectionFont=Ui.MakeFont(9,FontStyle.Bold,Font);LogView.AppendText(Guidance);}LogView.SelectionFont=Ui.MakeFont(9,FontStyle.Regular,Font);LogView.AppendText(Operations.Text);
             Operations.LineAdded+=AppendLog;
             Operations.DisplayReset+=ResetLog;
             CopyLog.Click+=delegate {try{CopyText(LogView.Text);Status.Text="已复制操作日志。";}catch(Exception ex){Status.Text="复制失败，可选择日志文字复制："+ex.Message;}};
-            close.Click+=delegate {Close();};CancelButton=close;close.DialogResult=DialogResult.Cancel;
             LocationBox.Text=session==null?"离线预览.xlsx":session.ReportBookPath;
             Current.CheckedChanged+=delegate {UpdateScope();};Other.CheckedChanged+=delegate {UpdateScope();};Folder.CheckedChanged+=delegate {UpdateScope();};
             Browse.Click+=delegate {if(Other.Checked){string[] selected=HostDialogService.OpenFiles(this);SelectPaths(selected,selected.Length>0);}else {string selected=HostDialogService.Folder(this,"选择仅扫描本层的文件夹",true);SelectPaths(selected==null?new string[0]:new[]{selected},selected!=null);}};
             ScanButton.Click+=delegate {Run(false);};ExecuteButton.Click+=delegate {Run(true);};
-            Stop.Click+=delegate {if(running){cancelRequested=true;Status.Text="等待当前步骤返回，然后还原本批链接…";}else if(session!=null&&session.Batch!=null&&session.Batch.CanUndo)Start(session.Steps(true,()=>false));};
-            Confirm.Click+=delegate {
-                if(session==null||session.Batch==null||running)return;
-                if(UiDialog.Show(this,"确认后不再提供本批还原；日志和映射记录将送入回收站。","确认操作",MessageBoxButtons.OKCancel,MessageBoxIcon.Warning,MessageBoxDefaultButton.Button2)!=DialogResult.OK)return;
-                Start(Cleanup());
-            };
             stepTimer.Tick+=delegate {Advance();};
-            FormClosing+=delegate(object sender,FormClosingEventArgs e){if(running){cancelRequested=true;closeAfter=true;e.Cancel=true;Status.Text="等待安全步骤结束后关闭；记录继续保留。";}};
+            FormClosing += delegate(object sender, FormClosingEventArgs e)
+            {
+                if (!running) return;
+                cancelRequested = closeAfter = true;
+                e.Cancel = true;
+                Status.Text = "等待当前步骤结束并核对结果后关闭。";
+            };
             FormClosed+=delegate {stepTimer.Stop();stepTimer.Dispose();if(steps!=null)steps.Dispose();Operations.LineAdded-=AppendLog;Operations.DisplayReset-=ResetLog;};
             if(session!=null&&session.Batch!=null)
             {
                 if(session.Batch.ScopeFolder!=null){Folder.Checked=true;SelectPaths(new[]{session.Batch.ScopeFolder},true);}
                 else if(session.Batch.Owners.Count!=1||!string.Equals(session.Batch.Owners[0],session.ReportBookPath,StringComparison.OrdinalIgnoreCase)){Other.Checked=true;SelectPaths(session.Batch.Owners.ToArray(),true);}
-                scopeDirty=false;Status.Text=session.Batch.Pending?"已恢复待确认批次，可取消还原或确认清理。":"已恢复扫描范围，可直接核对后执行替换。";
+                scopeDirty = false;
+                Status.Text = session.CanExecute ? "已加载扫描清单，可核对后执行替换。" : "可扫描下一批，上一批结果见操作日志。";
             }
             Shown+=delegate {layout.PerformLayout();LogView.SelectionStart=0;LogView.SelectionLength=0;LogView.ScrollToCaret();};RefreshActions();
         }
-        private IEnumerable<string> Cleanup()
-        {return session.ConfirmSteps(RecycleFiles.Send);}
+        protected override bool ProcessDialogKey(Keys keyData)
+        {
+            if (keyData != Keys.Escape) return base.ProcessDialogKey(keyData);
+            Close();
+            return true;
+        }
         private void ResetLog(){LogView.Clear();LogView.SelectionFont=Ui.MakeFont(9,FontStyle.Regular,Font);}
         private void AppendLog(string line){LogView.AppendText(line);LogView.SelectionStart=LogView.TextLength;LogView.ScrollToCaret();}
         internal void SelectPaths(string[] paths,bool accepted){selection.Choose(paths,accepted);if(accepted){LocationBox.Text=string.Join("；",selection.Picked);scopeDirty=true;RefreshActions();}}
         private void RefreshActions()
         {
-            bool pending=session!=null&&session.Batch!=null&&session.Batch.Pending;
-            ScanButton.Enabled=!running&&!pending;ExecuteButton.Enabled=!running&&!pending&&!scopeDirty&&session!=null&&session.HasReport;
-            Browse.Enabled=!running&&!pending&&!Current.Checked;options.Enabled=!running&&!pending;
-            Stop.Enabled=running||session!=null&&session.Batch!=null&&session.Batch.CanUndo;
-            Confirm.Enabled=!running&&session!=null&&session.Batch!=null&&session.Batch.State!="UndoFailed";close.Enabled=true;
+            ScanButton.Enabled = !running;
+            ExecuteButton.Enabled = !running && !scopeDirty && session != null && session.CanExecute;
+            Browse.Enabled = !running && !Current.Checked;
+            options.Enabled = !running;
         }
         private void UpdateScope()
         {
@@ -687,13 +862,13 @@ namespace Excel_Iterate
             if(cancelRequested)yield break;
             session.Scan(files);scopeDirty=false;
         }
-        private void Run(bool execute){if(running||session==null)return;Start(execute?session.Steps(false,()=>cancelRequested):ScanSteps());}
+        private void Run(bool execute){if(running||session==null)return;Start(execute ? session.Steps(() => cancelRequested) : ScanSteps());}
         private void Start(IEnumerable<string> work){if(running)return;running=true;cancelRequested=false;steps=work.GetEnumerator();RefreshActions();stepTimer.Start();}
         private void Advance()
         {
             stepTimer.Stop();bool more=false;
             try {more=steps.MoveNext();if(more)Status.Text=steps.Current;else Status.Text=session.LastResult??"操作结束。";}
-            catch(Exception ex){Status.Text="已停止："+ex.Message;session.ReportStopped(ex);if(session.Batch!=null&&session.Batch.CanUndo&&session.Batch.State!="Cleaning"){session.Batch.State="UndoFailed";try{session.Batch.Persist();}catch(Exception recordError){Operations.Trace("恢复记录保存异常",recordError.ToString());Operations.Record("恢复记录保存失败","请保留窗口日志；本批实际改动仍需核对并还原。");}}}
+            catch (Exception ex) { Status.Text = "已停止：" + ex.Message; session.ReportStopped(ex); }
             if(more)stepTimer.Start();else {running=false;steps.Dispose();steps=null;RefreshActions();if(session.LogFailure!=null)Status.Text+="；诊断日志未完整写入，请复制窗口日志。";if(closeAfter)Close();}
         }
     }

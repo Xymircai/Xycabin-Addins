@@ -17,8 +17,8 @@ namespace Excel_Iterate
         private LinkWorkbookCheckpoint Checkpoint(string owner) { return Batch.Checkpoints.FirstOrDefault(c => string.Equals(c.Owner, owner, StringComparison.OrdinalIgnoreCase)); }
         private void GuardCheckpoint(LinkWorkbookCheckpoint checkpoint, object book)
         {
-            if (book != null && !ComFormulaHost.Boolean(((dynamic)book).Saved, "Saved")) throw new IOException("链接备份后工作簿有新编辑，已停止；请保留备份并核对。");
-            if (XlsxLinkPackage.Hash(checkpoint.Owner) != checkpoint.LastHash) throw new IOException("链接备份后文件已变化，已停止并保留备份。");
+            if (book != null && !ComFormulaHost.Boolean(((dynamic)book).Saved, "Saved")) throw new IOException("建立临时保护后工作簿有新编辑，处理已停止。");
+            if (XlsxLinkPackage.Hash(checkpoint.Owner) != checkpoint.LastHash) throw new IOException("建立临时保护后文件已变化，处理已停止。");
         }
         private LinkWorkbookCheckpoint CreateCheckpoint(string owner)
         {
@@ -30,7 +30,7 @@ namespace Excel_Iterate
             File.Copy(owner, checkpoint.Backup, false);
             Batch.Checkpoints.Add(checkpoint); Batch.Persist();
             Batch.ValidateBackup(checkpoint); GuardCheckpoint(checkpoint, null);
-            Operations.Record("链接备份", owner + "\r\n" + checkpoint.Backup);
+            Operations.Trace("建立临时保护", owner + "\r\n" + checkpoint.Backup);
             return checkpoint;
         }
         private static HashSet<string> SavedSources(string path)
@@ -76,9 +76,9 @@ namespace Excel_Iterate
             if (change.Action == LinkAction.Replace && !saved.Any(link =>
                 string.Equals(link.SourcePath ?? (change.DestinationMissing && link.IsMissingPath
                     ? XlsxLinkPackage.AbsoluteFileTarget(link.RawTarget) : null), change.New, StringComparison.OrdinalIgnoreCase)))
-                throw new IOException("保存后新路径无法核对，恢复备份已保留。");
+                throw new IOException("保存后无法核对新路径。");
             if (!expected.SetEquals(saved.Select(SavedSourceIdentity)))
-                throw new IOException("保存后未能确认新路径及其余链接，恢复备份已保留。");
+                throw new IOException("保存后未能确认新路径及其余链接。");
         }
         private void ReplaceCheckpointFile(string stage, string stageHash, string owner, string ownerHash, string phase)
         {
@@ -91,7 +91,7 @@ namespace Excel_Iterate
                 try
                 {
                     if (XlsxLinkPackage.Hash(owner) != ownerHash || XlsxLinkPackage.Hash(stage) != stageHash)
-                        throw new IOException(phase + "前摘要变化，已停止并保留备份。");
+                        throw new IOException(phase + "前摘要变化，操作已停止。");
                     File.Replace(stage, owner, null);
                     return;
                 }
@@ -112,12 +112,17 @@ namespace Excel_Iterate
             if (checkpoint == null) return;
             if (!checkpoint.NeedsRestore && !Batch.Changes.Any(c => c.Owner == checkpoint.Owner && (c.Applied || c.Intent))) { checkpoint.Restored = true; Batch.Persist(); return; }
             Batch.ValidateBackup(checkpoint);
-            using (var bag = new ComBag())
-                if (bag.Own(FindBook(App, checkpoint.Owner)) != null) throw new IOException("请先关闭待恢复工作簿，再点击「取消操作」：" + checkpoint.Owner + "。备份已保留；不会自动关闭工作簿。");
             string current = XlsxLinkPackage.Hash(checkpoint.Owner);
+            using (var bag = new ComBag())
+            {
+                object book = bag.Own(FindBook(App, checkpoint.Owner));
+                if (book != null && (current != checkpoint.BeforeHash || !ComFormulaHost.Boolean(((dynamic)book).Saved, "Saved")))
+                    throw new IOException("工作簿仍打开，无法安全回退整簿改动：" + checkpoint.Owner);
+            }
             if (checkpoint.CommitIntent && current == checkpoint.PreparedHash)
             { checkpoint.LastHash = current; checkpoint.Applied = true; foreach (var c in Batch.Changes.Where(c => c.Owner == checkpoint.Owner)) c.EverApplied = true; }
-            if (current != checkpoint.LastHash) throw new IOException("处理链接后工作簿有新增改动或提交状态不明确，已停止并保留备份：" + checkpoint.Backup);
+            if (current != checkpoint.BeforeHash && current != checkpoint.LastHash)
+                throw new IOException("文件已变化或提交状态不明确，无法安全回退：" + checkpoint.Owner);
             if (current != checkpoint.BeforeHash)
             {
                 string stage = Path.Combine(Path.GetDirectoryName(checkpoint.Owner), ".EI_LinkStage_" + Guid.NewGuid().ToString("N") + ".xlsx");
@@ -125,7 +130,7 @@ namespace Excel_Iterate
                 {
                     File.Copy(checkpoint.Backup, stage, false);
                     ReplaceCheckpointFile(stage, checkpoint.BeforeHash, checkpoint.Owner, current, "整簿恢复提交");
-                    if (XlsxLinkPackage.Hash(checkpoint.Owner) != checkpoint.BeforeHash) throw new IOException("恢复后摘要核对失败，备份已保留。");
+                    if (XlsxLinkPackage.Hash(checkpoint.Owner) != checkpoint.BeforeHash) throw new IOException("回退后摘要核对失败。");
                 }
                 finally { if (File.Exists(stage)) File.Delete(stage); }
             }
@@ -139,14 +144,14 @@ namespace Excel_Iterate
                 try
                 {
                     var checkpoint = Checkpoint(owner);
-                    if (checkpoint == null && Batch.Changes.Any(c => c.Owner == owner && (c.Applied || c.Intent))) throw new IOException("链接恢复记录缺少整簿备份，请保留证据人工核对。");
+                    if (checkpoint == null && Batch.Changes.Any(c => c.Owner == owner && (c.Applied || c.Intent))) throw new IOException("缺少整簿临时保护副本，无法安全回退。");
                     var restored = Batch.Changes.Where(c => c.Owner == owner && (c.Applied || c.Intent || c.EverApplied)).ToList();
                     RestoreCheckpoint(checkpoint);
                     foreach (var c in restored) Pair(c, true, true, null);
                     outcome.Success = restored.Count;
                 }
                 catch (Exception error) { outcome.Error = error; }
-                yield return outcome.Error == null ? "已核对整簿恢复：" + Path.GetFileName(owner) : "链接备份已保留：" + Path.GetFileName(owner);
+                yield return outcome.Error == null ? "已核对整簿回退：" + Path.GetFileName(owner) : "整簿回退待核对：" + Path.GetFileName(owner);
                 yield break;
             }
             LinkWorkbookCheckpoint snapshot = null; List<LinkChange> ordered = null;
@@ -175,7 +180,7 @@ namespace Excel_Iterate
             }
             catch (Exception error) { outcome.Error = error; }
             if(outcome.Error!=null || ordered.Count == 0)yield break;
-            yield return "备份及链接预检完成：" + Path.GetFileName(owner);
+            yield return "链接预检完成：" + Path.GetFileName(owner);
             if (cancelled()) { outcome.Cancelled = true; yield break; }
             using (var bag = new ComBag())
             {
@@ -257,7 +262,7 @@ namespace Excel_Iterate
                                         // match fresh raw names without requiring the old package to agree.
                                         var current = ParseHostSources((object)((dynamic)work).LinkSources(1), path, XlsxLinkPackage.Scan(path))
                                             .Where(s => string.Equals(s.Path, change.Old, StringComparison.OrdinalIgnoreCase)).GroupBy(s => s.Name, StringComparer.Ordinal).Select(g => g.First()).ToList();
-                                        if (current.Count > 1) throw new IOException("清理名称后宿主来源不唯一，备份已保留。");
+                                        if (current.Count > 1) throw new IOException("清理名称后宿主来源不唯一。");
                                         if (current.Count == 1) { Operations.Trace("调用BreakLink", "Name=" + current[0].Name + "；Type=1"); ((dynamic)work).BreakLink(current[0].Name, 1); }
                                     }
                                     else

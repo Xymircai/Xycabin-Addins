@@ -100,11 +100,22 @@ namespace Excel_Iterate
             if (Scope == LinkScanScope.Current) return new[] { current };
             if (Picked.Length == 0) throw new InvalidOperationException("请先选择工作簿或文件夹。");
             if (Scope == LinkScanScope.Workbooks) return (string[])Picked.Clone();
-            string[] all = Directory.EnumerateFiles(Picked[0], "*.xlsx", SearchOption.TopDirectoryOnly).ToArray();
-            string[] files = all.Where(p => !Path.GetFileName(p).StartsWith("~$") && !Path.GetFileName(p).StartsWith(".EI_LinkStage_", StringComparison.OrdinalIgnoreCase)).OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToArray();
-            log.Trace("文件夹扫描", Picked[0] + "；纳入 " + files.Length + " 个工作簿；跳过临时文件 " + (all.Length - files.Length) + " 个；不扫描子文件夹");
+            int skipped;
+            string[] files = FolderCandidates(Picked[0], out skipped);
+            log.Trace("文件夹扫描", Picked[0] + "；纳入 " + files.Length + " 个工作簿；跳过临时文件 " + skipped + " 个；不扫描子文件夹");
             foreach (string path in files) log.Trace("纳入扫描", path);
             if (files.Length == 0) log.Trace("扫描未执行", "文件夹本层没有可扫描的 xlsx 工作簿，未导出清单");
+            return files;
+        }
+
+        internal static string[] FolderCandidates(string folder, out int skipped)
+        {
+            string[] all = Directory.GetFiles(folder, "*.xlsx", SearchOption.TopDirectoryOnly);
+            string[] files = all.Where(p => !Path.GetFileName(p).StartsWith("~$", StringComparison.Ordinal) &&
+                    !Path.GetFileName(p).StartsWith(".EI_LinkStage_", StringComparison.OrdinalIgnoreCase) &&
+                    !OperationBatch.ManagedFile(p))
+                .OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToArray();
+            skipped = all.Length - files.Length;
             return files;
         }
     }

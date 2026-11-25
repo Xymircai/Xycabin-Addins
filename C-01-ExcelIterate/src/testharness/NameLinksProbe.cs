@@ -93,12 +93,13 @@ partial class WorkbookToolsProbe
                 if (mode == "used") Check(session.Batch.Checkpoints.Count == 0 && book.NameDeletes == 0, "unsafe dependency is rejected before checkpoint or deletion");
                 if (mode == "read" || mode == "identity" || mode == "formula") Check(book.NameDeletes == 0, "all native name handles are verified before first deletion: " + mode);
                 if (mode == "edit") Check(book.NameDeletes == 0 && !book.Saved && book.SaveCount == 0, "new edits during native name reads are not saved or overwritten");
-                if (mode == "delete" || mode == "save") Check(session.Batch.CanUndo && WpsShared.SourcePaths.Exists(session.Batch.Checkpoints[0].Backup), "partial native mutation/save failure retains recovery intent: " + mode);
+                if (mode == "delete" || mode == "save")
+                    Check(session.Batch.State == "UndoFailed" && File.Exists(session.Batch.Checkpoints[0].Backup),
+                        "unsafe automatic rollback retains its original copy: " + mode);
                 Check(!session.Links[0].Status.Contains("原链接未改变"), "failure status makes no unsupported unchanged claim: " + mode);
             }
-            book.Close(false); foreach (string step in session.Steps(true, () => false)) { }
-            Check(File.ReadAllBytes(target).SequenceEqual(before) && !session.Batch.CanUndo, "whole-book cancel remains exact and retryable: " + mode);
-            session.Batch.Confirm(File.Delete);
+            if (mode == "ok" || session.Batch.State == "Undone")
+                Check(session.Batch.Checkpoints.Count == 0, "successful save or automatic rollback clears the temporary protection: " + mode);
         }
         foreach (string command in new[] { "请断开该链接", "断开链接！", "请断开链接", "断开 链接" })
         {
@@ -112,9 +113,8 @@ partial class WorkbookToolsProbe
         var noop = JournalSession(report, new[] { target }, a, "断开链接", true); var noopApp = (LinkFakeApp)noop.App;
         var noopBook = new NameAwareBook { FullName = target, Owner = noopApp.Workbooks, Sheet = noopApp.Workbooks.Items[1].Sheet, NoNameDelete = true }; noopApp.Workbooks.Items[1] = noopBook;
         noop.Execute(null);
-        Check(!noop.Batch.Changes[0].Applied && noop.Batch.CanUndo && XlsxLinkPackage.Scan(target).Any(l => l.SourcePath == a), "silent no-op name deletion is caught by saved-source verification and never reported successful");
-        noopBook.Close(false); foreach (string step in noop.Steps(true, () => false)) { }
-        Check(File.ReadAllBytes(target).SequenceEqual(noopBefore), "silent no-op failure still supports exact backup recovery"); noop.Batch.Confirm(File.Delete);
+        Check(!noop.Batch.Changes[0].Applied && XlsxLinkPackage.Scan(target).Any(l => l.SourcePath == a) &&
+            File.ReadAllBytes(target).SequenceEqual(noopBefore), "silent no-op name deletion is caught and leaves the original bytes");
     }
     private static void MissingPathReportChecks(string folder, string source, string replacement, string report)
     {
@@ -142,24 +142,18 @@ partial class WorkbookToolsProbe
             Check(XlsxLinkPackage.Scan(workbook).Single().SourcePath == report
                 && XlsxLinkPackage.ScanReport(workbook).Single(link => link.IsMissingPath).RawTarget == target,
                 "a blank missing-source row allows ordinary replacement and preserves the missing relationship");
-            foreach (string step in reopened.Steps(true, () => false)) { }
-            Check(XlsxLinkPackage.Scan(workbook).Single().SourcePath == source, "ordinary replacement can still be undone");
-            reopened.Batch.Confirm(File.Delete);
-
-            session.Scan(new[] { workbook });
+            NamePackage(workbook, source, target, "[2]Data!A1", missing: true);
+            reopened.Scan(new[] { workbook });
+            session = reopened;
             missingRow = session.Links.FindIndex(link => link.IsMissingPath) + 1;
             sheet.Values[missingRow, 2] = Path.GetDirectoryName(replacement) + @"\\[" + Path.GetFileName(replacement) + "]";
-            before = XlsxLinkPackage.Hash(workbook);
             var book = app.Workbooks.Items[1];
             Check(session.Execute(null).Contains("成功1条") && book.CloseCount == 0,
                 "native replacement accepts formula-style paths and keeps the open workbook open");
             Check(XlsxLinkPackage.Scan(workbook).Select(l => l.SourcePath).SequenceEqual(new[] { source, replacement })
                 && !XlsxLinkPackage.ScanReport(workbook).Any(l => l.IsMissingPath),
                 "only the selected missing path is rebound to an ordinary external source");
-            book.Close(false);
-            foreach (string step in session.Steps(true, () => false)) { }
-            Check(XlsxLinkPackage.Hash(workbook) == before, "missing-source cancellation restores the original relationship and file bytes");
-            session.Batch.Confirm(File.Delete);
+            Check(session.Batch.Checkpoints.Count == 0, "missing-source replacement clears the temporary protection after success");
         }
         NamePackage(workbook, Path.Combine(folder, "另一目录", "同名.xlsx"), "同名.xlsx", "[2]Data!A1", missing: true);
         var links = XlsxLinkPackage.ScanReportParts(workbook);
@@ -177,13 +171,14 @@ partial class WorkbookToolsProbe
             sheet.Values[row, 2] = replacement;
             NamePackage(workbook, source, normalizedTarget, "[2]Data!A1");
             string before = XlsxLinkPackage.Hash(workbook);
-            session.Execute(null);
-            Check(session.Batch.Changes.Single().Applied && ((string)sheet.Values[row, 3]).Contains("已替换"),
-                "equivalent WPS save normalization preserves the report row and applies its replacement");
-            app.Workbooks.Items[1].Close(false);
-            foreach (string step in session.Steps(true, () => false)) { }
-            Check(XlsxLinkPackage.Hash(workbook) == before, "undo restores the actual saved pre-replacement identity");
-            session.Batch.Confirm(File.Delete);
+            StopAfterSave(session, () =>
+            {
+                Check(session.Batch.Changes.Single().Applied,
+                    "equivalent WPS save normalization preserves the report row and applies its replacement");
+                app.Workbooks.Items[1].Close(false);
+            });
+            Check(XlsxLinkPackage.Hash(workbook) == before && session.Batch.Checkpoints.Count == 0,
+                "automatic rollback restores the actual saved pre-replacement identity");
         }
     }
     private static void AddressNameChecks(string folder, string a, string b, string report)
@@ -210,14 +205,14 @@ partial class WorkbookToolsProbe
         string filter = "<definedName name='Y'>[1]Data!#REF!</definedName><definedName name='_xlnm._FilterDatabase' localSheetId='1'>S2!$A$8:$Y$271</definedName>";
         NamePackage(target, a, b, "Y$5", y + filter);
         Check(LinkNameAnalysis.Read(target).Plan(a).Count == 4, "filter database absolute ranges do not use global or local Y names");
-        byte[] before = File.ReadAllBytes(target); var engine = JournalSession(report, new[] { target }, a, "断开链接", true);
+        var engine = JournalSession(report, new[] { target }, a, "断开链接", true);
         var app = (LinkFakeApp)engine.App; var book = new NameAwareBook { FullName = target, Owner = app.Workbooks, Sheet = app.Workbooks.Items[1].Sheet }; app.Workbooks.Items[1] = book;
         engine.Execute(null);
         Check(engine.Batch.Changes[0].Applied && book.NameDeletes == 4, "production session removes only unused names after excluding cell/range address spans");
         var after = LinkNameAnalysis.Read(target);
         Check(after.Names.Any(n => n.Name == "_xlnm._FilterDatabase" && n.Formula == "S2!$A$8:$Y$271"), "filter-name definition itself is preserved");
-        book.Close(false); foreach (string step in engine.Steps(true, () => false)) { }
-        Check(File.ReadAllBytes(target).SequenceEqual(before), "address-name regression still supports byte-exact cancellation"); engine.Batch.Confirm(File.Delete);
+        Check(engine.Batch.Checkpoints.Count == 0 && book.CloseCount == 0,
+            "address-name break saves without closing or leaving a protection copy");
     }
 }
 public partial class LinkFakeBook

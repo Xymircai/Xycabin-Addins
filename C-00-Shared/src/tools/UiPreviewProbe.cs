@@ -226,7 +226,7 @@ namespace WpsUiChecks
                             FillAssistantLog(assistant);
                             Render(assistant, factor, false, Path.Combine(output, "链接助手"));
                             CheckLayout(assistant, "link assistant " + factor);
-                            Check("link assistant starts without implicit commit " + factor, !((Button)Get(assistant, "ExecuteButton")).Enabled && assistant.AcceptButton == null && assistant.CancelButton != null);
+                            Check("link assistant starts without implicit commit " + factor, !((Button)Get(assistant, "ExecuteButton")).Enabled && assistant.AcceptButton == null && assistant.CancelButton == null);
                             Check("link assistant path is readable " + factor, ((TextBox)Get(assistant, "LocationBox")).ClientSize.Height >= ((TextBox)Get(assistant, "LocationBox")).Font.Height);
                             CheckLinkAssistant(assistant, factor, true);
                             foreach(string mode in new[]{"Other","Folder","Current"})
@@ -235,7 +235,7 @@ namespace WpsUiChecks
                         using (Form assistant = (Form)Activator.CreateInstance(addin.GetType(ns + ".LinkAssistantForm"), All, null, new object[] { null }, null))
                         {
                             ((TextBox)Get(assistant, "LocationBox")).Text = @"E:\项目资料\" + new string('长', 120) + "\\链接来源.xlsx";
-                            ((Label)Get(assistant, "Status")).Text = "已更新 128 条链接至「外部链接」，填写新链接后点击执行替换，程序自动保存。已打开目标保持打开，处理结果会写入清单；可取消还原或确认清理。";
+                            ((Label)Get(assistant, "Status")).Text = "已更新 128 条链接至「外部链接」，填写新链接后点击执行替换，程序自动保存。已打开目标保持打开，处理结果会写入清单。";
                             FillAssistantLog(assistant);
                             Render(assistant, factor, true, Path.Combine(output, "链接助手-最小窗口"));
                             CheckLayout(assistant, "link assistant minimum " + factor);
@@ -246,7 +246,7 @@ namespace WpsUiChecks
                             Check("journal can receive focus and select complete copyable text " + factor, journal.Focused && journal.SelectedText == journal.Text && journal.TextLength > 0);
                             ((Button)Get(assistant, "CopyLog")).Focus();
                             Check("copy journal button receives keyboard focus " + factor, ((Button)Get(assistant, "CopyLog")).Focused);
-                            InvokeBase(assistant, "ProcessDialogKey", Keys.Escape);
+                            assistant.GetType().GetMethod("ProcessDialogKey", Private).Invoke(assistant, new object[] { Keys.Escape });
                             Check("link assistant Esc closes without executing " + factor, assistant.IsDisposed || !assistant.Visible);
                         }
                         // A smaller work area can reduce the usual minimum. Verify
@@ -259,7 +259,7 @@ namespace WpsUiChecks
                             CheckLayout(assistant, "link assistant narrow " + factor);
                             CheckLinkAssistant(assistant, factor, false);
                             Control actions = (Control)Get(assistant, "actions");
-                            Check("narrow actions actually wrap " + factor, actions.Height > ((Button)Get(assistant, "ScanButton")).Height);
+                            Check("narrow footer keeps both actions visible " + factor, actions.Controls.Cast<Control>().All(control => control.Visible));
                         }
                         using (Form form = CreateDependent(addin, ns))
                         {
@@ -432,16 +432,22 @@ namespace WpsUiChecks
             string guide=(string)Get(form,"Guidance");string history=(string)Get(form,"Operations").GetType().GetProperty("Text",Private).GetValue(Get(form,"Operations"),null);
             Check("guidance merged with complete accumulated log "+factor,log.Text.Replace("\n","\r\n").Contains(guide)||log.Text.StartsWith("1. 选择范围"));
             Check("all operation records retained "+factor,log.Text.EndsWith(history)||log.Text.Replace("\n","\r\n").EndsWith(history));
-            Check("instructions describe save without close "+factor,guide.Contains("保存而不关闭")&&guide.Contains("取消操作还原"));
+            Check("instructions describe saved results and automatic rollback " + factor,
+                guide.Contains("结果自动保存") && guide.Contains("失败时会尝试回退"));
+            var help = (Label)Get(form, "help");
+            int gap = scopeCard.ClientSize.Height - help.Parent.Top - help.Bottom;
+            Check("scope card ends at its bottom padding " + factor, Math.Abs(gap - scopeCard.Padding.Bottom) <= 1);
             Color blue=Color.FromArgb(37,99,235);
             foreach(string field in new[]{"Current","Other","Folder"}){var opt=(RadioButton)Get(form,field);Check("blue bold scope "+field+factor,opt.ForeColor==blue&&opt.Font.Bold);Check("scope complete "+field+factor,opt.Width>=opt.GetPreferredSize(Size.Empty).Width);}
             int sh=TextRenderer.MeasureText(scope.Text,scope.Font).Width;Check("scope single line "+factor,scope.Width>=sh);
             Check("status blue left "+factor,status.ForeColor==blue&&status.Font.Bold&&status.Left==scopeCard.Left);
             Check("status complete "+factor,status.Height>=TextRenderer.MeasureText(status.Text,status.Font,new Size(status.Width,int.MaxValue),TextFormatFlags.WordBreak|TextFormatFlags.NoPrefix|TextFormatFlags.TextBoxControl).Height);
             Check("status actions separate "+factor,!status.Bounds.IntersectsWith(((Button)Get(form,"ScanButton")).Parent.Bounds));
-            var actions=(Control)Get(form,"actions");Check("undo followed by confirm "+factor,actions.Controls.IndexOf((Control)Get(form,"Confirm"))==actions.Controls.IndexOf((Control)Get(form,"Stop"))+1);
+            var actions = (Control)Get(form, "actions");
+            Check("scope footer contains only scan and execute " + factor, actions.Controls.Count == 2 &&
+                actions.Controls[0] == Get(form, "ScanButton") && actions.Controls[1] == Get(form, "ExecuteButton"));
             foreach(Control control in new Control[]{scope,status,(Control)Get(form,"options"),actions,card,log,copy})Check("assistant inside parent "+control.GetType().Name+factor,control.Left>=0&&control.Top>=0&&control.Right<=control.Parent.ClientSize.Width&&control.Bottom<=control.Parent.ClientSize.Height);
-            CheckSurfaces(form,new[]{"Current","Other","Folder","ScopeLabel","LocationBox","Browse","logTitle","CopyLog","LogView","Status","ScanButton","ExecuteButton","Stop","Confirm","close"},"assistant "+factor);
+            CheckSurfaces(form,new[]{"Current","Other","Folder","ScopeLabel","LocationBox","Browse","help","logTitle","CopyLog","LogView","Status","ScanButton","ExecuteButton"},"assistant "+factor);
         }
         private static void CheckSurfaces(Form form,string[] names,string scenario)
         {

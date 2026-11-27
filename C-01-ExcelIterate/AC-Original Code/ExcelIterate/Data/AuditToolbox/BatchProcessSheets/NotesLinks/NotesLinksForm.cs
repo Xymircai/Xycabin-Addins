@@ -53,7 +53,7 @@ namespace Excel_Iterate
             Row("处理方式",batchMode,addFolder,removeFiles);
             var chooseFolder=Ui.Button("选择文件夹",125);chooseFolder.Click+=delegate{string path=HostDialogService.Folder(this,"子公司工作簿所在目录",true);if(!string.IsNullOrEmpty(path))folder.Text=path;};
             Row("汇总文件",parent,chooseParent);Row("明细文件夹",folder,chooseFolder);
-            Row("工作表",Label("从明细文件取"),sourceSheet,SheetPick(sourceSheet,SampleFile),Label("放到汇总文件"),targetSheet,SheetPick(targetSheet,ParentFileForPick));
+            AddWorksheetRow();
             Row("每家取数范围",sourceRange,Pick("明细取数范围",SampleFile,SampleSheet,delegate(MigrationArea a){sourceRange.Text=a.Address;SyncRange();},()=>sourceRange.Text,"在明细文件中选"));
             Row("第一家放在",firstStart,Pick("汇总表放置起点",ParentFileForPick,delegate{return targetSheet.Text;},delegate(MigrationArea a){TargetAnchor(a);firstStart.Text=CellAddress.Name(a.Row,a.Column);},()=>firstStart.Text,"在汇总文件中选"));
             Row("列间距",columnSpacing,Label("相邻两家公司的起始列相差多少列。例：AV到BR填22，不是中间留空的列数。"));
@@ -112,6 +112,47 @@ namespace Excel_Iterate
         }
         private void Row(string name,params Control[] fields)
         {var line=new FlowLayoutPanel{AutoSize=true,WrapContents=true,Margin=new Padding(0,1,0,1),Width=1120};line.Controls.Add(new Label{Text=name,AutoSize=false,Width=90,Height=28,TextAlign=ContentAlignment.MiddleLeft});line.Controls.AddRange(fields);settings.Controls.Add(line);}
+
+        private void AddWorksheetRow()
+        {
+            var line = new TableLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                ColumnCount = 7,
+                RowCount = 1,
+                Margin = new Padding(0, 1, 0, 1)
+            };
+            var heading = new Label { Text = "工作表", Width = 90, Height = 28, TextAlign = ContentAlignment.MiddleLeft };
+            var sourceLabel = new Label { Text = "从明细文件取", AutoSize = true };
+            var targetLabel = new Label { Text = "放到汇总文件", AutoSize = true };
+            sourceSheet.AccessibleName = sourceLabel.Text;
+            targetSheet.AccessibleName = targetLabel.Text;
+            var fields = new Control[]
+            {
+                heading, sourceLabel, WorksheetField(sourceSheet), SheetPick(sourceSheet, SampleFile),
+                targetLabel, WorksheetField(targetSheet), SheetPick(targetSheet, ParentFileForPick)
+            };
+            for (int column = 0; column < fields.Length; column++)
+            {
+                Control field = fields[column];
+                field.Anchor = AnchorStyles.Left;
+                field.Margin = column == 4 ? new Padding(16, 3, 6, 3) : new Padding(3);
+                line.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+                line.Controls.Add(field, column, 0);
+            }
+            settings.Controls.Add(line);
+        }
+
+        private static Panel WorksheetField(ComboBox field)
+        {
+            // WinForms can report a preferred height smaller than the native
+            // dropdown. Reserve the actual height so the row centers the whole box.
+            var panel = new Panel { Size = field.Size };
+            panel.Controls.Add(field);
+            field.SizeChanged += delegate { panel.Size = field.Size; };
+            return panel;
+        }
         private void Append(string text){if(IsDisposed)return;log.AppendText(DateTime.Now.ToString("HH:mm:ss")+"  "+text+Environment.NewLine);log.SelectionStart=log.TextLength;log.ScrollToCaret();log.Update();}
         private void Attempt(Action action){try{if(busy||CanRun!=null&&!CanRun())throw new InvalidOperationException("请等待当前任务结束。");action();}catch(OperationCanceledException error){Append(error.Message);}catch(Exception error){Append("失败："+error.Message);UiDialog.Show(this,error.Message,"Notes 批量链接",MessageBoxButtons.OK,MessageBoxIcon.Warning);}}
         private void Changed(){if(loading)return;PlacementPreview();batchPreparedKey=null;plan=null;execute.Enabled=false;state.Text="参数或名单已改变，请重新预检。";}

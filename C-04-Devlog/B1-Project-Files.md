@@ -121,6 +121,8 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+Notes 工作表行统一对齐两组标签、等宽下拉框及选择按钮。单体模板、报表模板按钮分别打开各自的窗口。Excel 增量编译通过，91 项 Notes 检查覆盖布局和既有逻辑，3 项宿主窗口检查通过。证书与项目 PFX 缺失导致重签未通过，安装包未更新。日志见 Excel 产品 build 目录中的 template-notes-ui 日志。
+
 本地整合以 Xymircai/Xycabin-Addins 的 main 提交 0bea8b4 和版本 0.9.9.8 为基准。合并批量链接、报表模板生成及 Notes 链接接入上游 Excel 项目和功能区，采用上游文件提交与校验接口。Excel 源码编译通过。验证包括多文件窗口 11 项、批处理 31 项、变量表头 40 项、报表模板 17 项、Notes 原生宿主 104 项及相关离线检查。原发布者证书与项目 PFX 当前不可用，重签未通过，未生成本轮安装包。具体测试输出位于 Excel 产品 build 目录的 reconcile 日志。
 
 11 月 25 日运行 [Excel 一键重建并打包](../C-01-ExcelIterate/AA-Program/一键重建并打包.bat)，选择完整模式。北京时间 10:44:59 至 10:48:16，退出码 0，G-11／G-12 通过。重建标识 `bd954fb64c324649afd2f2706a35adbf`，验证标识 `a1aa4286036e40edacec90e77d2db744`。见 [BAT 日志](../C-01-ExcelIterate/build/20261125-link-assistant-bat.log)、[重建摘要](../C-01-ExcelIterate/build/rebuild-run-summary.json) 与 [验证摘要](../C-01-ExcelIterate/build/validate-run-summary.json)。

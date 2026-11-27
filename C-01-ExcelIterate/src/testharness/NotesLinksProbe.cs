@@ -452,6 +452,16 @@ internal static class NotesLinksProbe
                         typeof(NotesLinksForm).GetMethod("RefreshBatchRows",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(form,null);
                     }
                     form.ShowInTaskbar=false;form.Opacity=0;form.Size=new System.Drawing.Size(1280,860);form.Show();form.PerformLayout();System.Windows.Forms.Application.DoEvents();
+                    var source = (System.Windows.Forms.ComboBox)typeof(NotesLinksForm).GetField("sourceSheet", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    var target = (System.Windows.Forms.ComboBox)typeof(NotesLinksForm).GetField("targetSheet", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+                    var row = (System.Windows.Forms.TableLayoutPanel)source.Parent.Parent;
+                    double center = source.Parent.Top + source.Top + source.Height / 2.0;
+                    Check(target.Parent.Parent == row && row.Controls.Count == 7 && source.Width == target.Width,
+                        "worksheet selectors share one row and equal input widths");
+                    var positions = row.Controls.Cast<System.Windows.Forms.Control>()
+                        .Select(c => c.Text + "=" + (c.Top + c.Height / 2.0)).ToArray();
+                    Check(row.Controls.Cast<System.Windows.Forms.Control>().All(c => Math.Abs(c.Top + c.Height / 2.0 - center) <= 1),
+                        "worksheet labels, selectors and buttons are vertically centered: " + string.Join(", ", positions));
                     using(var bitmap=new System.Drawing.Bitmap(form.Width,form.Height)){form.DrawToBitmap(bitmap,new System.Drawing.Rectangle(0,0,form.Width,form.Height));string image=Path.Combine(session.DirectoryPath,"NotesLinksForm.png");bitmap.Save(image,System.Drawing.Imaging.ImageFormat.Png);Console.WriteLine("PREVIEW: "+image);}form.Hide();
                 }
                 if(Array.IndexOf(args,"--live")>=0)

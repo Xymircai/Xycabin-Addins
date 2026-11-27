@@ -125,6 +125,36 @@ internal static class SingleSummaryLiveProbe
         finally{DialogSizeStore.RootOverride=previousRoot;}
         architecture.Close(false);architectureClosed=true;
     }
+    private static void TemplateEntryWindows(object application)
+    {
+        var connectType = typeof(CompanyWorkbookForm).Assembly.GetType("Excel_Iterate.Connect", true);
+        object connect = Activator.CreateInstance(connectType);
+        var host = connectType.GetField("_app", BindingFlags.Static | BindingFlags.NonPublic);
+        var singleEntry = connectType.GetMethod("OnCompanyWorkbooks");
+        var reportEntry = connectType.GetMethod("OnConsolidatedWorkbooks");
+        host.SetValue(null, application);
+        Form single = null, report = null;
+        try
+        {
+            singleEntry.Invoke(connect, new object[] { null });
+            foreach (Form form in Application.OpenForms)
+                if (form is CompanyWorkbookForm) single = form;
+            Check(single is CompanyWorkbookForm && single.Text == "单体模板生成", "single template callback opens its own form");
+            reportEntry.Invoke(connect, new object[] { null });
+            foreach (Form form in Application.OpenForms)
+                if (form is ConsolidatedWorkbookForm) report = form;
+            Check(report is ConsolidatedWorkbookForm && report.Text == "报表模板生成", "report template callback opens a different form");
+            single.Close();
+            Check(single.IsDisposed && report.Visible && !report.IsDisposed, "closing the single template leaves report template open");
+        }
+        finally
+        {
+            if (single != null && !single.IsDisposed) single.Close();
+            if (report != null && !report.IsDisposed) report.Close();
+            host.SetValue(null, null);
+        }
+    }
+
     private static void FileBatchWindow(object application)
     {
         using (var workbookWindow = new Form { Text = "自建工作簿窗口样本" })
@@ -426,6 +456,7 @@ internal static class SingleSummaryLiveProbe
                     }
                     if(Array.IndexOf(args,"--consolidated-only")>=0){ConsolidatedTemplates((object)app,session);Console.WriteLine("PASS: "+checks+" consolidated checks");return session.Finish(0);}
                     if(Array.IndexOf(args,"--structure-only")>=0){StructureTemplates((object)app,session);Console.WriteLine("PASS: "+checks+" structure template checks");return session.Finish(0);}
+                    if(Array.IndexOf(args,"--template-entry-only")>=0){TemplateEntryWindows((object)app);Console.WriteLine("PASS: "+checks+" independent template window checks");return session.Finish(0);}
                     if(Array.IndexOf(args,"--file-batch-window-only")>=0){FileBatchWindow((object)app);Console.WriteLine("PASS: "+checks+" file batch window checks");return session.Finish(0);}
                     if(Array.IndexOf(args,"--file-batch-only")>=0){FileBatch((object)app,session);Console.WriteLine("PASS: "+checks+" file batch checks");return session.Finish(0);}
                     if(Array.IndexOf(args,"--variables-only")>=0){VariableHeaders((object)app,session);Console.WriteLine("PASS: "+checks+" variable header checks");return session.Finish(0);}

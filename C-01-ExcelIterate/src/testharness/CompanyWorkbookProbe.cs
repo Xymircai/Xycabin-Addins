@@ -9,6 +9,47 @@ internal static class CompanyWorkbookProbe
     private static int checks;
     private static void Check(bool value, string name) { checks++; if (!value) throw new Exception("FAIL: " + name); }
     private static void Reject(Action action, string name) { try { action(); } catch (InvalidOperationException) { checks++; return; } throw new Exception("FAIL reject: " + name); }
+
+    private static void WriteWorksheetDirectory(string path, params string[] sheets)
+    {
+        using (var stream = File.Create(path))
+        using (var package = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Create))
+        using (var writer = new StreamWriter(package.CreateEntry("xl/workbook.xml").Open()))
+        {
+            writer.Write("<workbook xmlns='http://schemas.openxmlformats.org/spreadsheetml/2006/main'><sheets>");
+            foreach (string name in sheets)
+                writer.Write("<sheet name='" + System.Security.SecurityElement.Escape(name) + "'/>");
+            writer.Write("</sheets></workbook>");
+        }
+    }
+
+    private static void StructureSheetSelection(string folder)
+    {
+        string single = Path.Combine(folder, "单工作表架构.xlsx");
+        string multiple = Path.Combine(folder, "多工作表架构.xlsx");
+        WriteWorksheetDirectory(single, "股权架构");
+        WriteWorksheetDirectory(multiple, "目录", "组织架构");
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        using (var form = new ConsolidatedWorkbookForm())
+        {
+            var path = (System.Windows.Forms.TextBox)typeof(ConsolidatedWorkbookForm).GetField("structure", flags).GetValue(form);
+            var sheets = (System.Windows.Forms.ComboBox)typeof(ConsolidatedWorkbookForm).GetField("sheet", flags).GetValue(form);
+            var leave = typeof(System.Windows.Forms.Control).GetMethod("OnLeave", flags);
+            var refresh = typeof(ConsolidatedWorkbookForm).GetMethod("RefreshStructureSheets", flags);
+            path.Text = "\"" + single + "\"";
+            leave.Invoke(path, new object[] { EventArgs.Empty });
+            Check(sheets.Items.Count == 1 && sheets.Text == "股权架构", "sole architecture worksheet is selected by default");
+
+            path.Text = multiple;
+            Check(sheets.Items.Count == 0 && sheets.SelectedIndex == -1, "changing the workbook clears the old sheet selection");
+            leave.Invoke(path, new object[] { EventArgs.Empty });
+            Check(sheets.Items.Count == 2 && sheets.SelectedIndex == -1, "multiple architecture worksheets are listed without guessing");
+            sheets.SelectedIndex = 1;
+            refresh.Invoke(form, null);
+            Check(sheets.Text == "组织架构", "preflight refresh retains the selected sheet in the same workbook");
+        }
+    }
+
     [STAThread] private static int Main()
     {
         string folder = Path.Combine(Path.GetTempPath(), "CompanyWorkbookProbe-" + Guid.NewGuid().ToString("N"));
@@ -16,6 +57,7 @@ internal static class CompanyWorkbookProbe
         try
         {
             BatchProgressChecks.Run(Check);
+            StructureSheetSelection(folder);
             Check(ConsolidatedWorkbookForm.SequenceKey("！00-")=="0"&&ConsolidatedWorkbookForm.SequenceKey("!01-02-")=="1-2","report sequence prefix and hierarchy normalization");
             var mapping=typeof(ConsolidatedWorkbookForm).GetMethod("Areas",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic);
             var mapped=(MigrationArea[])mapping.Invoke(null,new object[]{"K3,L3,M3,N3",15,true});Check(mapped[0].Address=="K3:K17"&&mapped[3].Address=="N3:N17","report child row expansion");

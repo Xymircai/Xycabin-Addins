@@ -16,7 +16,8 @@ namespace Excel_Iterate
         internal bool RememberConfigurationEnabled;
         internal event Action<bool> BusyChanged;
         internal readonly CompanyStructurePicker Structure=new CompanyStructurePicker(); // compatibility with existing host binding
-        private readonly TextBox structure=Box("",520), sheet=Box("",150), columns=Box("A,C,E,G",200), output=Box("",520);
+        private readonly TextBox structure=Box("",520), columns=Box("A,C,E,G",200), output=Box("",520);
+        private readonly ComboBox sheet = new ComboBox { Width = 230, DropDownStyle = ComboBoxStyle.DropDownList };
         private readonly TextBox single=Box("",520),singleSheet=Box("Lead",150),singleMap=Box("K2,L2,M2,N2",300);
         private readonly TextBox group=Box("",520),groupSheet=Box("Lead",150),groupMap=Box("K3,L3,M3,N3",300);
         private readonly FlowLayoutPanel settings=new FlowLayoutPanel{Dock=DockStyle.Top,AutoSize=true,FlowDirection=FlowDirection.TopDown,WrapContents=false};
@@ -27,16 +28,30 @@ namespace Excel_Iterate
         private readonly RoundedButton preview=Ui.Button("预检任务",110),start=Ui.Button("开始生成",110),stop=Ui.Button("停止",90);
         private CompanyWorkbookHost singleHost,groupHost;
         private readonly List<Job> jobs=new List<Job>();
-        private int position;private bool running,cancelled,closePending;private string frozen;
+        private int position;private bool running,cancelled,closePending;private string frozen, loadedStructurePath;
         private sealed class Company{internal int Row;internal string Sequence,Short,Full,File,Key;}
         private sealed class Job{internal Company Owner;internal List<Company> Rows;internal bool Group;internal MigrationArea[] Areas,Cleanup,OwnerAreas;internal string Sheet,Path;}
         private static TextBox Box(string value,int width){return new TextBox{Text=value,Width=width};}
         private void Row(string title,params Control[] controls){var line=new FlowLayoutPanel{AutoSize=true,WrapContents=true,Width=1080};line.Controls.Add(new Label{Text=title,Width=155,Height=28,TextAlign=ContentAlignment.MiddleLeft});line.Controls.AddRange(controls);settings.Controls.Add(line);}
-        private RoundedButton Browse(TextBox field){var b=Ui.Button("选择工作簿",120);b.Click+=delegate{Attempt(delegate{var files=HostDialogService.OpenFiles(this,"Excel工作簿 (*.xlsx)|*.xlsx");if(files.Length==1)field.Text=files[0];});};return b;}
+        private RoundedButton Browse(TextBox field, Action afterSelection = null)
+        {
+            var button = Ui.Button("选择工作簿", 120);
+            button.Click += delegate
+            {
+                Attempt(delegate
+                {
+                    var files = HostDialogService.OpenFiles(this, "Excel工作簿 (*.xlsx)|*.xlsx");
+                    if (files.Length != 1) return;
+                    field.Text = files[0];
+                    if (afterSelection != null) afterSelection();
+                });
+            };
+            return button;
+        }
         internal ConsolidatedWorkbookForm()
         {
             Text="报表模板生成";DialogSizing.Prepare(this,"company.consolidated","table",Ui.Blue);
-            Row("股权架构工作簿",structure,Browse(structure));Row("架构工作表",sheet);
+            Row("股权架构工作簿",structure,Browse(structure, RefreshStructureSheets));Row("架构工作表",sheet);
             Row("架构字段列",columns,new Label{AutoSize=true,Text="依次：序号、公司简称、公司全称、完整文件名；填写列字母，用逗号分隔"});
             Row("单体模板",single,Browse(single));Row("单体 Lead 名称",singleSheet);Row("单体写入位置",singleMap,new Label{AutoSize=true,Text="依次：序号、简称、全称、文件名（四个单元格）"});
             Row("合并模板",group,Browse(group));Row("合并 Lead 名称",groupSheet);Row("合并写入位置",groupMap,new Label{AutoSize=true,Text="四个单列区域或起点；按直系子公司数向下填充，第2行同列更新母公司，尾部旧名单清空"});
@@ -49,10 +64,42 @@ namespace Excel_Iterate
             var actions=Ui.ActionBar();actions.Controls.AddRange(new Control[]{preview,start,stop});root.Controls.Add(actions,0,2);Controls.Add(root);Controls.Add(progress);start.Enabled=stop.Enabled=false;
             preview.Click+=delegate{Attempt(Preview);};start.Click+=delegate{Attempt(Begin);};stop.Click+=delegate{cancelled=true;};timer.Tick+=delegate{Tick();};
             foreach(var field in Fields())field.TextChanged+=delegate{if(!running)start.Enabled=false;};
+            structure.TextChanged += delegate
+            {
+                loadedStructurePath = null;
+                sheet.Items.Clear();
+            };
+            structure.Leave += delegate
+            {
+                if (StructurePath.Length > 0 && !string.Equals(StructurePath, loadedStructurePath, StringComparison.OrdinalIgnoreCase))
+                    Attempt(RefreshStructureSheets);
+            };
+            sheet.SelectedIndexChanged += delegate { if (!running) start.Enabled = false; };
             FormClosing+=delegate(object sender,FormClosingEventArgs e){if(running){e.Cancel=true;closePending=true;cancelled=true;}};
             Disposed+=delegate{timer.Dispose();Release();Structure.Dispose();};
         }
-        private TextBox[] Fields(){return new[]{structure,sheet,columns,output,single,singleSheet,singleMap,group,groupSheet,groupMap};}
+        private Control[] Fields(){return new Control[]{structure,sheet,columns,output,single,singleSheet,singleMap,group,groupSheet,groupMap};}
+        private string StructurePath { get { return structure.Text.Trim().Trim('"'); } }
+        private void RefreshStructureSheets()
+        {
+            string path = StructurePath;
+            string selected = string.Equals(path, loadedStructurePath, StringComparison.OrdinalIgnoreCase)
+                ? sheet.SelectedItem as string : null;
+            loadedStructurePath = null;
+            sheet.BeginUpdate();
+            try
+            {
+                sheet.Items.Clear();
+                if (path.Length == 0) throw new InvalidOperationException("请选择股权架构工作簿。");
+                var names = DataMigrationHost.PackageSheets(path);
+                if (names.Count == 0) throw new InvalidOperationException("架构工作簿中没有可用工作表。");
+                sheet.Items.AddRange(names.ToArray());
+                sheet.SelectedIndex = names.Count == 1 ? 0 : names.FindIndex(name =>
+                    string.Equals(name, selected, StringComparison.OrdinalIgnoreCase));
+                loadedStructurePath = path;
+            }
+            finally { sheet.EndUpdate(); }
+        }
         private string Key(){return string.Join("\n",Fields().Select(f=>f.Text));}
         private void Append(string message){log.AppendText(DateTime.Now.ToString("HH:mm:ss")+"  "+message+Environment.NewLine);}
         private void Attempt(Action action){try{if(running||CanRun!=null&&!CanRun())throw new InvalidOperationException("请等待当前任务结束。");action();}catch(Exception e){start.Enabled=false;Append("失败："+e.Message);}}
@@ -73,9 +120,11 @@ namespace Excel_Iterate
         {
             start.Enabled=false;Release();jobs.Clear();grid.Rows.Clear();if(OpenTemplate==null)throw new InvalidOperationException("宿主未连接。");if(!Directory.Exists(output.Text))throw new InvalidOperationException("请选择已存在的输出文件夹。");
             var cols=columns.Text.Split(',','，').Select(c=>MigrationArea.Parse(c.Trim()+"1").Column).ToArray();if(cols.Length!=4||cols.Distinct().Count()!=4)throw new InvalidOperationException("架构表四个字段列必须不同。");
-            var names=DataMigrationHost.PackageSheets(structure.Text);string actual=names.SingleOrDefault(n=>string.Equals(n,sheet.Text.Trim(),StringComparison.OrdinalIgnoreCase));if(actual==null)throw new InvalidOperationException("架构工作表不存在，请填写实际工作表名称。");
+            RefreshStructureSheets();
+            string actual = sheet.SelectedItem as string;
+            if (actual == null) throw new InvalidOperationException("架构工作簿包含多张工作表，请从下拉列表选择架构表。");
             var companies=new List<Company>();
-            using(var sourceHost=OpenTemplate(structure.Text))foreach(var data in sourceHost.ReportRows(actual,cols))
+            using(var sourceHost=OpenTemplate(StructurePath))foreach(var data in sourceHost.ReportRows(actual,cols))
             {int r=int.Parse(data[0]);string seq=data[1].Trim();if(seq.Length==0)continue;if(!Regex.IsMatch(seq.TrimStart('！','!'),@"^\d+(?:-\d+)*-?$")){if(r<=20&&new[]{"序号","公司序号","编号","编码"}.Contains(seq))continue;throw new InvalidOperationException("架构表第"+r+"行序号无效。");}companies.Add(new Company{Row=r,Sequence=seq,Key=SequenceKey(seq),Short=data[2],Full=data[3],File=data[4]});}
             if(companies.Count==0)throw new InvalidOperationException("没有识别到公司任务。");if(companies.Select(c=>c.Key).Distinct().Count()!=companies.Count)throw new InvalidOperationException("架构表序号重复。");
             foreach(var company in companies.Where(c=>c.Key.Contains("-"))){string parentKey=company.Key.Substring(0,company.Key.LastIndexOf('-'));if(!companies.Any(c=>c.Key==parentKey))throw new InvalidOperationException("架构表存在缺失的直属父级："+company.Sequence);}

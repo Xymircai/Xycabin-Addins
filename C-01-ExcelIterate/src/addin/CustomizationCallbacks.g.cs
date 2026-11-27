@@ -18,7 +18,9 @@ namespace Excel_Iterate
         public string GetLabel_btnDataMigration(object control) { return RibbonCustomization.Label("btnDataMigration"); }
         public string GetLabel_menuBatchProcessSheets(object control) { return RibbonCustomization.Label("menuBatchProcessSheets"); }
         public string GetLabel_btnCompanyWorkbooks(object control) { return RibbonCustomization.Label("btnCompanyWorkbooks"); }
+        public string GetLabel_btnConsolidatedWorkbooks(object control) { return RibbonCustomization.Label("btnConsolidatedWorkbooks"); }
         public string GetLabel_btnSingleSummary(object control) { return RibbonCustomization.Label("btnSingleSummary"); }
+        public string GetLabel_btnNotesLinks(object control) { return RibbonCustomization.Label("btnNotesLinks"); }
         public string GetLabel_menuOneClickConversion(object control) { return RibbonCustomization.Label("menuOneClickConversion"); }
         public string GetContent_menuOneClickConversion(object control) { return RibbonCustomization.Content("menuOneClickConversion"); }
         public string GetLabel_btnTextExtractFilter(object control) { return RibbonCustomization.Label("btnTextExtractFilter"); }

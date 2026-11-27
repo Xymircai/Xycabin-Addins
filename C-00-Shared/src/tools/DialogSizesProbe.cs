@@ -150,7 +150,9 @@ internal static class DialogSizesProbe
             Check((Size)Field(Call(catalog,"Find","agent.dialogsizes"),"Default")==new Size(1520,640),"settings default is 1520 logical client width");
             // 5 个 PDF 工具窗口位于 #endif 之后的公共区段，两个宿主都会加载。
             bool isExcel = !ns.StartsWith("Word");
-            Check(definitions.Length==(isExcel?52:17),"complete host-specific catalog count including the unified arithmetic and formula conversion windows");
+            Check(definitions.Length==(isExcel?54:17),"complete host-specific catalog count including the new batch workbook windows");
+            foreach (string id in new[] { "company.consolidated", "notes.links" })
+                Check((Call(catalog,"Find",id)!=null)==isExcel,"batch workbook window registered only for Excel: "+id);
             foreach (string id in new[] { "formula.add", "formula.abs", "formula.unwrap", "formula.formulaAsText",
                 "formula.restoreTextFormula", "formula.resultAsText", "formula.valuesOnly" })
                 Check((Call(catalog,"Find",id)!=null)==isExcel, "formula operation has one Excel catalog entry " + id);

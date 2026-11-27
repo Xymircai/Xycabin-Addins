@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace Excel_Iterate
 {
@@ -16,10 +17,42 @@ namespace Excel_Iterate
         private object book;
         private readonly string folder;
         internal readonly string Snapshot;
+        internal readonly string TemplateSource;
         internal readonly List<string> Sheets = new List<string>();
-        internal CompanyWorkbookHost(object application, string template)
+        internal CompanyWorkbookHost(object application, string template) : this(application, template, null) { }
+        internal static CompanyWorkbookHost FromOpenOrDisk(object application, string path)
+        {
+            string full = Path.GetFullPath(path);
+            using (var refs = new ComBag())
+            {
+                dynamic books = refs.Own(((dynamic)application).Workbooks);
+                for (int i = 1; i <= Convert.ToInt32(books.Count); i++)
+                {
+                    dynamic current = refs.Own(books.Item(i));
+                    if (string.Equals(Convert.ToString(current.FullName), full, StringComparison.OrdinalIgnoreCase)) return new CompanyWorkbookHost(application, full, (object)current);
+                }
+            }
+            return new CompanyWorkbookHost(application, full);
+        }
+        internal static CompanyWorkbookHost FromCurrent(object application)
+        {
+            using (var refs = new ComBag())
+            {
+                dynamic current = refs.Own(((dynamic)application).ActiveWorkbook);
+                if (current == null) throw new InvalidOperationException("请先打开需要作为模板的工作簿。");
+                int format = Convert.ToInt32(current.FileFormat);
+                string extension = format == 51 ? ".xlsx" : (format == 56 || format == -4143) ? ".xls" : null;
+                if (extension == null) throw new InvalidOperationException("当前工作簿格式暂不支持，请使用 .xlsx 或 .xls 模板；不会自动转换或丢弃宏。");
+                string path = Convert.ToString(current.Path);
+                string name = Convert.ToString(current.Name);
+                string source = string.IsNullOrEmpty(path) ? name + extension : Convert.ToString(current.FullName);
+                return new CompanyWorkbookHost(application, source, (object)current);
+            }
+        }
+        private CompanyWorkbookHost(object application, string template, object current)
         {
             app = application;
+            TemplateSource = template;
             string extension = Path.GetExtension(template).ToLowerInvariant();
             if (extension != ".xlsx" && extension != ".xls") throw new InvalidOperationException("模板仅支持 .xlsx 和 .xls。");
             folder = Path.Combine(Path.GetTempPath(), "ExcelIterate-Company-" + Guid.NewGuid().ToString("N"));
@@ -27,8 +60,9 @@ namespace Excel_Iterate
             Snapshot = Path.Combine(folder, Path.GetFileName(template));
             try
             {
-                // Copy disk bytes, never Save/SaveCopyAs the user's workbook.
-                using (var source = new FileStream(template, FileMode.Open, FileAccess.Read, FileShare.Read))
+                // SaveCopyAs snapshots in-memory edits without saving or closing the original.
+                if (current != null) ((dynamic)current).SaveCopyAs(Snapshot);
+                else using (var source = new FileStream(template, FileMode.Open, FileAccess.Read, FileShare.Read))
                 using (var target = new FileStream(Snapshot, FileMode.CreateNew, FileAccess.Write)) source.CopyTo(target);
                 string reading = Path.Combine(folder, "read-" + Guid.NewGuid().ToString("N") + extension);
                 File.Copy(Snapshot, reading, false);
@@ -54,9 +88,84 @@ namespace Excel_Iterate
             dynamic sheets = bag.Own(((dynamic)book).Worksheets);
             return bag.Own(sheets.Item(name));
         }
+        internal List<string[]> ReportRows(string name,int[] columns)
+        {
+            var result=new List<string[]>();using(var bag=new ComBag())
+            {dynamic sheet=Sheet(name,bag),used=bag.Own(sheet.UsedRange),rows=bag.Own(used.Rows);int last=Convert.ToInt32(used.Row)+Convert.ToInt32(rows.Count)-1;if(last>100000)throw new InvalidOperationException("架构表超过十万行，请整理实际数据范围。");object cells=bag.Own(sheet.Cells);
+             for(int r=1;r<=last;r++)result.Add(new[]{r.ToString(),Read(cells,r,columns[0]),Read(cells,r,columns[1]),Read(cells,r,columns[2]),Read(cells,r,columns[3])});}return result;
+        }
+        internal int ReportLastRow(string name,int column)
+        {
+            using(var bag=new ComBag())
+            {dynamic sheet=Sheet(name,bag),cells=bag.Own(sheet.Cells),rows=bag.Own(sheet.Rows),bottom=bag.Own(cells.Item(Convert.ToInt32(rows.Count),column)),last=bag.Own(bottom.End[-4162]);return Convert.ToInt32(last.Row);}
+        }
+        internal void ValidateReportArea(string name,MigrationArea area)
+        {
+            using(var bag=new ComBag()){dynamic sheet=Sheet(name,bag),range=bag.Own(sheet.Range[area.Address]);object merge=range.MergeCells,array=range.HasArray;
+            if(Convert.ToBoolean(sheet.ProtectContents)||merge==null||merge==DBNull.Value||Convert.ToBoolean(merge)||array==null||array==DBNull.Value||Convert.ToBoolean(array))throw new InvalidOperationException("Lead写入位置受保护或含合并、数组公式："+area.Address);}
+        }
         internal Dictionary<string, int> Headers(string name, int row)
         {
             using (var bag = new ComBag()) return HeadersOn(Sheet(name, bag), row);
+        }
+        internal List<CompanyStructureTask> StructureRows(string name, CompanyStructureColumns columns)
+        {
+            var result = new List<CompanyStructureTask>();
+            var selected = new[] { columns.Sequence, columns.ShortName, columns.FullName, columns.FileName, columns.Level, columns.ParentName };
+            if (columns.FirstRow < 1 || selected.Any(c => c < 1 || c > 16384) || selected.Distinct().Count() != selected.Length) throw new InvalidOperationException("架构表的来源列须有效且互不重复。");
+            using (var bag = new ComBag())
+            {
+                dynamic sheet = Sheet(name, bag), used = bag.Own(sheet.UsedRange), usedRows = bag.Own(used.Rows);
+                int last = Convert.ToInt32(used.Row) + Convert.ToInt32(usedRows.Count) - 1;
+                if ((long)last - columns.FirstRow > 100000) throw new InvalidOperationException("架构表范围过大，请整理实际数据范围。");
+                object cells = bag.Own(sheet.Cells);
+                for (int row = columns.FirstRow; row <= last; row++)
+                {
+                    try
+                    {
+                        string full = Read(cells,row,columns.FullName), file = Read(cells,row,columns.FileName), code = Read(cells,row,columns.ShortName);
+                        if (string.IsNullOrWhiteSpace(full) && string.IsNullOrWhiteSpace(file) && string.IsNullOrWhiteSpace(code)) continue;
+                        result.Add(new CompanyStructureTask { Row=row, Sequence=Read(cells,row,columns.Sequence), ShortName=code, FullName=full, FileName=file, Level=Read(cells,row,columns.Level), ParentFullName=Read(cells,row,columns.ParentName) });
+                    }
+                    catch (Exception error) { throw new InvalidOperationException("架构表第"+row+"行："+error.Message,error); }
+                }
+            }
+            if (result.Count == 0) throw new InvalidOperationException("所选架构表范围没有公司任务。");
+            return result;
+        }
+        internal List<CompanyWorkbookRecord> PreviewStructure(CompanyWorkbookRequest request, IList<CompanyWorkbookRecord> rows, bool namesOnly, bool allowEmptyShortName, Action<CompanyWorkbookRecord,string> blocked = null)
+        {
+            if (!Directory.Exists(request.Output)) throw new InvalidOperationException("请选择已存在的输出文件夹。");
+            if (!namesOnly)
+            {
+                ValidateStructureTarget(request);
+            }
+            var duplicates = new HashSet<string>(rows.GroupBy(r=>r.Name,StringComparer.OrdinalIgnoreCase).Where(g=>g.Count()>1).Select(g=>g.Key),StringComparer.OrdinalIgnoreCase);
+            var valid = new List<CompanyWorkbookRecord>();
+            foreach (var row in rows)
+            {
+                try
+                {
+                    string file = CompanyWorkbookRules.FileName(row.Name);
+                    if (!string.Equals(Path.GetExtension(file),Path.GetExtension(Snapshot),StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("过程表文件名后缀须与模板一致，不会自动修改架构表中的文件名。");
+                    if (duplicates.Contains(file)) throw new InvalidOperationException("过程表文件名称重复："+file);
+                    if (string.IsNullOrWhiteSpace(row.FullName)) throw new InvalidOperationException("公司全称为空。");
+                    if (!allowEmptyShortName && string.IsNullOrWhiteSpace(row.Code)) throw new InvalidOperationException("简称为空，请补齐架构表后重新读取。");
+                    row.OutputPath = Path.Combine(Path.GetFullPath(request.Output),file);
+                    if(row.OutputPath.Length>=240)throw new InvalidOperationException("输出路径过长。");
+                    if(File.Exists(row.OutputPath)||Directory.Exists(row.OutputPath))throw new InvalidOperationException("同名输出已存在，不会覆盖："+row.OutputPath);
+                    valid.Add(row);
+                }
+                catch(Exception error){if(blocked!=null)blocked(row,error.Message);else throw new InvalidOperationException("架构表第"+row.Row+"行："+error.Message,error);}
+            }
+            if(rows.Count==0)throw new InvalidOperationException("请勾选需要生成的公司。");
+            if(valid.Count==0)throw new InvalidOperationException("没有通过预检的架构任务；请查看任务状态和运行日志，修正后重新读取。");
+            return valid;
+        }
+        internal void ValidateStructureTarget(CompanyWorkbookRequest request)
+        {
+            if (!request.UpdateLead || request.TargetHeaderRow < 1 || request.TargetRow <= request.TargetHeaderRow || string.IsNullOrWhiteSpace(request.TargetSheet) || string.IsNullOrWhiteSpace(request.TargetCodeField) || string.IsNullOrWhiteSpace(request.TargetNameField)) throw new InvalidOperationException("请选择模板中简称、全称的目标字段、表头行及写入行。");
+            using(var bag=new ComBag())CheckTarget(Sheet(request.TargetSheet,bag),request);
         }
         internal CompanyWorkbookSelection Pick(string kind, CompanyWorkbookRequest request, Func<object, object> picker = null, Action<string> preparation = null)
         {
@@ -233,7 +342,7 @@ namespace Excel_Iterate
                 WriteText(bag.Own(cells.Item(request.TargetRow, CompanyWorkbookRules.Column(headers, request.TargetNameField))), record.FullName);
             }
         }
-        private static void WriteText(object cell, string value)
+        internal static void WriteText(object cell, string value)
         {
             dynamic c = cell;
             object format = c.NumberFormat;
@@ -242,7 +351,7 @@ namespace Excel_Iterate
             if (Convert.ToBoolean(c.HasFormula) || CompanyWorkbookRules.Text(c.Value2) != value)
                 throw new InvalidOperationException("目标字段写入后核验不一致。");
         }
-        internal void Generate(CompanyWorkbookRequest request, CompanyWorkbookRecord record, Action<object, CompanyWorkbookRequest, CompanyWorkbookRecord> update, Action<string> progress = null)
+        internal void Generate(CompanyWorkbookRequest request, CompanyWorkbookRecord record, Action<object, CompanyWorkbookRequest, CompanyWorkbookRecord> update, Action<string> progress = null, Action<object,CompanyWorkbookRequest,CompanyWorkbookRecord> verifyOutput = null)
         {
             string stage = Path.Combine(request.Output, ".company-" + Guid.NewGuid().ToString("N") + Path.GetExtension(Snapshot));
             object outputBook = null;
@@ -264,6 +373,7 @@ namespace Excel_Iterate
                             if (outputBook == null || Convert.ToBoolean(((dynamic)outputBook).ReadOnly)) throw new InvalidOperationException("输出副本无法以可写方式打开。");
                             update(outputBook, request, record);
                             if (progress != null) progress("保存工作簿：" + Path.GetFileName(record.OutputPath));
+                            MigrationWindowScope.SetOwnedVisible(outputBook,true);
                             ((dynamic)outputBook).Save();
                             ((dynamic)outputBook).Close(false); closed = true;
                             if (progress != null) progress("重新打开并核验字段与工作表：" + Path.GetFileName(record.OutputPath));
@@ -275,12 +385,15 @@ namespace Excel_Iterate
                                 for (int i = 1; i <= Sheets.Count; i++)
                                     if (Convert.ToString(((dynamic)verify.Own(sheets.Item(i))).Name) != Sheets[i - 1])
                                         throw new InvalidOperationException("保存后工作表名称或顺序发生变化。");
+                                if(verifyOutput!=null)verifyOutput(outputBook,request,record);
+                                else {
                                 dynamic sheet = verify.Own(sheets.Item(request.TargetSheet));
                                 var headers = HeadersOn(sheet, request.TargetHeaderRow);
                                 object cells = verify.Own(sheet.Cells);
                                 if (Read(cells, request.TargetRow, CompanyWorkbookRules.Column(headers, request.TargetCodeField)) != record.Code
                                     || Read(cells, request.TargetRow, CompanyWorkbookRules.Column(headers, request.TargetNameField)) != record.FullName)
                                     throw new InvalidOperationException("保存后重开核验 Lead 字段失败。");
+                                }
                             }
                             ((dynamic)outputBook).Close(false); closed = true;
                         }

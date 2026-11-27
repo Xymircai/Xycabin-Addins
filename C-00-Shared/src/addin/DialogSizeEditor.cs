@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
@@ -33,7 +33,7 @@ namespace Excel_Iterate
             {"btnDataMigration","migration.data"},
             {"btnTextExtractFilter","conversion.text"},{"btnReferenceStyleConversion","formula.references"},
             {"btnBatchInsertTrimDelete","conversion.batchInsertTrimDelete"},{"btnWorksheetBatch","conversion.worksheetBatch"},
-            {"btnCompanyWorkbooks","company.workbooks"},{"btnSingleSummary","summary.single"},
+            {"btnCompanyWorkbooks","company.workbooks"},{"btnConsolidatedWorkbooks","company.consolidated"},{"btnNotesLinks","notes.links"},{"btnSingleSummary","summary.single"},
             {"btnCurrentPdf","file.pdf.current"},{"btnConvertPdf","file.pdf.convert"},{"btnWatermarkPdf","file.pdf.watermark"},{"btnSplitPdf","file.pdf.split"},{"btnMergePdf","file.pdf.merge"},
             {"btnViewLinks","word.links"},{"btnAgentReadme","agent.developer"},{"btnAgentUserGuide","agent.user"},
             {"btnAgentSort","agent.sort"},{"btnAgentNames","agent.name"},{"btnAgentFormats","agent.format"},{"btnAgentRequirements","agent.notes"},{"btnFileNames","file.names"},{"btnAgentDialogSizes","agent.dialogsizes"}

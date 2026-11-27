@@ -71,6 +71,8 @@ namespace Excel_Iterate
                     CloseWorksheetBatchForm();
                     CloseDataMigrationForm();
                     CloseCompanyWorkbookForm();
+                    CloseConsolidatedWorkbookForm();
+                    CloseNotesLinksForm();
                     RestoreFormulaStatus();
                     if (_directoryNavigation != null) { try { _directoryNavigation.Dispose(); } catch (Exception ex) { Log("目录事件解绑：" + ex.Message); } _directoryNavigation = null; }
                     if (_linkForm != null && !_linkForm.IsDisposed) _linkForm.Close();

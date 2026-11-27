@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -34,6 +34,8 @@ public sealed class CompanyFakeCells
 public sealed class CompanyFakeCount { public int Count { get; set; } }
 public sealed class CompanyFakeUsed
 {
+    public int Row { get { return 1; } }
+    public CompanyFakeCount Rows { get { return new CompanyFakeCount { Count = 5 }; } }
     public int Column { get { return 1; } }
     public CompanyFakeCount Columns { get { return new CompanyFakeCount { Count = 3 }; } }
 }
@@ -64,6 +66,13 @@ public sealed class CompanyFakeWindows
 }
 public sealed class CompanyFakeBook
 {
+    public int FileFormat { get; set; }
+    public string Path { get; set; }
+    public string Name { get; set; }
+    public string FullName { get; set; }
+    public string MemoryContents = "unsaved edits";
+    public int Copies;
+    public void SaveCopyAs(string path) { Copies++; File.WriteAllText(path, MemoryContents); }
     public readonly CompanyFakeWindows Windows = new CompanyFakeWindows();
     public CompanyFakeSheets Worksheets { get; private set; }
     public bool ReadOnly { get; set; }
@@ -110,6 +119,47 @@ internal static class CompanyWorkbookHostChecks
 {
     internal static void Run(string folder, Action<bool, string> check, Action<Action, string> reject)
     {
+        var currentApp = new CompanyFakeApp();
+        reject(delegate { CompanyWorkbookHost.FromCurrent(currentApp); }, "current template requires open workbook");
+        var original = new CompanyFakeBook { FileFormat = 51, Path = "", Name = "Book1" };
+        currentApp.ActiveWorkbook = original;
+        using (var currentHost = CompanyWorkbookHost.FromCurrent(currentApp))
+        {
+            check(File.ReadAllText(currentHost.Snapshot) == "unsaved edits", "current template includes in-memory contents");
+            check(original.Copies == 1 && original.Saved == 0 && !original.Closed, "snapshot does not save or close original");
+            check(currentHost.TemplateSource == "Book1.xlsx", "unsaved current workbook gets supported template suffix");
+        }
+        check(!original.Closed && original.Windows.Window.Visible, "disposing snapshot leaves current workbook open and visible");
+        original.FileFormat = 52;
+        reject(delegate { CompanyWorkbookHost.FromCurrent(currentApp); }, "macro format cannot silently lose macros");
+        var architectureApp=new CompanyFakeApp();var ac=architectureApp.Workbooks.Template.Worksheets.Source.Cells;
+        ac.Item(3,1).Value2="03-";ac.Item(3,2).Value2="父简称";ac.Item(3,3).Value2="父全称";ac.Item(3,4).Value2="03-父（合并）.xls";ac.Item(3,5).Value2="1级";
+        ac.Item(4,1).Value2="03-01-";ac.Item(4,2).Value2="子简称";ac.Item(4,3).Value2="子全称";ac.Item(4,4).Value2="03-01-子.xls";ac.Item(4,5).Value2="2级";
+        var ah=architectureApp.Workbooks.Template.Worksheets.Lead.Cells;ah.Item(1,2).Value2="code";ah.Item(1,3).Value2="full";
+        string architectureFile=Path.Combine(folder,"structure-template.xls");File.WriteAllText(architectureFile,"fixture");
+        using(var architectureHost=new CompanyWorkbookHost(architectureApp,architectureFile))
+        {
+            var tasks=architectureHost.StructureRows("source",new CompanyStructureColumns{Sequence=1,ShortName=2,FullName=3,FileName=4,Level=5});CompanyStructureTasks.Classify(tasks,false);
+            check(tasks.Count==2&&!tasks[0].Leaf&&tasks[1].Leaf,"architecture reader pairs fields by original row");
+            var external=new CompanyWorkbookRequest{TargetSheet="lead",TargetHeaderRow=1,TargetRow=3,TargetCodeField="code",TargetNameField="full",Output=folder,UpdateLead=true};
+            var rows=architectureHost.PreviewStructure(external,CompanyStructureTasks.Records(new[]{tasks[1]}),false,false);
+            check(Path.GetFileName(rows[0].OutputPath)=="03-01-子.xls","external tasks preserve exact filename without duplicate suffix");
+            architectureHost.Generate(external,rows[0],CompanyWorkbookHost.UpdateLead);
+            check(File.Exists(rows[0].OutputPath),"external tasks generate without a source summary sheet or source fields");
+            var empty=new CompanyWorkbookRecord{Row=5,Name="empty-short.xls",Code="",FullName="完整全称"};
+            reject(delegate{architectureHost.PreviewStructure(external,new[]{empty},false,false);},"missing architecture short name is explicit validation error");
+            check(architectureHost.PreviewStructure(external,new[]{empty},false,true).Count==1,"empty short name requires explicit policy");
+            int blockedCount=0;string blockedReason=null;
+            var valid=new CompanyWorkbookRecord{Row=6,Name="valid-short.xls",Code="有效简称",FullName="有效全称"};
+            var mixed=architectureHost.PreviewStructure(external,new[]{empty,valid},false,false,delegate(CompanyWorkbookRecord row,string reason){blockedCount++;blockedReason=reason;});
+            check(mixed.Count==1&&mixed[0].Name==valid.Name&&blockedCount==1&&blockedReason.Contains("简称为空"),"missing short name blocks only that item and keeps valid tasks");
+            int duplicateBlocks=0;
+            var same=new CompanyWorkbookRecord{Row=7,Name="duplicate.xls",Code="甲",FullName="甲全称"};
+            var same2=new CompanyWorkbookRecord{Row=8,Name="duplicate.xls",Code="乙",FullName="乙全称"};
+            var unique=architectureHost.PreviewStructure(external,new[]{same,same2,valid},false,false,delegate(CompanyWorkbookRecord row,string reason){duplicateBlocks++;});
+            check(unique.Count==1&&duplicateBlocks==2,"duplicate filenames block every conflicting item without picking first");
+            reject(delegate{architectureHost.PreviewStructure(external,new[]{new CompanyWorkbookRecord{Row=6,Name="wrong.xlsx",Code="简称",FullName="全称"}},false,false);},"template format mismatch cannot silently rename architecture output");
+        }
         var request = new CompanyWorkbookRequest { SourceSheet = "source", TargetSheet = "lead", NameField = "name", CodeField = "code", FullNameField = "full", TargetCodeField = "code", TargetNameField = "full", Output = folder, HeaderRow = 1, FirstRow = 3, LastRow = 5, TargetHeaderRow = 1, TargetRow = 8, UpdateLead = true };
         var app = new CompanyFakeApp(); var cells = app.Workbooks.Template.Worksheets.Source.Cells;
         cells.Item(1, 1).Value2 = "name"; cells.Item(1, 2).Value2 = "code"; cells.Item(1, 3).Value2 = "full";

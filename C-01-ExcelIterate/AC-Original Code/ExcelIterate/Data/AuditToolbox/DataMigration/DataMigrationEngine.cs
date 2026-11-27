@@ -95,6 +95,25 @@ namespace Excel_Iterate
             return "=" + Quote(Path.Combine(Path.GetDirectoryName(full), "[" + Path.GetFileName(full) + "]" + sheet))
                 + "!$" + CellAddress.ColumnLetters(column) + "$" + row.ToString(CultureInfo.InvariantCulture);
         }
+        internal static void AssignFormula(object target, object formula)
+        {
+            try { ((dynamic)target).Formula2 = (dynamic)formula; }
+            catch (Exception error)
+            {
+                if (!ComFormulaHost.Missing(error)) throw;
+                ((dynamic)target).Formula = (dynamic)formula;
+            }
+        }
+
+        internal static object[,] LinkMatrix(string path, string sheet, int firstRow, int firstColumn, int rows, int columns)
+        {
+            var matrix = new object[rows, columns];
+            for (int row = 0; row < rows; row++)
+                for (int column = 0; column < columns; column++)
+                    matrix[row, column] = SourceLink(path, sheet, firstRow + row, firstColumn + column);
+            return matrix;
+        }
+
         internal static string OutputPath(string target, Func<string, bool> exists)
         {
             string stem = Path.Combine(Path.GetDirectoryName(target), Path.GetFileNameWithoutExtension(target) + "_复制结果"), ext = Path.GetExtension(target);

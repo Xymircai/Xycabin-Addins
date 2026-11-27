@@ -166,6 +166,13 @@ internal static class CompanyWorkbookHostChecks
         for (int row = 3; row <= 5; row++) { cells.Item(row, 1).Value2 = "Fixture" + row + ".xlsx"; cells.Item(row, 2).Value2 = "=literal" + row; cells.Item(row, 3).Value2 = "Full" + row; }
         var lead = app.Workbooks.Template.Worksheets.Lead.Cells; lead.Item(1, 2).Value2 = "code"; lead.Item(1, 3).Value2 = "full";
         byte[] bytes = new byte[] { 1, 2, 3, 99, 0 }; string template = Path.Combine(folder, "template.xls"); File.WriteAllBytes(template, bytes);
+        // A separate workbook process may keep a writer handle while permitting reads.
+        using (File.Open(template, FileMode.Open, FileAccess.ReadWrite, FileShare.Read))
+        using (var sharedHost = new CompanyWorkbookHost(new CompanyFakeApp(), template))
+        {
+            check(File.ReadAllBytes(sharedHost.Snapshot).SequenceEqual(bytes),
+                "template holding a shared writer handle can be snapshotted");
+        }
         string snapshot;
         using (var host = new CompanyWorkbookHost(app, template))
         {

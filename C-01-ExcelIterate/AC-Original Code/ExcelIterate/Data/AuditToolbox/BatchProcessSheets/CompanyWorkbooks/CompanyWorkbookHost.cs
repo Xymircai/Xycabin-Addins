@@ -62,8 +62,7 @@ namespace Excel_Iterate
             {
                 // SaveCopyAs snapshots in-memory edits without saving or closing the original.
                 if (current != null) ((dynamic)current).SaveCopyAs(Snapshot);
-                else using (var source = new FileStream(template, FileMode.Open, FileAccess.Read, FileShare.Read))
-                using (var target = new FileStream(Snapshot, FileMode.CreateNew, FileAccess.Write)) source.CopyTo(target);
+                else SummaryFileBatch.CopyInputSnapshot(template, Snapshot);
                 string reading = Path.Combine(folder, "read-" + Guid.NewGuid().ToString("N") + extension);
                 File.Copy(Snapshot, reading, false);
                 using (var quiet = new CompanyWorkbookQuiet(app))

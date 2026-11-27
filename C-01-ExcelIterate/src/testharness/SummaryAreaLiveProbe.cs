@@ -81,6 +81,17 @@ internal static class SingleSummaryLiveProbe
             dynamic rows=bag.Own(sheet.Range["A3:G6"]);rows.Value2=new object[,]{{"00-","集团展示名","总简称","0级","总全称",null,"00-总（合并）.xlsx"},{"03-","分组展示名","组简称","1级","组全称",null,"03-组（合并）.xlsx"},{"03-01-",null,"末级简称","2级","末级全称",null,"03-01-末级.xlsx"},{"03-02-",null,null,"2级","缺简称全称",null,"03-02-缺简称.xlsx"}};
             architecture.SaveAs(sourcePath,51);dynamic code=bag.Own(sheet.Range["C5"]);code.Value2="未保存简称";
         }
+        byte[] savedTemplate = System.IO.File.ReadAllBytes(templatePath);
+        dynamic openedTemplate;
+        using (var bag = new ComBag())
+        {
+            dynamic books = bag.Own(((dynamic)application).Workbooks);
+            openedTemplate = books.Open(templatePath, 0, false);
+            dynamic sheets = bag.Own(openedTemplate.Worksheets), lead = bag.Own(sheets.Item("Lead"));
+            ((dynamic)bag.Own(lead.Range["D5"])).Value2 = 456;
+        }
+        bool templateClosed = false;
+        session.Own((object)openedTemplate, delegate { if (!templateClosed) openedTemplate.Close(false); });
         using(var source=CompanyWorkbookHost.FromOpenOrDisk(application,sourcePath))
         using(var template=CompanyWorkbookHost.FromOpenOrDisk(application,templatePath))
         {
@@ -94,12 +105,18 @@ internal static class SingleSummaryLiveProbe
             using(var bag=new ComBag())
             {
                 dynamic books=bag.Own(((dynamic)application).Workbooks),book=bag.Own(books.Open(planned[0].OutputPath,0,true));
-                try{dynamic sheets=bag.Own(book.Worksheets),lead=bag.Own(sheets.Item("Lead")),name=bag.Own(lead.Range["A2"]),full=bag.Own(lead.Range["B2"]),sentinel=bag.Own(lead.Range["D5"]);Check(Convert.ToString(name.Value2)=="未保存简称"&&Convert.ToString(full.Value2)=="末级全称","architecture fields write directly without source summary sheet");Check(Convert.ToDouble(sentinel.Value2)==123,"template unrelated content preserved");}
+                try{dynamic sheets=bag.Own(book.Worksheets),lead=bag.Own(sheets.Item("Lead")),name=bag.Own(lead.Range["A2"]),full=bag.Own(lead.Range["B2"]),sentinel=bag.Own(lead.Range["D5"]);Check(Convert.ToString(name.Value2)=="未保存简称"&&Convert.ToString(full.Value2)=="末级全称","architecture fields write directly without source summary sheet");Check(Convert.ToDouble(sentinel.Value2)==456,"batch output uses the opened template's unsaved content");}
                 finally{book.Close(false);}
             }
             bool blocked=false;try{template.PreviewStructure(request,selected,false,false);}catch(InvalidOperationException){blocked=true;}Check(blocked,"architecture generation never overwrites existing output");
             Check(!Convert.ToBoolean(architecture.Saved),"original architecture remains open and unsaved after generation");
         }
+        Check(!Convert.ToBoolean(openedTemplate.Saved) && Convert.ToString(openedTemplate.FullName) == templatePath,
+            "batch generation leaves the original template open and unsaved");
+        openedTemplate.Close(false);
+        templateClosed = true;
+        Check(System.Linq.Enumerable.SequenceEqual(savedTemplate, System.IO.File.ReadAllBytes(templatePath)),
+            "batch generation preserves the opened template's original disk bytes");
         using(var picker=new CompanyStructurePicker{SimpleMode=true,OpenSource=delegate(string path){return CompanyWorkbookHost.FromOpenOrDisk(application,path);}})
         {
             picker.LoadSource(sourcePath);var tasks=picker.Selected();Check(tasks.Count==2&&tasks[0].ShortName=="未保存简称"&&tasks[0].FileName=="03-01-末级.xlsx","simple picker reads C short names and G filenames without using B group labels");

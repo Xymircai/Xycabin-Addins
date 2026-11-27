@@ -121,6 +121,10 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
+11 月 27 日在上游 `main` 的 `0bea8b4` 基础上整合回归。Excel 增量及完整重建的编译阶段通过。合并汇总、模板和数据迁移离线检查分别通过 288、194、353 项，Notes 离线检查通过 91 项。WPS 实测通过独立窗口 3 项、多文件窗口 11 项、多文件处理 31 项、变量和年度 40 项、架构生成 16 项、报表模板 17 项，以及 Notes 原生粘贴、保存兼容及兼容入口三组。WPS 拒绝设置隐藏列样本，变量表头的隐藏列保留用例跳过。详见 Excel 产品 `build` 目录的 `pr-ready-*` 日志。
+
+批量模板生成复用支持共享读取的磁盘快照，并校验源文件在复制期间是否稳定。当前宿主已打开的模板通过 SaveCopyAs 获取含未保存修改的快照。WPS 检查确认生成结果包含修改，原模板保持打开且磁盘字节不变。Excel 完整 BAT 于北京时间 23:19:38 至 23:20:46 执行，重建标识 `aef7de170496472583f21cbc940bfe9e`，G-11 的签名阶段因缺少发布者证书及项目 PFX 退出 1，G-12 未运行，本轮未生成安装包。见 [重建摘要](../C-01-ExcelIterate/build/rebuild-run-summary.json)。
+
 报表模板生成在选择架构工作簿或离开路径输入框时读取工作表目录，单表自动选中，多表从下拉列表选择。更换工作簿清空旧表选项，预检重新确认工作表存在。增量编译、193 项离线检查及 17 项合并模板宿主检查通过。重签因缺少原签名材料失败，未更新安装包。日志见 Excel 产品 build 目录中的 structure-sheet-default 日志。
 
 Notes 工作表行统一对齐两组标签、等宽下拉框及选择按钮。单体模板、报表模板按钮分别打开各自的窗口。Excel 增量编译通过，91 项 Notes 检查覆盖布局和既有逻辑，3 项宿主窗口检查通过。证书与项目 PFX 缺失导致重签未通过，安装包未更新。日志见 Excel 产品 build 目录中的 template-notes-ui 日志。
@@ -211,7 +215,9 @@ AA-Program放配置器、批处理与正式程序，AB-Graphic放界面截图、
 
 ### (2). 本轮交付证据
 
-11 月 25 日运行 [Word 一键重建并打包](../C-02-WordUpdater/AA-Program/一键重建并打包.bat)，选择完整模式。北京时间 10:49:09 至 10:50:03，退出码 0，G-14／G-15 通过。重建标识 `dcaa8bc8862143908d3187c355a3cd6d`，验证标识 `6840736caa854ca7aea769abacf46d48`。见 [BAT 日志](../C-02-WordUpdater/build/20261125-link-assistant-bat.log)、[重建摘要](../C-02-WordUpdater/build/rebuild-run-summary.json) 与 [验证摘要](../C-02-WordUpdater/build/validate-run-summary.json)。
+11 月 27 日为验证公共窗口调整执行 Word 完整 BAT，编译通过，窗口目录 82 项检查通过。北京时间 23:20:46 至 23:21:24，重建标识 `5661a883c7864154a7b57a31bdb6327d`，G-14 的签名阶段因缺少发布者证书及项目 PFX 退出 1，G-15 未运行，本轮未生成安装包。见 [重建摘要](../C-02-WordUpdater/build/rebuild-run-summary.json)。
+
+11 月 25 日的完整 BAT 于北京时间 10:49:09 至 10:50:03 执行，退出码 0，G-14／G-15 通过。重建标识 `dcaa8bc8862143908d3187c355a3cd6d`，验证标识 `6840736caa854ca7aea769abacf46d48`。见 [BAT 日志](../C-02-WordUpdater/build/20261125-link-assistant-bat.log)与 [验证摘要](../C-02-WordUpdater/build/validate-run-summary.json)。
 
 `WordUpdater_Setup.exe` 为 4247040 字节，SHA-256 为 `d7c5974153811bfc59ec0371ae27e794d97098216f0aefabfb116b51350a0096`。后台验证实际执行 25 项，校验五载荷与清单签名。
 

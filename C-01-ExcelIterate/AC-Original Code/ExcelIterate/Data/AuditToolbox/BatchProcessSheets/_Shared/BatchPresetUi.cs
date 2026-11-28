@@ -20,11 +20,13 @@ namespace Excel_Iterate
         private readonly Action<BatchPreset> apply;
         private readonly Func<bool> available;
         private readonly Action<string> message;
+        private readonly Func<string, bool> contextAvailable;
         private ToolStripDropDown menu;
         private string savedState;
-        internal BatchPresetActions(Form owner, string feature, Func<BatchPreset> capture, Action<BatchPreset> apply, Func<bool> available, Action<string> message)
+        internal BatchPresetActions(Form owner, string feature, Func<BatchPreset> capture, Action<BatchPreset> apply, Func<bool> available, Action<string> message, Func<string, bool> contextAvailable = null)
         {
             this.owner = owner; this.feature = feature; this.capture = capture; this.apply = apply; this.available = available; this.message = message;
+            this.contextAvailable = contextAvailable;
             Gear.Name = "batchPresetSettings"; Gear.AccessibleName = "预设设置"; Gear.AccessibleDescription = "保存为预设或打开预设管理";
             var gearFont = Ui.MakeFont(15, FontStyle.Regular, Gear.Font); var menuFont = Ui.MakeFont(10, FontStyle.Regular, owner.Font);
             Gear.Font = gearFont; Gear.Margin = new Padding(8, 0, 0, 0);
@@ -107,7 +109,7 @@ namespace Excel_Iterate
         }
         private bool ResolveFiles(BatchPreset value)
         {
-            if (string.IsNullOrEmpty(value.Context) || !File.Exists(value.Context))
+            if (string.IsNullOrEmpty(value.Context) || (!File.Exists(value.Context) && (contextAvailable == null || !contextAvailable(value.Context))))
             {
                 if (UiDialog.Show(owner, "找不到预设中的文件：\n" + value.Context + "\n是否选择替代文件？取消将保留当前设置。", "重新定位文件", MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return false;
                 string filter = feature == "company" ? "模板 (*.xlsx;*.xls)|*.xlsx;*.xls" : "表格工作簿 (*.xlsx;*.xls;*.xlsm;*.et)|*.xlsx;*.xls;*.xlsm;*.et";
@@ -159,7 +161,7 @@ namespace Excel_Iterate
             DialogSizing.Prepare(this, "batch.preset.manager", "table", Ui.Blue);
             view = new PresetManagerView(this,list,detail,search,apply,rename,remove,export,
                 item => ((Entry)item).Value.Name,
-                item => { var p=((Entry)item).Value; DateTime saved; return (DateTime.TryParse(p.Saved,out saved) ? saved.ToString("MM-dd HH:mm",CultureInfo.InvariantCulture)+"　·　" : "")+(p.Feature=="company" ? "单体模板生成" : "单体汇总批量链接"); });
+                item => { var p=((Entry)item).Value; DateTime saved; return (DateTime.TryParse(p.Saved,out saved) ? saved.ToString("MM-dd HH:mm",CultureInfo.InvariantCulture)+"　·　" : "")+(p.Feature=="company" ? "单体模板生成" : "合并批量链接"); });
             var import=view.Import; var close=view.Close; status=view.Hint; status.Name="batchPresetStatus";
             detail.HandleCreated += delegate { BeginInvoke(new Action(ShowDetail)); };
             list.DoubleClick += delegate { apply.PerformClick(); };
@@ -207,7 +209,12 @@ namespace Excel_Iterate
             lines.Add(new PresetDetailLine().Add(PresetDetailKind.Meta,"保存于 "+(value.Saved ?? "未知")));
             lines.Add(new PresetDetailLine { Space=true }.Add(PresetDetailKind.Heading,"文件位置"));
             lines.Add(new PresetDetailLine { Indent=1 }.Add(PresetDetailKind.Text,value.Context ?? "（未记录）"));
-            string[][] groups = feature == "company" ? new[] {
+            bool areaMode = feature == "summary" && value.Values.ContainsKey("mode") && value.Values["mode"] == "area-mvp";
+            string[][] groups = areaMode ? new[] {
+                new[] { "模板与粘贴", "templateSheet|模板工作表", "templateAreas|模板区域（行,列,行数,列数）", "pasteSheet|目标工作表", "pasteArea|粘贴起点（行,列,行数,列数）" },
+                new[] { "Lead 与项目", "leadSheet|Lead 工作表", "leadAreas|公司字段选区（行,列,行数,列数）", "projectFolder|项目文件夹", "checkFiles|检查来源文件" }
+            } : feature == "company" ? new[] {
+                new[] { "架构任务", "structureMode|使用架构表任务", "structureSheet|架构工作表", "structureFirst|数据起始行", "structureSequence|序号列", "structureShort|简称列", "structureFull|全称列", "structureFile|过程表文件名列", "structureLevel|级次列" },
                 new[] { "命名", "naming|命名名称", "removeTail|末尾去除字符数", "stripSuffix|去除 Excel 后缀" },
                 new[] { "来源", "source|工作表", "header|表头行", "first|数据起始行", "last|数据结束行", "code|替换字段的编码来源", "full|替换字段的全称来源" },
                 new[] { "目标", "update|更新 Lead", "target|工作表", "targetHeader|表头行", "targetRow|写入行", "targetCode|编码字段", "targetName|全称字段", "output|输出文件夹" }

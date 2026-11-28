@@ -245,6 +245,15 @@ namespace Excel_Iterate
                     try { using (var bag = new ComBag()) { dynamic range = bag.Own(((dynamic)handle.Sheet).Range[restore]); range.Select(); } }
                     catch (Exception) { }
                 });
+            // A foreground transition can activate the previously viewed workbook.
+            ((dynamic)handle.Book).Activate();
+            ((dynamic)handle.Sheet).Activate();
+            if (!string.IsNullOrEmpty(restore))
+                using (var bag = new ComBag())
+                {
+                    dynamic range = bag.Own(((dynamic)handle.Sheet).Range[restore]);
+                    range.Select();
+                }
             using (var refs = new ComBag())
             {
                 object chosen = picker != null ? picker(handle.Sheet) : ((dynamic)app).InputBox(

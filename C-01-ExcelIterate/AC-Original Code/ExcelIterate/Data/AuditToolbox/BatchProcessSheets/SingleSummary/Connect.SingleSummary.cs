@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -9,7 +9,7 @@ using System.Text;
 namespace Excel_Iterate
 {
     // =====================================================================
-    // 单体汇总批量链接 —— 功能区接线与业务编排
+    // 合并批量链接 —— 功能区接线与业务编排
     //
     // 全部 COM 调用都在 Ribbon 宿主线程执行；回调必须写在 Connect*.cs 内，
     // 否则配置器（configure_core.py）的回调存在性校验会失败。
@@ -120,7 +120,7 @@ namespace Excel_Iterate
                 { _summaryWorkbook.Clear(); _summarySession = null; form.ClearWorkbookContext(); }
                 // Restore the selector to the actual bound book after a rejected choice.
                 try { form.SetWorkbooks(_summaryWorkbook.Choices(), _summaryWorkbook.Path); } catch { }
-                Log("单体汇总批量链接：选择工作簿失败 " + error);
+                Log("合并批量链接：选择工作簿失败 " + error);
                 form.AppendLog("选择工作簿失败：" + error.Message);
             }
             finally { form.SetBusy(false); _busy = false; }
@@ -219,7 +219,7 @@ namespace Excel_Iterate
                         form.Hide(); hidden = true;
                         object chosen = DataMigrationHost.PickNativeRange(_summaryWorkbook.Application,
                             kind == "column" ? "请选择模板列中的单元格或单列区域。取消保留原参数。" : "请选择表头所在行中的单元格或单行区域。取消保留原参数。",
-                            "单体汇总批量链接 · 在表中选择", Type.Missing);
+                            "合并批量链接 · 在表中选择", Type.Missing);
                         if (chosen == null || chosen is bool) return;
                         selection = bag.Own(chosen);
                         // The native dialog permits workbook switching; recheck the binding.
@@ -366,13 +366,13 @@ namespace Excel_Iterate
                     _summarySession.Probe = probe;
                     _summarySession.CanUndo = false;
 
-                    Log("单体汇总批量链接预检：" + request.TargetSheet + "，候选 " + count + " 家，模板列 "
+                    Log("合并批量链接预检：" + request.TargetSheet + "，候选 " + count + " 家，模板列 "
                         + request.TemplateColumn + "，末行 " + probe.LastRow);
                 }
             }
             catch (Exception ex)
             {
-                Log("单体汇总批量链接预检：" + ex);
+                Log("合并批量链接预检：" + ex);
                 form.SetPreview("", false, "预检失败：" + ex.Message);
             }
             finally
@@ -499,7 +499,7 @@ namespace Excel_Iterate
                     form.AppendLog("完成。");
                     display.State.Update(columns.Count + 2, columns.Count + 2, "已完成", "逐列核验通过，工作簿尚未保存");
                     successful = true;
-                    Log("单体汇总批量链接：" + request.TargetSheet + "，" + report.Columns + " 列，备份 " + report.BackupSheet);
+                    Log("合并批量链接：" + request.TargetSheet + "，" + report.Columns + " 列，备份 " + report.BackupSheet);
                 }
             }
             catch (OperationCanceledException)
@@ -510,11 +510,11 @@ namespace Excel_Iterate
             }
             catch (Exception ex)
             {
-                Log("单体汇总批量链接执行：" + ex);
+                Log("合并批量链接执行：" + ex);
                 form.AppendLog("执行失败：" + ex.Message + "；正在尝试还原，结果见下方日志。");
                 TryRestoreSummary(form, false);
                 UiDialog.Show(form, "执行失败：" + ex.Message + "\r\n（已尽量按备份表还原目标区间；详见日志。）",
-                    "单体汇总批量链接", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    "合并批量链接", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
             finally
             {
@@ -593,11 +593,11 @@ namespace Excel_Iterate
                 session.BackupSheet = "";
                 form.SetUndoAvailable(false);
                 form.AppendLog("已按备份表还原目标区间。");
-                Log("单体汇总批量链接：已还原 " + session.TargetSheet);
+                Log("合并批量链接：已还原 " + session.TargetSheet);
             }
             catch (Exception ex)
             {
-                Log("单体汇总批量链接还原失败：" + ex);
+                Log("合并批量链接还原失败：" + ex);
                 session.CanUndo = true; form.SetUndoAvailable(true);
                 form.AppendLog("还原失败：" + ex.Message + "；备份工作表仍在工作簿里，可手动恢复。");
             }
@@ -610,7 +610,7 @@ namespace Excel_Iterate
                 _summarySession.CanUndo = false;
                 form.SetUndoAvailable(false);
             }
-            Log("单体汇总批量链接：已确认，本批结束。");
+            Log("合并批量链接：已确认，本批结束。");
         }
     }
 }

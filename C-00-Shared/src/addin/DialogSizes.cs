@@ -62,6 +62,8 @@ namespace Excel_Iterate
             new DialogDefinition("batch.preset.name", "单体预设名称", "数据 / 审计工具箱 / 批量生成过程表 / 预设",460,170,380,170),
             new DialogDefinition("batch.preset.manager", "单体预设管理", "数据 / 审计工具箱 / 批量生成过程表 / 预设",980,600,720,440),
             new DialogDefinition("company.workbooks", "单体模板生成", "数据 / 审计工具箱 / 批量生成过程表 / 单体模板生成",1180,900,950,680),
+            new DialogDefinition("notes.links", "Notes 批量链接", "数据 / 审计工具箱 / 批量生成过程表 / Notes 批量链接",1280,860,1050,660),
+            new DialogDefinition("company.consolidated", "合并模板生成", "数据 / 审计工具箱 / 批量生成过程表 / 合并模板生成",1180,820,950,680),
             new DialogDefinition("summary.single", "单体汇总批量链接", "数据 / 审计工具箱 / 批量生成过程表 / 单体汇总批量链接",1180,760,900,600),
             new DialogDefinition("migration.data", "批量复制数据", "数据 / 审计工具箱 / 批量复制数据",1180,760,900,560),
             new DialogDefinition("migration.preset.name", "预设名称", "数据 / 审计工具箱 / 批量复制数据 / 预设",460,170,380,170),

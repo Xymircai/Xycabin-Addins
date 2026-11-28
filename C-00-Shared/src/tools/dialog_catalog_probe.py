@@ -48,7 +48,7 @@ def self_test():
 def main():
  project=json.loads((ROOT/'project.json').read_text(encoding='utf-8-sig'))
  expected={'AgentDocumentForm','DeveloperPasswordForm','UiMessageForm','DialogSizesForm','CommandCustomizationForm','RequirementsForm','PdfToolsForm'}
- expected |= {'LinkViewForm'} if project['host']=='Word' else {'TrackerForm','ErrorSourceForm','ColumnFilterForm','FormulaOptionsForm','CustomFunctionForm','CellConversionForm','WorksheetBatchForm','LinkAssistantForm','OrganizeFilesForm','RenameFilesForm','FileNamesForm','OcrPrefixesForm','OcrFieldsForm','MergeHeadersForm','SingleSummaryForm','CompanyWorkbookForm','BatchProgressForm','BatchPresetNameForm','BatchPresetManagerForm','DataMigrationForm','MigrationNameDialog','MigrationRelocateDialog','MigrationPresetManager','EliminationForm'}
+ expected |= {'LinkViewForm'} if project['host']=='Word' else {'TrackerForm','ErrorSourceForm','ColumnFilterForm','FormulaOptionsForm','CustomFunctionForm','CellConversionForm','WorksheetBatchForm','LinkAssistantForm','OrganizeFilesForm','RenameFilesForm','FileNamesForm','OcrPrefixesForm','OcrFieldsForm','MergeHeadersForm','SingleSummaryForm','CompanyWorkbookForm','ConsolidatedWorkbookForm','NotesLinksForm','BatchProgressForm','BatchPresetNameForm','BatchPresetManagerForm','DataMigrationForm','MigrationNameDialog','MigrationRelocateDialog','MigrationPresetManager','EliminationForm'}
  found=set()
  for name in project['sources']:
   text=source_path(name, addin=True).read_text(encoding='utf-8-sig')

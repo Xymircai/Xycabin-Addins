@@ -101,7 +101,9 @@ internal static class SummaryAnnualChecks
             form.ApplySelection("column", 7, 6, "selected", "title");
             check("模板选区回填实际列号", form.BuildRequest().TemplateColumn == 6, "wrong column");
             form.SetUndoAvailable(true);
-            check("待还原批次禁止读取选区", !form.Controls.Find("summaryPick_column", true)[0].Enabled, "button unlocked");
+            check("待还原批次禁止选择且不提供旧读取按钮",
+                form.Controls.Find("summaryPick_column", true).Length == 0 &&
+                !form.Controls.Find("summaryRange_column", true)[0].Enabled, "button unlocked");
         }
     }
     private static SummaryRequest Request()

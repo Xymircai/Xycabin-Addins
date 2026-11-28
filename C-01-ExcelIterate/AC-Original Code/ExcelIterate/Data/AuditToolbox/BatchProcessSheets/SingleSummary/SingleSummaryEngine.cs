@@ -5,6 +5,55 @@ using System.Text;
 
 namespace Excel_Iterate
 {
+    // Multi-area plans are independent of Excel and never include gaps.
+    internal sealed class SummaryAreaPlan
+    {
+        internal string Sheet, Address;
+        internal int Row, Column, Rows, Columns, RowOffset, ColumnOffset;
+        internal SummaryAreaPlan Target(int minimumRow, int minimumColumn, int pasteRow, int pasteColumn, int width, int company)
+        {
+            long row = (long)pasteRow + Row - minimumRow;
+            long column = (long)pasteColumn + Column - minimumColumn + (long)width * company;
+            if (company < 0 || row < 1 || column < 1 || row + Rows - 1 > 1048576 || column + Columns - 1 > 16384)
+                throw new InvalidOperationException("多区域目标超出 Excel 边界。");
+            return new SummaryAreaPlan { Sheet = Sheet, Row = (int)row, Column = (int)column, Rows = Rows, Columns = Columns };
+        }
+    }
+    internal static class SummaryTextReference
+    {
+        internal static string LinkFileName(string name)
+        {return name.EndsWith(".xlsx",StringComparison.OrdinalIgnoreCase)||name.EndsWith(".xlsm",StringComparison.OrdinalIgnoreCase)?name:name+".xlsx";}
+        internal static string External(string folder, string companyName, string original)
+        {
+            if (string.IsNullOrWhiteSpace(companyName)) throw new InvalidOperationException("公司全称为空。");
+            // Preserve the original name; invalid names must be reported, never repaired.
+            string fileName=LinkFileName(companyName);
+            CompanyWorkbookRules.FileName(fileName);
+            if (companyName.IndexOfAny(new[] { '[', ']' }) >= 0) throw new InvalidOperationException("公司名称含外链不支持的方括号。");
+            if (string.IsNullOrWhiteSpace(folder) || (!System.Text.RegularExpressions.Regex.IsMatch(folder, @"^[A-Za-z]:[\\/]") && !System.Text.RegularExpressions.Regex.IsMatch(folder, @"^\\\\[^\\]+\\[^\\]+(?:\\|$)"))) throw new InvalidOperationException("项目文件夹必须为完整的盘符或 UNC 绝对路径。");
+            if (folder.IndexOfAny(new[] { '[', ']', '\r', '\n' }) >= 0) throw new InvalidOperationException("项目路径包含非法外链字符。");
+            if (string.IsNullOrEmpty(original) || original.StartsWith("=", StringComparison.Ordinal)) throw new InvalidOperationException("已有公式必须单独分类，不可按引用文本拼接。");
+            int bang = original.LastIndexOf('!');
+            if (bang < 1) throw new InvalidOperationException("缺少源工作表或 ! 分隔符。");
+            string sheet = original.Substring(0, bang), cell = original.Substring(bang + 1);
+            if (sheet.StartsWith("'", StringComparison.Ordinal))
+            {
+                if (sheet.Length < 2 || !sheet.EndsWith("'", StringComparison.Ordinal)) throw new InvalidOperationException("工作表引号不配对。");
+                string quoted = sheet.Substring(1, sheet.Length - 2);
+                if (quoted.Replace("''", "").Contains("'")) throw new InvalidOperationException("工作表单引号转义无效。");
+                sheet = quoted.Replace("''", "'");
+            }
+            if (sheet.Length == 0 || sheet.Length > 31 || sheet.IndexOfAny(new[] { '[', ']', ':', '\\', '/', '?', '*', '!', '\r', '\n' }) >= 0)
+                throw new InvalidOperationException("源工作表名称无效。");
+            var match = System.Text.RegularExpressions.Regex.Match(cell, @"^\$?([A-Za-z]{1,3})\$?([1-9][0-9]{0,6})$");
+            if (!match.Success) throw new InvalidOperationException("源地址必须为单个 A1 单元格引用。");
+            int column = 0; foreach (char letter in match.Groups[1].Value.ToUpperInvariant()) column = column * 26 + letter - 'A' + 1;
+            int row = int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+            if (column > 16384 || row > 1048576) throw new InvalidOperationException("源地址超出 Excel 边界。");
+            string path = folder.TrimEnd('\\', '/') + "\\[" + fileName + "]" + sheet;
+            return "='" + path.Replace("'", "''") + "'!" + cell;
+        }
+    }
     internal static class SummaryFormulaShift
     {
         internal static string Shift(string formula, int delta)
@@ -47,7 +96,7 @@ namespace Excel_Iterate
         public override string ToString() { return Name + "  [" + Path + "]"; }
     }
     // =====================================================================
-    // 单体汇总批量链接 —— 纯逻辑层（不碰 COM，可离线核对）
+    // 合并批量链接 —— 纯逻辑层（不碰 COM，可离线核对）
     //
     // 职责：
     //   · 列字母 ↔ 列号（模板列定位）

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -110,7 +110,7 @@ namespace Excel_Iterate
         public void Dispose() { Clear(); }
     }
     // =====================================================================
-    // 单体汇总批量链接 —— COM 宿主层
+    // 合并批量链接 —— COM 宿主层
     //
     // 纪律（与项目既有实现一致）：
     //   · 全程 dynamic 晚期绑定，不引用 Microsoft.Office.Interop.Excel
@@ -518,7 +518,7 @@ namespace Excel_Iterate
             if (disposed) return;
             disposed = true;
             try { ((dynamic)app).Calculation = previous; }
-            catch (Exception ex) { Connect.Log("单体汇总批量链接：恢复重算方式失败 " + ex.Message); }
+            catch (Exception ex) { Connect.Log("合并批量链接：恢复重算方式失败 " + ex.Message); }
         }
     }
 
@@ -554,9 +554,9 @@ namespace Excel_Iterate
             if (disposed) return;
             disposed = true;
             try { ((dynamic)app).DisplayAlerts = alerts; }
-            catch (Exception ex) { Connect.Log("单体汇总批量链接：恢复提醒设置失败 " + ex.Message); }
+            catch (Exception ex) { Connect.Log("合并批量链接：恢复提醒设置失败 " + ex.Message); }
             try { ((dynamic)app).AskToUpdateLinks = ask; }
-            catch (Exception ex) { Connect.Log("单体汇总批量链接：恢复链接询问失败 " + ex.Message); }
+            catch (Exception ex) { Connect.Log("合并批量链接：恢复链接询问失败 " + ex.Message); }
         }
     }
 
@@ -696,7 +696,7 @@ namespace Excel_Iterate
                 // 6b) 趁「不询问链接」仍然生效时先把目标表算完：
                 //     否则稍后自动重算会逐条弹「更新值」，用户看到的就是反复弹窗。
                 try { s.Calculate(); }
-                catch (Exception ex) { Connect.Log("单体汇总批量链接：目标表重算失败 " + ex.Message); }
+                catch (Exception ex) { Connect.Log("合并批量链接：目标表重算失败 " + ex.Message); }
 
                 if (probe.Tokens.Count == 0)
                     report.Warnings.Add("模板列里没有 [xxx.xlsx] 形式的外链，换链已跳过（按需求记日志、不阻断）。");
@@ -719,8 +719,13 @@ namespace Excel_Iterate
             using (ComBag bag = new ComBag())
             {
                 string name = BackupPrefix + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+                // Hidden copies need not become ActiveSheet. Resolve the new sheet
+                // from the bound workbook so another open workbook is never renamed.
+                dynamic allSheets = bag.Own(((dynamic)book).Sheets);
+                int count = Convert.ToInt32(allSheets.Count), index = Convert.ToInt32(((dynamic)sheet).Index);
                 ((dynamic)sheet).Copy(Type.Missing, sheet);
-                dynamic created = bag.Own(((dynamic)app).ActiveSheet);
+                if (Convert.ToInt32(allSheets.Count) != count + 1) throw new InvalidOperationException("备份工作表未在目标工作簿中创建。");
+                dynamic created = bag.Own(allSheets.Item(index + 1));
                 created.Name = WorkbookUi.UniqueName(name, SheetNames(book, bag));
                 created.Visible = 0;   // xlSheetHidden：静默备份，不打扰用户
                 return Convert.ToString(created.Name);
@@ -820,7 +825,7 @@ namespace Excel_Iterate
                     "A" + startRow.ToString(CultureInfo.InvariantCulture) + ":F"
                     + (startRow + columns.Count - 1).ToString(CultureInfo.InvariantCulture)]);
                 body.Value2 = rows;
-                try { ((dynamic)bag.Own(s.Columns)).AutoFit(); } catch (Exception ex) { Connect.Log("单体汇总批量链接：日志列宽自适应失败 " + ex.Message); }
+                try { ((dynamic)bag.Own(s.Columns)).AutoFit(); } catch (Exception ex) { Connect.Log("合并批量链接：日志列宽自适应失败 " + ex.Message); }
                 return Convert.ToString(sheet.Name);
             }
         }
@@ -853,7 +858,7 @@ namespace Excel_Iterate
             }
             catch (Exception ex)
             {
-                if (!ComFormulaHost.Missing(ex)) Connect.Log("单体汇总批量链接：读取列宽失败 " + ex.Message);
+                if (!ComFormulaHost.Missing(ex)) Connect.Log("合并批量链接：读取列宽失败 " + ex.Message);
                 return 0;
             }
         }
@@ -866,7 +871,7 @@ namespace Excel_Iterate
                 dynamic range = bag.Own(((dynamic)sheet).Range[letter + ":" + letter]);
                 range.ColumnWidth = width;
             }
-            catch (Exception ex) { Connect.Log("单体汇总批量链接：设置列宽失败 " + ex.Message); }
+            catch (Exception ex) { Connect.Log("合并批量链接：设置列宽失败 " + ex.Message); }
         }
 
         private static List<string> SheetNames(object book, ComBag bag)

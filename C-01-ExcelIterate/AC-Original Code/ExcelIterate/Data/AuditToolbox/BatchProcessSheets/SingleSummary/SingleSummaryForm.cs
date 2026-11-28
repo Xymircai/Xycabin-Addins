@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
@@ -9,7 +9,7 @@ using System.Windows.Forms;
 namespace Excel_Iterate
 {
     // =====================================================================
-    // 单体汇总批量链接 —— 界面
+    // 合并批量链接 —— 界面
     //
     // 只做参数收集与结果呈现；COM 一律经事件抛回 Connect，在 Ribbon 宿主线程执行。
     // 沿用「执行 → 取消操作 / 确认操作」二段式：执行后保留备份表，可整段还原。
@@ -53,7 +53,7 @@ namespace Excel_Iterate
 
         internal BatchProgressSession ProgressSession;
         internal BatchProgressSession OpenProgress()
-        { if (ProgressSession != null) ProgressSession.Close(); ProgressSession = new BatchProgressSession("单体汇总批量链接"); return ProgressSession; }
+        { if (ProgressSession != null) ProgressSession.Close(); ProgressSession = new BatchProgressSession("合并批量链接"); return ProgressSession; }
         private bool busy;
         private BatchPresetActions presets;
         private bool canUndo;
@@ -75,7 +75,7 @@ namespace Excel_Iterate
 
         internal SingleSummaryForm()
         {
-            Text = "单体汇总批量链接";
+            Text = "合并批量链接";
             Disposed += delegate { if (ProgressSession != null) ProgressSession.Close(); };
             DialogSizing.Prepare(this, "summary.single", "table", Ui.Blue);
             KeyPreview = true;
@@ -224,13 +224,27 @@ namespace Excel_Iterate
             RefreshActions();
         }
 
+        // The MVP uses the existing registered Form and sizing ID. Its view
+        // and Excel controller are independent of the legacy column workflow.
+        internal SingleSummaryForm(bool areaMvp)
+        {
+            Text = "合并批量链接";
+            KeyPreview = true;
+            DialogSizing.Prepare(this, "summary.single", "table", Ui.Blue);
+            var areaView = new SummaryAreaView(); Controls.Add(areaView);
+            if (DialogPreviewFactory.IsConstructing)
+            {
+                var actions = new BatchPresetActions(this, "summary", delegate { return new BatchPreset { Feature = "summary", Name = "区域预设", Context = "", Values = new Dictionary<string, string>() }; }, delegate { }, delegate { return false; }, areaView.Message);
+                areaView.AttachPresets(actions); actions.Gear.Enabled = false;
+                // The shared preview filler otherwise puts arbitrary text in combo cells.
+                areaView.ReferenceSources.Rows.Add("预览来源", "L3", "预检后显示引用说明", "待确认");
+            }
+        }
+
         private Control SelectionParameter(Control field, string title, string kind)
         {
             var panel = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
-            var button = Ui.Button("读取当前选区", 120); button.Name = "summaryPick_" + kind;
-            button.Click += delegate { if (!busy && !canUndo && SelectionRequested != null) SelectionRequested(kind); };
-            selectionButtons.Add(button);
-            panel.Controls.Add(Ui.Grip(field, title)); panel.Controls.Add(button);
+            panel.Controls.Add(Ui.Grip(field, title));
             var pick = Ui.Button("在表中选择…", 116); pick.Name = "summaryRange_" + kind;
             pick.Click += delegate { if (!busy && !canUndo && RangeRequested != null) RangeRequested(kind); };
             selectionButtons.Add(pick); panel.Controls.Add(pick);
@@ -541,15 +555,15 @@ namespace Excel_Iterate
 
         public Size MeasureDefaultClient()
         {
-            root.PerformLayout();
+            if (root != null) root.PerformLayout();
             return new Size(DialogSizing.LogicalClient(this).Width, 760);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)
         {
             if (e.KeyCode == Keys.Escape) { e.Handled = true; e.SuppressKeyPress = true; Close(); }
-            if (e.Control && e.Shift && e.KeyCode == Keys.P && Preview.Enabled && PreviewRequested != null) { e.Handled = true; PreviewRequested(); }
-            if (e.Control && e.Shift && e.KeyCode == Keys.W && Execute.Enabled && ExecuteRequested != null) { e.Handled = true; ExecuteRequested(); }
+            if (e.Control && e.Shift && e.KeyCode == Keys.P && Preview != null && Preview.Enabled && PreviewRequested != null) { e.Handled = true; PreviewRequested(); }
+            if (e.Control && e.Shift && e.KeyCode == Keys.W && Execute != null && Execute.Enabled && ExecuteRequested != null) { e.Handled = true; ExecuteRequested(); }
             base.OnKeyDown(e);
         }
 

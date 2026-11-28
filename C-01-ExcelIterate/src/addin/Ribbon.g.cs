@@ -15,7 +15,7 @@
 //   网络盘文档的回调代理读不出 control.Id，靠名字才能认对按钮。
 //   新增按钮时记得在 Connect.cs 加对应的一行包装方法（本脚本会校验）。
 //
-// 生成时间：2026-11-25 10:45:42
+// 生成时间：2026-11-27 00:49:04
 // =====================================================================
 using System;
 using System.Collections.Generic;
@@ -74,7 +74,9 @@ namespace Excel_Iterate
             <button id=""btnDataMigration"" label=""批量复制数据"" getImage=""GetImage_btnDataMigration"" screentip=""把源区域复制到多个目标工作簿的指定位置"" supertip=""内部相对引用随目标位置平移，第三方外链来源及地址不变。&#13;&#10;复制公式、固定值、样式及完整合并区域；预检名称与覆盖内容。&#13;&#10;默认校验后更新目标原文件并自动备份，也可另存副本。"" onAction=""OnDataMigration"" />
             <menu id=""menuBatchProcessSheets"" label=""批量生成过程表"" getImage=""GetImage_menuBatchProcessSheets"" screentip=""按公司复制模板工作簿，或生成单体汇总表"" supertip=""单体模板生成：完整复制所选模板并按来源行填写 Lead，原模板不变，不覆盖已有文件。单体汇总批量链接：从模板列起每家公司铺一列，备份工作表后换链，不自动保存工作簿。"" itemSize=""normal"">
               <button id=""btnCompanyWorkbooks"" label=""单体模板生成"" getImage=""GetImage_btnCompanyWorkbooks"" screentip=""完整复制模板，按来源行命名并填写 Lead"" supertip=""选择 xlsx/xls 模板，配置来源字段、数据行范围及 Lead 唯一写入行；预检后逐公司生成完整副本，保留原模板且不覆盖已有文件。可选只复制模式。"" onAction=""OnCompanyWorkbooks"" />
-              <button id=""btnSingleSummary"" label=""单体汇总批量链接"" getImage=""GetImage_btnSingleSummary"" screentip=""选择工作簿 → Lead 勾选公司 → 可选按年度跨度铺列换链"" supertip=""读 Lead 表的「编码&amp;简称」「全称」列，勾选状态按实际行回写「选用」。默认每家公司一列；可选开始至结束年度，每家公司占年度数的列，每列重复公司名，下方指定行显示年度，默认倒序。年度模式只按指定目录段换年份和模板公司文件名，月日、工作表、地址与其他公司引用保留。执行前预检来源及覆盖范围，备份后生成，可整批还原，不自动保存。"" onAction=""OnSingleSummary"" />
+              <button id=""btnConsolidatedWorkbooks"" label=""报表模板生成"" getImage=""GetImage_btnConsolidatedWorkbooks"" screentip=""按架构表为合并主体生成模板并填写Lead"" supertip=""选择合并模板和架构表，默认勾选有下属公司的主体；写入本部及全部直系子公司，保留公式，原文件不变，同名输出不覆盖。"" onAction=""OnConsolidatedWorkbooks"" />
+              <button id=""btnSingleSummary"" label=""合并批量链接"" getImage=""GetImage_btnSingleSummary"" screentip=""按已编排区域换链，支持一个或多个工作簿"" supertip=""从 Lead 读取公司及完整文件名，按已编排区域生成链接。支持重复变量、年度和多文件预检及另存。"" onAction=""OnSingleSummary"" />
+              <button id=""btnNotesLinks"" label=""Notes 批量链接"" getImage=""GetImage_btnNotesLinks"" screentip=""按Lead直系公司名单链接Notes区域"" supertip=""统一来源区域，按第一家公司位置和列间距确定固定槽位；预检后在隐藏进程写入真实外链，保留合并及样式，备份后更新父公司，可还原。"" onAction=""OnNotesLinks"" />
             </menu>
           </menu>
         </group>
@@ -273,7 +275,9 @@ namespace Excel_Iterate
             d["btnDataMigration"] = 16;
             d["menuBatchProcessSheets"] = 16;
             d["btnCompanyWorkbooks"] = 16;
+            d["btnConsolidatedWorkbooks"] = 16;
             d["btnSingleSummary"] = 16;
+            d["btnNotesLinks"] = 16;
             d["menuOneClickConversion"] = 32;
             d["btnTextExtractFilter"] = 16;
             d["btnBatchInsertTrimDelete"] = 16;
@@ -355,7 +359,9 @@ namespace Excel_Iterate
             d["btnDataMigration"] = BuiltinTable;
             d["menuBatchProcessSheets"] = BuiltinTable;
             d["btnCompanyWorkbooks"] = BuiltinTable;
+            d["btnConsolidatedWorkbooks"] = BuiltinTable;
             d["btnSingleSummary"] = BuiltinTable;
+            d["btnNotesLinks"] = BuiltinTable;
             d["menuOneClickConversion"] = BuiltinUpdate;
             d["btnTextExtractFilter"] = BuiltinFilter;
             d["btnBatchInsertTrimDelete"] = BuiltinUpdate;
